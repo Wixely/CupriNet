@@ -37,9 +37,16 @@ public sealed record DivinationResult(IReadOnlyList<PeerRecord> Closest, int Pee
 /// </summary>
 public static class Divination
 {
+    /// <param name="isAnchored">
+    /// Optional invitation-anchoring predicate. When supplied, each query round reserves one of its α
+    /// slots for the nearest anchored (trusted-relationship) candidate if the α closest would otherwise be
+    /// all strangers. This keeps the lookup converging on distance while guaranteeing we still consult a
+    /// peer we actually trust each round — so a flood of cheap Sybil strangers packed around the target
+    /// cannot fully eclipse the search. Null (the default) preserves pure distance-ordered behaviour.
+    /// </param>
     public static async Task<DivinationResult> FindAsync(
         RoutingKey target, IReadOnlyList<PeerRecord> seeds, AuguryFunc askAugury,
-        DivinationOptions? options = null, CancellationToken cancellationToken = default)
+        DivinationOptions? options = null, Func<Sigil, bool>? isAnchored = null, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(seeds);
         ArgumentNullException.ThrowIfNull(askAugury);
@@ -53,11 +60,21 @@ public static class Divination
 
         while (queried.Count < options.MaxQueries)
         {
-            var batch = known.Values
+            var candidates = known.Values
                 .Where(r => !queried.Contains(r.Sigil))
                 .OrderBy(r => RoutingKey.FromSealPublicKey(r.SealPublicKey).DistanceTo(target))
-                .Take(options.Alpha)
                 .ToList();
+
+            var batch = candidates.Take(options.Alpha).ToList();
+
+            // Invitation-anchoring: if this round's closest α are all strangers, swap the farthest of them
+            // for the nearest anchored candidate so an eclipse ring of Sybils can't monopolise the search.
+            if (isAnchored is not null && batch.Count == options.Alpha && options.Alpha >= 2 && !batch.Any(r => isAnchored(r.Sigil)))
+            {
+                var nearestAnchored = candidates.Skip(options.Alpha).FirstOrDefault(r => isAnchored(r.Sigil));
+                if (nearestAnchored is not null)
+                    batch[^1] = nearestAnchored;
+            }
 
             if (batch.Count == 0)
                 break;

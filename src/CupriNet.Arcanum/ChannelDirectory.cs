@@ -22,12 +22,13 @@ public static class ChannelDirectory
     /// <summary>Publishes a Decree to the nodes closest to the channel's Ascendant. Returns the holder count.</summary>
     public static async Task<int> PublishAsync(
         RoutingKey ascendant, Decree decree, IReadOnlyList<PeerRecord> seeds,
-        AuguryFunc augury, DecreePublishFunc publish, DivinationOptions? options = null, CancellationToken cancellationToken = default)
+        AuguryFunc augury, DecreePublishFunc publish, DivinationOptions? options = null,
+        Func<Sigil, bool>? isAnchored = null, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(decree);
         ArgumentNullException.ThrowIfNull(publish);
 
-        var route = await Divination.FindAsync(ascendant, seeds, augury, options, cancellationToken).ConfigureAwait(false);
+        var route = await Divination.FindAsync(ascendant, seeds, augury, options, isAnchored, cancellationToken).ConfigureAwait(false);
         var holders = 0;
         foreach (var holder in route.Closest)
         {
@@ -45,14 +46,15 @@ public static class ChannelDirectory
     public static async Task<IReadOnlyList<Decree>> FindProvidersAsync(
         ArcanumKeys keys, DateTimeOffset now, ICryptoSuite suite, IReadOnlyList<PeerRecord> seeds,
         AuguryFunc augury, DecreeLookupFunc lookup, DivinationOptions? options = null,
-        long turningSeconds = Glyph.DefaultTurningSeconds, CancellationToken cancellationToken = default)
+        long turningSeconds = Glyph.DefaultTurningSeconds, Func<Sigil, bool>? isAnchored = null,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(keys);
         ArgumentNullException.ThrowIfNull(suite);
         ArgumentNullException.ThrowIfNull(lookup);
 
         var window = Glyph.Window(keys, now, suite, turningSeconds);
-        var route = await Divination.FindAsync(keys.Ascendant, seeds, augury, options, cancellationToken).ConfigureAwait(false);
+        var route = await Divination.FindAsync(keys.Ascendant, seeds, augury, options, isAnchored, cancellationToken).ConfigureAwait(false);
 
         var byProvider = new Dictionary<Sigil, Decree>();
         foreach (var holder in route.Closest)

@@ -121,6 +121,8 @@ public sealed class CupriNode : IAsyncDisposable
             var conjunction = await NoiseConjunction.InitiateAsync(
                 vessel, Identity, Network, Suite, expectedPeer: intonation.InviterSigil, cancellationToken: timed.Token).ConfigureAwait(false);
             await LearnReflexiveAsync(conjunction.Vessel, initiator: true, cancellationToken).ConfigureAwait(false);
+            // We reached this peer through its Intonation — a real invitation relationship, so anchor it.
+            Constellation.MarkAnchored(conjunction.PeerSigil);
             return new PairedPeer(conjunction.Vessel, conjunction.PeerSigil, conjunction.PeerSealPublicKey, isInitiator: true);
         }
         catch
@@ -157,6 +159,8 @@ public sealed class CupriNode : IAsyncDisposable
                 var conjunction = await NoiseConjunction.InitiateAsync(
                     vessel, Identity, Network, Suite, expectedPeer: peer.Sigil, cancellationToken: timed.Token).ConfigureAwait(false);
                 await LearnReflexiveAsync(conjunction.Vessel, initiator: true, cancellationToken).ConfigureAwait(false);
+                // A trusted-peer reconnect is an anchored relationship by definition.
+                Constellation.MarkAnchored(conjunction.PeerSigil);
                 return new PairedPeer(conjunction.Vessel, conjunction.PeerSigil, conjunction.PeerSealPublicKey, isInitiator: true);
             }
             catch (Exception ex)
@@ -202,6 +206,8 @@ public sealed class CupriNode : IAsyncDisposable
             ? await ConsecrationHandshake.InitiateAsync(peer.Vessel, keys, Identity.Sigil, peer.PeerSigil, now, Suite, cancellationToken: timed.Token).ConfigureAwait(false)
             : await ConsecrationHandshake.AcceptAsync(peer.Vessel, keys, Identity.Sigil, peer.PeerSigil, now, Suite, cancellationToken: timed.Token).ConfigureAwait(false);
 
+        // A completed Consecration proves a shared channel relationship — anchor the peer for routing.
+        Constellation.MarkAnchored(peer.PeerSigil);
         var author = new RiteIdentity(Identity.Seal.PublicKey, Identity.Seal.PrivateKey);
         return new ArcanumSession(peer.Vessel, consecration.Epoch, consecration.SessionKey, Suite, author, _options.RequireSignedAuthors);
     }

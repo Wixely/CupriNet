@@ -60,6 +60,9 @@ public sealed record ConstellationOptions
     public int MaxRecords { get; init; } = 2000;
     public int MaxPerSlash24 { get; init; } = 2;
     public int TaintQuarantineThreshold { get; init; } = 5;
+
+    /// <summary>Cap on anchored (trusted-relationship) Sigils remembered for invitation-anchoring.</summary>
+    public int MaxAnchored { get; init; } = 4096;
 }
 
 /// <summary>
@@ -71,6 +74,7 @@ public sealed record ConstellationOptions
 public sealed class Constellation
 {
     private readonly Dictionary<Sigil, ConstellationEntry> _entries = new();
+    private readonly HashSet<Sigil> _anchored = new();
     private readonly ConstellationOptions _options;
 
     public Constellation(ConstellationOptions? options = null)
@@ -150,6 +154,35 @@ public sealed class Constellation
     }
 
     /// <summary>
+    /// Marks a peer as <em>anchored</em> — a real relationship reached via an Intonation or a completed
+    /// Consecration, not an anonymous gossiped stranger. Anchored peers are preferred in referral routing
+    /// (invitation-anchoring) so a flood of cheap Sybil strangers cannot crowd out trusted contacts or
+    /// eclipse a lookup. If the peer is already in the table it is also promoted to Kindred.
+    /// </summary>
+    public void MarkAnchored(Sigil sigil)
+    {
+        if (sigil.IsEmpty)
+            return;
+        if (_anchored.Count >= _options.MaxAnchored && !_anchored.Contains(sigil))
+            return; // bounded; a real node has few genuine relationships
+        _anchored.Add(sigil);
+        if (_entries.TryGetValue(sigil, out var entry) && entry.Bucket is not PeerBucket.Excommunicate)
+            entry.Bucket = PeerBucket.Kindred;
+    }
+
+    /// <summary>
+    /// True if the peer is a trusted relationship: explicitly anchored, or held in a non-expendable bucket
+    /// (Kindred / Wayfarers / Devotees) rather than Strangers.
+    /// </summary>
+    public bool IsAnchored(Sigil sigil)
+    {
+        if (_anchored.Contains(sigil))
+            return true;
+        return _entries.TryGetValue(sigil, out var entry)
+               && entry.Bucket is PeerBucket.Kindred or PeerBucket.Wayfarers or PeerBucket.Devotees;
+    }
+
+    /// <summary>
     /// Returns up to <paramref name="count"/> records for a peer-view exchange, preferring distinct /24s
     /// and higher Standing, and never revealing Excommunicated peers.
     /// </summary>
@@ -198,10 +231,13 @@ public sealed class Constellation
         if (k == 0)
             return [];
 
+        // Distance stays primary so the requester's lookup still converges; among peers we could refer,
+        // prefer anchored (trusted) contacts over strangers as the tiebreak.
         return _entries.Values
             .Where(e => e.Bucket != PeerBucket.Excommunicate)
+            .OrderBy(e => RoutingKey.FromSealPublicKey(e.Record.SealPublicKey).DistanceTo(target))
+            .ThenBy(e => IsAnchored(e.Sigil) ? 0 : 1)
             .Select(e => e.Record)
-            .OrderBy(r => RoutingKey.FromSealPublicKey(r.SealPublicKey).DistanceTo(target))
             .Take(k)
             .ToList();
     }
