@@ -140,6 +140,55 @@ public static class Ownership
         return w.ToArray();
     }
 
+    /// <summary>Serializes a full Investiture (body + signature) for transmission during admission.</summary>
+    public static byte[] EncodeInvestiture(Investiture inv)
+    {
+        ArgumentNullException.ThrowIfNull(inv);
+        var w = new CodexWriter();
+        w.WriteByte(inv.Version);
+        w.WriteBytes(inv.ChannelId);
+        w.WriteBytes(inv.MemberSealPublicKey);
+        w.WriteUInt32((uint)inv.Roles);
+        w.WriteUInt64((ulong)inv.NotBeforeUnix);
+        w.WriteUInt64((ulong)inv.NotAfterUnix);
+        w.WriteUInt64(inv.SerialNumber);
+        w.WriteBytes(inv.IssuerPublicKey);
+        w.WriteBytes(inv.Signature);
+        return w.ToArray();
+    }
+
+    public static Investiture DecodeInvestiture(ReadOnlySpan<byte> data)
+    {
+        var r = new CodexReader(data);
+        var version = r.ReadByte();
+        var channelId = r.ReadBytes().ToArray();
+        if (channelId.Length is 0 or > 64)
+            throw new OwnershipException("Invalid channel id length.");
+        var member = r.ReadBytes().ToArray();
+        if (member.Length is 0 or > 64)
+            throw new OwnershipException("Invalid member Seal public key length.");
+        var roles = (ArcanumRole)r.ReadUInt32();
+        var notBefore = (long)r.ReadUInt64();
+        var notAfter = (long)r.ReadUInt64();
+        var serial = r.ReadUInt64();
+        var issuer = r.ReadBytes().ToArray();
+        if (issuer.Length is 0 or > 64)
+            throw new OwnershipException("Invalid issuer public key length.");
+        var signature = r.ReadBytes().ToArray();
+        return new Investiture
+        {
+            Version = version,
+            ChannelId = channelId,
+            MemberSealPublicKey = member,
+            Roles = roles,
+            NotBeforeUnix = notBefore,
+            NotAfterUnix = notAfter,
+            SerialNumber = serial,
+            IssuerPublicKey = issuer,
+            Signature = signature,
+        };
+    }
+
     public static Investiture Invest(SealKeyPair issuer, byte[] channelId, byte[] memberSealPublicKey, ArcanumRole roles, DateTimeOffset notBefore, DateTimeOffset notAfter, ulong serialNumber, ICryptoSuite suite)
     {
         ArgumentNullException.ThrowIfNull(channelId);

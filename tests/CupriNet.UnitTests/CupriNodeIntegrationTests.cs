@@ -39,8 +39,8 @@ public class CupriNodeIntegrationTests
 
         // Consecrate a channel with a shared Watchword.
         var watchword = Watchword.Generate("Dungeons&Dragons");
-        var joinerSession = joiner.ConsecrateAsync(pairedFromJoiner, watchword, Now, ct);
-        var hostSession = host.ConsecrateAsync(pairedFromHost, watchword, Now, ct);
+        var joinerSession = joiner.ConsecrateAsync(pairedFromJoiner, watchword, Now, cancellationToken: ct);
+        var hostSession = host.ConsecrateAsync(pairedFromHost, watchword, Now, cancellationToken: ct);
 
         await using var joinerChannel = await joinerSession;
         await using var hostChannel = await hostSession;

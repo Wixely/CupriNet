@@ -104,8 +104,8 @@ public class TrustedPeerTests
 
         // And the re-dialed pair can Consecrate and talk (both sides handshake concurrently).
         var watchword = Watchword.Generate("TrustedRoom");
-        var joinerConsecrate = joiner.ConsecrateAsync(reJoin, watchword, Now, ct);
-        var hostConsecrate = host.ConsecrateAsync(reHost, watchword, Now, ct);
+        var joinerConsecrate = joiner.ConsecrateAsync(reJoin, watchword, Now, cancellationToken: ct);
+        var hostConsecrate = host.ConsecrateAsync(reHost, watchword, Now, cancellationToken: ct);
         await using var joinerChannel = await joinerConsecrate;
         await using var hostChannel = await hostConsecrate;
 

@@ -194,8 +194,14 @@ public sealed class CupriNode : IAsyncDisposable
         }
     }
 
-    /// <summary>Consecrates a channel with a peer using a Watchword, yielding an encrypted channel session.</summary>
-    public async Task<ArcanumSession> ConsecrateAsync(PairedPeer peer, Watchword watchword, DateTimeOffset now, CancellationToken cancellationToken = default)
+    /// <summary>
+    /// Consecrates a channel with a peer using a Watchword, yielding an encrypted channel session. When an
+    /// <paramref name="admission"/> is supplied and its access mode is owner-gated (Sanction/Sealed), each
+    /// side additionally proves membership (owner, or a valid owner-signed Investiture bound to its Sigil)
+    /// before the session is returned — so a leaked Watchword alone cannot confer membership.
+    /// </summary>
+    public async Task<ArcanumSession> ConsecrateAsync(PairedPeer peer, Watchword watchword, DateTimeOffset now,
+        ArcanumAdmission? admission = null, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(peer);
         ArgumentNullException.ThrowIfNull(watchword);
@@ -206,10 +212,88 @@ public sealed class CupriNode : IAsyncDisposable
             ? await ConsecrationHandshake.InitiateAsync(peer.Vessel, keys, Identity.Sigil, peer.PeerSigil, now, Suite, cancellationToken: timed.Token).ConfigureAwait(false)
             : await ConsecrationHandshake.AcceptAsync(peer.Vessel, keys, Identity.Sigil, peer.PeerSigil, now, Suite, cancellationToken: timed.Token).ConfigureAwait(false);
 
+        // Enforce owner-gated admission over the (already encrypted) vessel before the session is usable.
+        if (admission is not null)
+            await EnforceAdmissionAsync(peer, admission, Ownership.ChannelId(keys), now, timed.Token).ConfigureAwait(false);
+
         // A completed Consecration proves a shared channel relationship — anchor the peer for routing.
         Constellation.MarkAnchored(peer.PeerSigil);
         var author = new RiteIdentity(Identity.Seal.PublicKey, Identity.Seal.PrivateKey);
         return new ArcanumSession(peer.Vessel, consecration.Epoch, consecration.SessionKey, Suite, author, _options.RequireSignedAuthors);
+    }
+
+    private async Task EnforceAdmissionAsync(PairedPeer peer, ArcanumAdmission admission, byte[] channelId, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        var descriptor = admission.Descriptor;
+        if (!Ownership.VerifyDescriptor(descriptor, Suite) || !descriptor.ChannelId.AsSpan().SequenceEqual(channelId))
+            throw new CupriNodeException("Channel descriptor is invalid or belongs to a different channel.");
+
+        // Aperture/Anarch are open: the Watchword alone is membership, so no credential exchange.
+        if (descriptor.AccessMode is not (ArcanumEntry.Sanction or ArcanumEntry.Sealed))
+            return;
+
+        var myClaim = BuildAdmissionClaim(descriptor, admission.MyInvestiture);
+        byte[] peerClaim;
+        if (peer.IsInitiator)
+        {
+            await peer.Vessel.SendAsync(ConsecrationHandshake.ChannelStream, myClaim, cancellationToken).ConfigureAwait(false);
+            peerClaim = await ReceiveAdmissionClaimAsync(peer.Vessel, cancellationToken).ConfigureAwait(false);
+        }
+        else
+        {
+            peerClaim = await ReceiveAdmissionClaimAsync(peer.Vessel, cancellationToken).ConfigureAwait(false);
+            await peer.Vessel.SendAsync(ConsecrationHandshake.ChannelStream, myClaim, cancellationToken).ConfigureAwait(false);
+        }
+
+        VerifyAdmissionClaim(peerClaim, peer.PeerSigil, descriptor, channelId, now);
+    }
+
+    private byte[] BuildAdmissionClaim(ChannelDescriptor descriptor, Investiture? myInvestiture)
+    {
+        var w = new Codex.CodexWriter();
+        if (Identity.Sigil == descriptor.OwnerSigil)
+        {
+            w.WriteByte(0); // I am the owner; my Sigil is my proof
+            return w.ToArray();
+        }
+        if (myInvestiture is null)
+            throw new CupriNodeException("This channel is owner-gated but no membership Investiture was provided.");
+        w.WriteByte(1);
+        w.WriteBytes(Ownership.EncodeInvestiture(myInvestiture));
+        return w.ToArray();
+    }
+
+    private void VerifyAdmissionClaim(byte[] claim, Sigil peerSigil, ChannelDescriptor descriptor, byte[] channelId, DateTimeOffset now)
+    {
+        var r = new Codex.CodexReader(claim);
+        var tag = r.ReadByte();
+        switch (tag)
+        {
+            case 0: // peer claims to be the owner — valid only if its authenticated Sigil is the owner's
+                if (peerSigil != descriptor.OwnerSigil)
+                    throw new CupriNodeException("Peer claimed channel ownership but is not the owner.");
+                return;
+            case 1:
+                var inv = Ownership.DecodeInvestiture(r.ReadBytes());
+                // Bind the credential to the transport-authenticated peer, so a valid Investiture for one
+                // member cannot be replayed by another identity.
+                if (inv.MemberSigil != peerSigil)
+                    throw new CupriNodeException("Peer's Investiture names a different member.");
+                if (!Ownership.VerifyInvestiture(inv, descriptor.OwnerPublicKey, channelId, Suite, now))
+                    throw new CupriNodeException("Peer's Investiture did not verify against the channel owner.");
+                return;
+            default:
+                throw new CupriNodeException("Malformed admission claim.");
+        }
+    }
+
+    private static async Task<byte[]> ReceiveAdmissionClaimAsync(IVessel vessel, CancellationToken cancellationToken)
+    {
+        var frame = await vessel.ReceiveAsync(cancellationToken).ConfigureAwait(false)
+                    ?? throw new CupriNodeException("Vessel closed during admission.");
+        if (frame.StreamId != ConsecrationHandshake.ChannelStream)
+            throw new CupriNodeException($"Unexpected frame on stream {frame.StreamId} during admission.");
+        return frame.Payload;
     }
 
     private static CancellationTokenSource LinkedHandshakeToken(CancellationToken cancellationToken)

@@ -582,7 +582,7 @@ public sealed class ChatService : IAsyncDisposable
         try
         {
             Status?.Invoke("Joining channel with a peer…");
-            var session = await _node!.ConsecrateAsync(peer, _channel, DateTimeOffset.UtcNow, cancellationToken);
+            var session = await _node!.ConsecrateAsync(peer, _channel, DateTimeOffset.UtcNow, cancellationToken: cancellationToken);
             var peerSession = new PeerSession(peer.PeerSigil, peer.PeerSealPublicKey, session);
 
             lock (_lock)
