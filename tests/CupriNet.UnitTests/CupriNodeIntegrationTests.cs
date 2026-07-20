@@ -42,8 +42,8 @@ public class CupriNodeIntegrationTests
         var joinerSession = joiner.ConsecrateAsync(pairedFromJoiner, watchword, Now, ct);
         var hostSession = host.ConsecrateAsync(pairedFromHost, watchword, Now, ct);
 
-        var joinerChannel = await joinerSession;
-        var hostChannel = await hostSession;
+        await using var joinerChannel = await joinerSession;
+        await using var hostChannel = await hostSession;
 
         Assert.Equal(joinerChannel.Epoch, hostChannel.Epoch);
 
@@ -58,6 +58,18 @@ public class CupriNodeIntegrationTests
         var ack = await joinerChannel.Epistles.ReceiveAsync(ct);
         var attestation = Assert.IsType<AttestationReceived>(ack);
         Assert.Equal(message.Epistle.MessageId, attestation.MessageId);
+
+        // The message and data rites run concurrently over the one demultiplexed session.
+        var epistleTask = hostChannel.Epistles.ReceiveAsync(ct);
+        var conduitTask = hostChannel.Conduits.ReceiveAsync(ct);
+        await joinerChannel.Conduits.SendAsync(new ConduitFrame { ProtocolId = 9, SchemaVersion = 1, Flags = 0, Payload = "data"u8.ToArray() }, ct);
+        await joinerChannel.SendTextAsync("second", Now, ct);
+
+        var secondMessage = Assert.IsType<MessageReceived>(await epistleTask);
+        var dataFrame = await conduitTask;
+        Assert.Equal("second", secondMessage.Epistle.AsText());
+        Assert.NotNull(dataFrame);
+        Assert.Equal(9u, dataFrame.ProtocolId);
     }
 
     [Fact]

@@ -1,5 +1,6 @@
 using CupriNet.Alembic;
 using CupriNet.Codex;
+using CupriNet.Vessel;
 using VesselSession = CupriNet.Vessel.Vessel;
 
 namespace CupriNet.Rites;
@@ -50,32 +51,34 @@ public sealed class ConduitSession
     /// <summary>Logical stream for generic data (0 Conjunction, 1 peer exchange, 2 Consecration, 3 Epistles).</summary>
     public const ushort DataStream = 4;
 
-    private readonly VesselSession _vessel;
+    private readonly IStreamChannel _channel;
     private readonly VeilCipher _veil;
-    private readonly ushort _stream;
 
-    public ConduitSession(VesselSession vessel, ReadOnlyMemory<byte> sessionKey, ICryptoSuite suite, ushort stream = DataStream)
+    public ConduitSession(IStreamChannel channel, ReadOnlyMemory<byte> sessionKey, ICryptoSuite suite)
     {
-        _vessel = vessel ?? throw new ArgumentNullException(nameof(vessel));
+        _channel = channel ?? throw new ArgumentNullException(nameof(channel));
         _veil = new VeilCipher(sessionKey, suite);
-        _stream = stream;
+    }
+
+    /// <summary>Convenience: bind to a single Vessel stream directly (single-stream use only).</summary>
+    public ConduitSession(VesselSession vessel, ReadOnlyMemory<byte> sessionKey, ICryptoSuite suite, ushort stream = DataStream)
+        : this(new VesselStreamChannel(vessel, stream), sessionKey, suite)
+    {
     }
 
     public Task SendAsync(ConduitFrame frame, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(frame);
-        return _vessel.SendAsync(_stream, _veil.Seal(ConduitCodec.Encode(frame)), cancellationToken).AsTask();
+        return _channel.SendAsync(_veil.Seal(ConduitCodec.Encode(frame)), cancellationToken).AsTask();
     }
 
     public async Task<ConduitFrame?> ReceiveAsync(CancellationToken cancellationToken = default)
     {
-        var frame = await _vessel.ReceiveAsync(cancellationToken).ConfigureAwait(false);
-        if (frame is null)
+        var payload = await _channel.ReceiveAsync(cancellationToken).ConfigureAwait(false);
+        if (payload is null)
             return null;
-        if (frame.Value.StreamId != _stream)
-            throw new EpistleException($"Unexpected frame on stream {frame.Value.StreamId}.");
 
-        var plaintext = _veil.Open(frame.Value.Payload)
+        var plaintext = _veil.Open(payload)
                         ?? throw new EpistleException("Conduit content failed authentication (Veil).");
         return ConduitCodec.Decode(plaintext);
     }

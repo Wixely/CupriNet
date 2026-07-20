@@ -1,24 +1,26 @@
 using CupriNet.Alembic;
 using CupriNet.Rites;
+using CupriNet.Vessel;
 using VesselSession = CupriNet.Vessel.Vessel;
 
 namespace CupriNet.Hosting;
 
 /// <summary>
 /// A live, Consecrated channel session with a peer: Veil-encrypted Epistle (message) and Conduit (data)
-/// rites over the paired Vessel. The message and data rites use distinct logical streams (3 and 4).
+/// rites over the paired Vessel. A <see cref="VesselMux"/> demultiplexes the connection, so the two rites
+/// use distinct streams (3 and 4) and can be read concurrently. Disposing stops the demux pump; the
+/// underlying Vessel is owned by the <see cref="PairedPeer"/>.
 /// </summary>
-/// <remarks>
-/// Reading Epistles and Conduits concurrently on one session needs a stream demultiplexer (a later
-/// addition); today, read one rite at a time per Vessel.
-/// </remarks>
-public sealed class ArcanumSession
+public sealed class ArcanumSession : IAsyncDisposable
 {
+    private readonly VesselMux _mux;
+
     internal ArcanumSession(VesselSession vessel, long epoch, ReadOnlyMemory<byte> sessionKey, ICryptoSuite suite)
     {
         Epoch = epoch;
-        Epistles = new EpistleSession(vessel, sessionKey, suite);
-        Conduits = new ConduitSession(vessel, sessionKey, suite);
+        _mux = new VesselMux(vessel, ownsVessel: false);
+        Epistles = new EpistleSession(_mux.Stream(EpistleSession.ContentStream), sessionKey, suite);
+        Conduits = new ConduitSession(_mux.Stream(ConduitSession.DataStream), sessionKey, suite);
     }
 
     /// <summary>The epoch the Consecration was bound to.</summary>
@@ -33,4 +35,6 @@ public sealed class ArcanumSession
     /// <summary>Sends a UTF-8 text Epistle.</summary>
     public Task SendTextAsync(string text, DateTimeOffset now, CancellationToken cancellationToken = default)
         => Epistles.SendMessageAsync(Epistle.Text(text, now), cancellationToken);
+
+    public ValueTask DisposeAsync() => _mux.DisposeAsync();
 }

@@ -1,5 +1,6 @@
 using CupriNet.Alembic;
 using CupriNet.Codex;
+using CupriNet.Vessel;
 using VesselSession = CupriNet.Vessel.Vessel;
 
 namespace CupriNet.Rites;
@@ -17,13 +18,13 @@ public sealed record MessageReceived(Epistle Epistle) : EpistleEvent;
 public sealed record AttestationReceived(byte[] MessageId) : EpistleEvent;
 
 /// <summary>
-/// Carries the Epistolary rite over a Vessel: Veil-sealed Messages and Attestations on a dedicated
-/// content stream. This type only frames, seals, and parses — reliability (the Vigil) and idempotency
-/// (the deduper) are layered around it by the caller.
+/// Carries the Epistolary rite over a stream channel: Veil-sealed Messages and Attestations. This type
+/// only frames, seals, and parses — reliability (the Vigil) and idempotency (the deduper) are layered
+/// around it by the caller. Use a <see cref="VesselMux"/> stream to run alongside other rites concurrently.
 /// </summary>
 public sealed class EpistleSession
 {
-    /// <summary>Logical stream for channel content (0 Conjunction, 1 peer exchange, 2 Consecration).</summary>
+    /// <summary>Default logical stream for channel content (0 Conjunction, 1 peer exchange, 2 Consecration).</summary>
     public const ushort ContentStream = 3;
 
     private enum FrameType : byte
@@ -32,15 +33,19 @@ public sealed class EpistleSession
         Attestation = 2,
     }
 
-    private readonly VesselSession _vessel;
+    private readonly IStreamChannel _channel;
     private readonly VeilCipher _veil;
-    private readonly ushort _stream;
 
-    public EpistleSession(VesselSession vessel, ReadOnlyMemory<byte> sessionKey, ICryptoSuite suite, ushort stream = ContentStream)
+    public EpistleSession(IStreamChannel channel, ReadOnlyMemory<byte> sessionKey, ICryptoSuite suite)
     {
-        _vessel = vessel ?? throw new ArgumentNullException(nameof(vessel));
+        _channel = channel ?? throw new ArgumentNullException(nameof(channel));
         _veil = new VeilCipher(sessionKey, suite);
-        _stream = stream;
+    }
+
+    /// <summary>Convenience: bind to a single Vessel stream directly (single-stream use only).</summary>
+    public EpistleSession(VesselSession vessel, ReadOnlyMemory<byte> sessionKey, ICryptoSuite suite, ushort stream = ContentStream)
+        : this(new VesselStreamChannel(vessel, stream), sessionKey, suite)
+    {
     }
 
     public Task SendMessageAsync(Epistle epistle, CancellationToken cancellationToken = default)
@@ -55,13 +60,11 @@ public sealed class EpistleSession
     /// <summary>Reads the next content event, or null when the peer closes the connection.</summary>
     public async Task<EpistleEvent?> ReceiveAsync(CancellationToken cancellationToken = default)
     {
-        var frame = await _vessel.ReceiveAsync(cancellationToken).ConfigureAwait(false);
-        if (frame is null)
+        var payload = await _channel.ReceiveAsync(cancellationToken).ConfigureAwait(false);
+        if (payload is null)
             return null;
-        if (frame.Value.StreamId != _stream)
-            throw new EpistleException($"Unexpected frame on stream {frame.Value.StreamId}.");
 
-        var reader = new CodexReader(frame.Value.Payload);
+        var reader = new CodexReader(payload);
         var type = (FrameType)reader.ReadByte();
         var sealedBody = reader.ReadBytes();
 
@@ -81,6 +84,6 @@ public sealed class EpistleSession
         var w = new CodexWriter();
         w.WriteByte((byte)type);
         w.WriteBytes(_veil.Seal(body));
-        await _vessel.SendAsync(_stream, w.ToArray(), cancellationToken).ConfigureAwait(false);
+        await _channel.SendAsync(w.ToArray(), cancellationToken).ConfigureAwait(false);
     }
 }
