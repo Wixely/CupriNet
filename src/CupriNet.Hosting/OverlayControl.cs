@@ -1,0 +1,163 @@
+using CupriNet.Alembic;
+using CupriNet.Arcanum;
+using CupriNet.Codex;
+using CupriNet.Concordance;
+using CupriNet.Vessel;
+
+namespace CupriNet.Hosting;
+
+/// <summary>
+/// The L1 overlay control plane: request/response messages a node exchanges over a dedicated, Noise-encrypted
+/// connection to find peers near a routing coordinate (DIVINE→peer records), publish a channel advertisement
+/// (PUBLISH→ack), and look up advertisements by Glyph window (LOOKUP→decrees). These are the on-wire form of
+/// the delegates that <see cref="Divination"/> and <see cref="ChannelDirectory"/> take; here they run over real
+/// connections instead of the test harness's in-memory callbacks.
+/// </summary>
+internal static class OverlayControl
+{
+    /// <summary>The stream carrying the session-kind marker and all control request/response frames.</summary>
+    public const ushort Stream = 6;
+
+    /// <summary>Session-kind markers sent by the initiator right after the Noise handshake.</summary>
+    public const byte KindChannel = 1;
+    public const byte KindControl = 2;
+
+    public const byte OpDivine = 1;
+    public const byte OpPublish = 2;
+    public const byte OpLookup = 3;
+
+    public const byte StatusOk = 0;
+    public const byte StatusRejected = 1;
+
+    public const int MaxAugury = 16;
+    public const int MaxLookupGlyphs = 8;
+    public const int MaxLookupDecrees = 16;
+
+    // ---- Requests (client -> server) -----------------------------------------------------------
+
+    public static byte[] DivineRequest(RoutingKey target)
+    {
+        var w = new CodexWriter();
+        w.WriteByte(OpDivine);
+        w.WriteBytes(target.Span);
+        return w.ToArray();
+    }
+
+    public static byte[] PublishRequest(Decree decree)
+    {
+        var w = new CodexWriter();
+        w.WriteByte(OpPublish);
+        w.WriteBytes(DecreeCodec.Encode(decree));
+        return w.ToArray();
+    }
+
+    public static byte[] LookupRequest(IReadOnlyList<byte[]> glyphWindow)
+    {
+        var w = new CodexWriter();
+        w.WriteByte(OpLookup);
+        w.WriteVarUInt((ulong)glyphWindow.Count);
+        foreach (var glyph in glyphWindow)
+            w.WriteBytes(glyph);
+        return w.ToArray();
+    }
+
+    // ---- Responses (server -> client) ----------------------------------------------------------
+
+    public static byte[] PeerRecordsResponse(IReadOnlyList<PeerRecord> records)
+    {
+        var count = Math.Min(records.Count, MaxAugury);
+        var w = new CodexWriter();
+        w.WriteVarUInt((ulong)count);
+        for (var i = 0; i < count; i++)
+            w.WriteBytes(PeerRecordCodec.Encode(records[i]));
+        return w.ToArray();
+    }
+
+    public static byte[] DecreesResponse(IReadOnlyList<Decree> decrees)
+    {
+        var count = Math.Min(decrees.Count, MaxLookupDecrees);
+        var w = new CodexWriter();
+        w.WriteVarUInt((ulong)count);
+        for (var i = 0; i < count; i++)
+            w.WriteBytes(DecreeCodec.Encode(decrees[i]));
+        return w.ToArray();
+    }
+
+    public static byte[] StatusResponse(byte status) => [status];
+
+    // ---- Client-side parsing (only accepts well-formed, signature-verified records) -------------
+
+    public static IReadOnlyList<PeerRecord> ParsePeerRecords(byte[] payload, ICryptoSuite suite)
+    {
+        var reader = new CodexReader(payload);
+        ulong count;
+        try { count = reader.ReadVarUInt(); }
+        catch { return []; }
+        if (count > (ulong)MaxAugury)
+            return [];
+
+        var records = new List<PeerRecord>((int)count);
+        for (var i = 0UL; i < count; i++)
+        {
+            try
+            {
+                var record = PeerRecordCodec.Decode(reader.ReadBytes()).Record;
+                if (PeerRecordSigner.Verify(record, suite))
+                    records.Add(record);
+            }
+            catch { break; }
+        }
+        return records;
+    }
+
+    public static IReadOnlyList<Decree> ParseDecrees(byte[] payload)
+    {
+        var reader = new CodexReader(payload);
+        ulong count;
+        try { count = reader.ReadVarUInt(); }
+        catch { return []; }
+        if (count > (ulong)MaxLookupDecrees)
+            return [];
+
+        var decrees = new List<Decree>((int)count);
+        for (var i = 0UL; i < count; i++)
+        {
+            try { decrees.Add(DecreeCodec.Decode(reader.ReadBytes()).Decree); }
+            catch { break; }
+        }
+        return decrees;
+    }
+}
+
+/// <summary>A pooled, Noise-encrypted control connection to one overlay peer; requests are serialized over it.</summary>
+internal sealed class ControlConnection(IVessel vessel) : IAsyncDisposable
+{
+    private readonly SemaphoreSlim _gate = new(1, 1);
+
+    public IVessel Vessel { get; } = vessel;
+
+    /// <summary>Sends one request and reads its response (serialized against other callers on this connection).</summary>
+    public async Task<byte[]> RoundtripAsync(byte[] request, CancellationToken cancellationToken)
+    {
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await Vessel.SendAsync(OverlayControl.Stream, request, cancellationToken).ConfigureAwait(false);
+            var frame = await Vessel.ReceiveAsync(cancellationToken).ConfigureAwait(false)
+                        ?? throw new IOException("Control connection closed.");
+            if (frame.StreamId != OverlayControl.Stream)
+                throw new IOException($"Unexpected frame on stream {frame.StreamId} during control exchange.");
+            return frame.Payload;
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        _gate.Dispose();
+        await Vessel.DisposeAsync().ConfigureAwait(false);
+    }
+}

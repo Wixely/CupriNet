@@ -22,7 +22,7 @@ public sealed class CupriNodeException(string message) : Exception(message);
 /// Conjunction pairing, the Concordance overlay, and the Arcanum/rite layers together. Mint an Intonation
 /// to invite a peer, Conjoin to an Intonation to pair, then Consecrate a channel to exchange messages.
 /// </summary>
-public sealed class CupriNode : IAsyncDisposable
+public sealed partial class CupriNode : IAsyncDisposable
 {
     /// <summary>Maximum time a transport handshake (Noise + identity binding + reflexion) may take.</summary>
     private static readonly TimeSpan HandshakeTimeout = TimeSpan.FromSeconds(30);
@@ -120,6 +120,7 @@ public sealed class CupriNode : IAsyncDisposable
                 await Toll.SolveAsync(vessel, timed.Token).ConfigureAwait(false);
             var conjunction = await NoiseConjunction.InitiateAsync(
                 vessel, Identity, Network, Suite, expectedPeer: intonation.InviterSigil, cancellationToken: timed.Token).ConfigureAwait(false);
+            await DeclareSessionKindAsync(conjunction.Vessel, OverlayControl.KindChannel, timed.Token).ConfigureAwait(false);
             await LearnReflexiveAsync(conjunction.Vessel, initiator: true, cancellationToken).ConfigureAwait(false);
             // We reached this peer through its Intonation — a real invitation relationship, so anchor it.
             Constellation.MarkAnchored(conjunction.PeerSigil);
@@ -158,6 +159,7 @@ public sealed class CupriNode : IAsyncDisposable
                     await Toll.SolveAsync(vessel, timed.Token).ConfigureAwait(false);
                 var conjunction = await NoiseConjunction.InitiateAsync(
                     vessel, Identity, Network, Suite, expectedPeer: peer.Sigil, cancellationToken: timed.Token).ConfigureAwait(false);
+                await DeclareSessionKindAsync(conjunction.Vessel, OverlayControl.KindChannel, timed.Token).ConfigureAwait(false);
                 await LearnReflexiveAsync(conjunction.Vessel, initiator: true, cancellationToken).ConfigureAwait(false);
                 // A trusted-peer reconnect is an anchored relationship by definition.
                 Constellation.MarkAnchored(conjunction.PeerSigil);
@@ -173,24 +175,49 @@ public sealed class CupriNode : IAsyncDisposable
         throw new CupriNodeException($"Could not reconnect to the trusted peer: {last?.Message ?? "all beacons unreachable"}.");
     }
 
-    /// <summary>Accepts one inbound connection and completes the Conjunction pairing as the responder.</summary>
+    /// <summary>
+    /// Accepts inbound connections and returns the next one that wants a channel. Inbound <em>overlay
+    /// control</em> connections (DHT discovery) are served internally and transparently — the caller only
+    /// ever receives channel peers, so an app's accept loop doubles as the node's overlay-serving loop.
+    /// </summary>
     public async Task<PairedPeer> AcceptAsync(CancellationToken cancellationToken = default)
     {
-        var vessel = await _listener.AcceptAsync(cancellationToken).ConfigureAwait(false);
-        try
+        while (true)
         {
-            using var timed = LinkedHandshakeToken(cancellationToken);
-            // Issue and verify the pre-handshake Toll before allocating any Noise state (anti-exhaustion).
-            if (_options.EnableToll)
-                await Toll.IssueAndVerifyAsync(vessel, _tollSecret, vessel.RemoteEndPoint, DateTimeOffset.UtcNow, timed.Token).ConfigureAwait(false);
-            var conjunction = await NoiseConjunction.AcceptAsync(vessel, Identity, Network, Suite, timed.Token).ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
+            var vessel = await _listener.AcceptAsync(cancellationToken).ConfigureAwait(false);
+
+            NoiseConjunctionResult conjunction;
+            byte kind;
+            try
+            {
+                using var timed = LinkedHandshakeToken(cancellationToken);
+                // Issue and verify the pre-handshake Toll before allocating any Noise state (anti-exhaustion).
+                if (_options.EnableToll)
+                    await Toll.IssueAndVerifyAsync(vessel, _tollSecret, vessel.RemoteEndPoint, DateTimeOffset.UtcNow, timed.Token).ConfigureAwait(false);
+                conjunction = await NoiseConjunction.AcceptAsync(vessel, Identity, Network, Suite, timed.Token).ConfigureAwait(false);
+                kind = await ReadSessionKindAsync(conjunction.Vessel, timed.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                await vessel.DisposeAsync().ConfigureAwait(false);
+                throw;
+            }
+            catch
+            {
+                // A single failed handshake must not tear down the accept loop; skip and keep serving.
+                await vessel.DisposeAsync().ConfigureAwait(false);
+                continue;
+            }
+
+            if (kind == OverlayControl.KindControl)
+            {
+                _ = Task.Run(() => ServeControlAsync(conjunction.Vessel, cancellationToken), cancellationToken);
+                continue;
+            }
+
             await LearnReflexiveAsync(conjunction.Vessel, initiator: false, cancellationToken).ConfigureAwait(false);
             return new PairedPeer(conjunction.Vessel, conjunction.PeerSigil, conjunction.PeerSealPublicKey, isInitiator: false);
-        }
-        catch
-        {
-            await vessel.DisposeAsync().ConfigureAwait(false);
-            throw;
         }
     }
 
@@ -363,5 +390,9 @@ public sealed class CupriNode : IAsyncDisposable
         }
     }
 
-    public ValueTask DisposeAsync() => _listener.DisposeAsync();
+    public async ValueTask DisposeAsync()
+    {
+        await DisposeOverlayAsync().ConfigureAwait(false);
+        await _listener.DisposeAsync().ConfigureAwait(false);
+    }
 }
