@@ -28,4 +28,10 @@ public sealed record CupriNodeOptions
 
     /// <summary>Reachability candidates to advertise in Intonations. Defaults to the bound endpoint.</summary>
     public IReadOnlyList<Beacon>? AdvertisedBeacons { get; init; }
+
+    /// <summary>
+    /// Run a reflexive-endpoint exchange during pairing so the node learns its externally-observed
+    /// (Mapped) address. Requires both peers to support it. Default true.
+    /// </summary>
+    public bool EnableReflexiveDiscovery { get; init; } = true;
 }

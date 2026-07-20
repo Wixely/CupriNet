@@ -7,6 +7,7 @@ using CupriNet.Concordance;
 using CupriNet.Conjunction;
 using CupriNet.Core;
 using CupriNet.Persistence;
+using CupriNet.Traversal;
 using CupriNet.Vessel;
 using VesselSession = CupriNet.Vessel.Vessel;
 
@@ -49,6 +50,9 @@ public sealed class CupriNode : IAsyncDisposable
     /// <summary>This node's view of the overlay.</summary>
     public Constellation Constellation { get; }
 
+    /// <summary>Reflexive-endpoint observations gathered from peers during pairing.</summary>
+    public ReflexiveObserver ReflexiveObserver { get; } = new();
+
     /// <summary>The bound local endpoint (reflects the OS-assigned port when 0 was requested).</summary>
     public IPEndPoint LocalEndPoint => _listener.LocalEndPoint;
 
@@ -71,7 +75,10 @@ public sealed class CupriNode : IAsyncDisposable
     /// <summary>Mints a fresh connection URL (Intonation) advertising this node's reachability and seed peers.</summary>
     public Intonation Intone(TimeSpan lifetime, DateTimeOffset now, byte[]? petition = null)
     {
-        var beacons = _options.AdvertisedBeacons ?? [new Beacon(EndpointKind.Host, _advertiseHost, LocalEndPoint.Port)];
+        var beacons = new List<Beacon>(_options.AdvertisedBeacons ?? [new Beacon(EndpointKind.Host, _advertiseHost, LocalEndPoint.Port)]);
+        var mapped = ReflexiveObserver.MappedBeacon();
+        if (mapped is not null && !beacons.Any(b => b.Kind == mapped.Kind && b.Host == mapped.Host && b.Port == mapped.Port))
+            beacons.Add(mapped);
         var litany = Constellation.Sample(IntonationCodec.MaxLitany).Select(r => r.Sigil).ToList();
 
         return IntonationMint.Intone(Identity, Suite, new IntonationOptions
@@ -105,6 +112,7 @@ public sealed class CupriNode : IAsyncDisposable
         {
             var conjunction = await NoiseConjunction.InitiateAsync(
                 vessel, Identity, Network, Suite, expectedPeer: intonation.InviterSigil, cancellationToken: cancellationToken).ConfigureAwait(false);
+            await LearnReflexiveAsync(conjunction.Vessel, initiator: true, cancellationToken).ConfigureAwait(false);
             return new PairedPeer(conjunction.Vessel, conjunction.PeerSigil, conjunction.PeerSealPublicKey, isInitiator: true);
         }
         catch
@@ -121,6 +129,7 @@ public sealed class CupriNode : IAsyncDisposable
         try
         {
             var conjunction = await NoiseConjunction.AcceptAsync(vessel, Identity, Network, Suite, cancellationToken).ConfigureAwait(false);
+            await LearnReflexiveAsync(conjunction.Vessel, initiator: false, cancellationToken).ConfigureAwait(false);
             return new PairedPeer(conjunction.Vessel, conjunction.PeerSigil, conjunction.PeerSealPublicKey, isInitiator: false);
         }
         catch
@@ -142,6 +151,23 @@ public sealed class CupriNode : IAsyncDisposable
             : await ConsecrationHandshake.AcceptAsync(peer.Vessel, keys, Identity.Sigil, peer.PeerSigil, now, Suite, cancellationToken: cancellationToken).ConfigureAwait(false);
 
         return new ArcanumSession(peer.Vessel, consecration.Epoch, consecration.SessionKey, Suite);
+    }
+
+    private async Task LearnReflexiveAsync(IVessel vessel, bool initiator, CancellationToken cancellationToken)
+    {
+        if (!_options.EnableReflexiveDiscovery)
+            return;
+        try
+        {
+            using var timed = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timed.CancelAfter(TimeSpan.FromSeconds(5));
+            var observed = await ReflexiveExchange.ExchangeAsync(vessel, initiator, cancellationToken: timed.Token).ConfigureAwait(false);
+            ReflexiveObserver.Add(observed);
+        }
+        catch
+        {
+            // best-effort: pairing succeeds even when reflexive discovery is unavailable
+        }
     }
 
     public ValueTask DisposeAsync() => _listener.DisposeAsync();

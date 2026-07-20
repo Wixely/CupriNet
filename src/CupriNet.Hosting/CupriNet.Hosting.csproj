@@ -10,6 +10,7 @@
     <ProjectReference Include="..\CupriNet.Conjunction\CupriNet.Conjunction.csproj" />
     <ProjectReference Include="..\CupriNet.Rites\CupriNet.Rites.csproj" />
     <ProjectReference Include="..\CupriNet.Persistence\CupriNet.Persistence.csproj" />
+    <ProjectReference Include="..\CupriNet.Traversal\CupriNet.Traversal.csproj" />
     <ProjectReference Include="..\CupriNet.Vessel\CupriNet.Vessel.csproj" />
   </ItemGroup>
 </Project>
