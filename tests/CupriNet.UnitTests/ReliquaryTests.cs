@@ -75,6 +75,57 @@ public class ReliquaryTests
     }
 
     [Fact]
+    public void DiskAssembler_StreamsChunksToDisk_VerifiesAndFinalizes()
+    {
+        var suite = CryptoSuites.Secure();
+        var content = Bytes(1000);
+        var file = ReliquaryBuilder.DescribeFile("a.bin", content, chunkSize: 256, suite);
+        var scratch = Path.Combine(Path.GetTempPath(), "cupri-scratch-" + Guid.NewGuid().ToString("N"));
+        var dest = Path.Combine(Path.GetTempPath(), "cupri-dest-" + Guid.NewGuid().ToString("N"));
+
+        try
+        {
+            using (var assembler = new ReliquaryDiskAssembler(file, suite, scratch))
+            {
+                // Out of order, with a rejected corrupt chunk.
+                Assert.False(assembler.AcceptChunk(2, new byte[file.ChunkSize]));
+                for (var i = file.ChunkCount - 1; i >= 0; i--)
+                {
+                    var start = i * file.ChunkSize;
+                    var len = Math.Min(file.ChunkSize, content.Length - start);
+                    Assert.True(assembler.AcceptChunk(i, content.AsSpan(start, len)));
+                }
+
+                Assert.True(assembler.IsComplete);
+                Assert.False(File.Exists(dest));
+                assembler.CompleteTo(dest);
+            }
+
+            Assert.Equal(content, File.ReadAllBytes(dest));
+            Assert.False(File.Exists(scratch)); // scratch moved, not left behind
+        }
+        finally
+        {
+            if (File.Exists(scratch)) File.Delete(scratch);
+            if (File.Exists(dest)) File.Delete(dest);
+        }
+    }
+
+    [Fact]
+    public void DiskAssembler_Dispose_WithoutFinalize_DeletesScratch()
+    {
+        var suite = CryptoSuites.Secure();
+        var file = ReliquaryBuilder.DescribeFile("a.bin", Bytes(300), chunkSize: 256, suite);
+        var scratch = Path.Combine(Path.GetTempPath(), "cupri-scratch-" + Guid.NewGuid().ToString("N"));
+
+        var assembler = new ReliquaryDiskAssembler(file, suite, scratch);
+        assembler.AcceptChunk(0, Bytes(300).AsSpan(0, 256));
+        Assert.True(File.Exists(scratch));
+        assembler.Dispose();
+        Assert.False(File.Exists(scratch)); // incomplete transfer cleaned up
+    }
+
+    [Fact]
     public void Assembler_HandlesEmptyFile()
     {
         var suite = CryptoSuites.Secure();

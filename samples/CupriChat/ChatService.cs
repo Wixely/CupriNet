@@ -52,6 +52,8 @@ public sealed class ChatService : IAsyncDisposable
     private const int ChunkSize = 64 * 1024;
     private const long MaxFileBytes = 100L * 1024 * 1024; // 100 MB
     private const int MaxPendingOffers = 16;
+    private const int MaxConcurrentIncomingPerPeer = 4;
+    private const long MaxInFlightBytes = 512L * 1024 * 1024; // 512 MB across all active transfers
 
     private const uint FlagOffer = 1;
     private const uint FlagAccept = 2;
@@ -67,7 +69,9 @@ public sealed class ChatService : IAsyncDisposable
     private readonly Dictionary<string, IncomingOffer> _offers = new(StringComparer.Ordinal);
     private readonly Dictionary<string, IncomingTransfer> _incoming = new(StringComparer.Ordinal);
     private readonly CancellationTokenSource _cts = new();
+    private readonly string _scratchDir = Path.Combine(Path.GetTempPath(), "cuprichat", Guid.NewGuid().ToString("N"));
 
+    private long _inFlightBytes;
     private CupriNode? _node;
     private string _username = "anon";
     private Watchword _channel = ChannelFromName(DefaultChannelName);
@@ -211,7 +215,25 @@ public sealed class ChatService : IAsyncDisposable
             return;
 
         var file = offer.Manifest.Files[0];
-        var transfer = new IncomingTransfer(transferId, file, new ReliquaryAssembler(file, _node.Suite), savePath, offer.PeerId);
+
+        // Ward: refuse if this peer already has too many transfers in flight, or the global in-flight
+        // budget would be exceeded. Reserve the declared size up front so concurrent transfers are bounded.
+        lock (_lock)
+        {
+            var perPeer = _incoming.Values.Count(t => t.PeerId == offer.PeerId);
+            if (perPeer >= MaxConcurrentIncomingPerPeer || _inFlightBytes + file.Length > MaxInFlightBytes)
+            {
+                _ = offer.Session.Conduits.SendAsync(Frame(FlagDecline, offer.Manifest.TransferId), _cts.Token);
+                Status?.Invoke("Declined a file: too much transfer activity in flight.");
+                return;
+            }
+            _inFlightBytes += file.Length;
+        }
+
+        Directory.CreateDirectory(_scratchDir);
+        var scratch = Path.Combine(_scratchDir, transferId);
+        var assembler = new ReliquaryDiskAssembler(file, _node.Suite, scratch);
+        var transfer = new IncomingTransfer(transferId, file, assembler, savePath, offer.PeerId, file.Length);
         lock (_lock)
             _incoming[transferId] = transfer;
 
@@ -262,6 +284,16 @@ public sealed class ChatService : IAsyncDisposable
         catch (Exception ex)
         {
             Status?.Invoke($"File channel closed: {ex.Message}");
+        }
+        finally
+        {
+            // Release any incomplete transfers with this peer so their scratch files and in-flight
+            // reservations do not leak when it disconnects mid-transfer.
+            List<IncomingTransfer> orphaned;
+            lock (_lock)
+                orphaned = _incoming.Values.Where(t => t.PeerId == peerId).ToList();
+            foreach (var transfer in orphaned)
+                ReleaseIncoming(transfer);
         }
     }
 
@@ -356,16 +388,35 @@ public sealed class ChatService : IAsyncDisposable
         await FinalizeIncomingAsync(transfer, cancellationToken);
     }
 
-    private async Task FinalizeIncomingAsync(IncomingTransfer transfer, CancellationToken cancellationToken)
+    private Task FinalizeIncomingAsync(IncomingTransfer transfer, CancellationToken cancellationToken)
     {
-        byte[] bytes;
-        try { bytes = transfer.Assembler.Assemble(); }
-        catch (Exception ex) { Status?.Invoke($"File failed verification: {ex.Message}"); return; }
+        try
+        {
+            // Streams the scratch file through a whole-file hash check, then atomically moves it into place.
+            transfer.Assembler.CompleteTo(transfer.SavePath);
+            FileReceived?.Invoke(new FileReceipt(Path.GetFileName(transfer.SavePath), transfer.SavePath));
+        }
+        catch (Exception ex)
+        {
+            Status?.Invoke($"File failed verification: {ex.Message}");
+        }
+        finally
+        {
+            ReleaseIncoming(transfer);
+        }
 
-        await File.WriteAllBytesAsync(transfer.SavePath, bytes, cancellationToken);
+        return Task.CompletedTask;
+    }
+
+    /// <summary>Removes a transfer, disposes its disk assembler (deleting any scratch), and frees its in-flight reservation.</summary>
+    private void ReleaseIncoming(IncomingTransfer transfer)
+    {
         lock (_lock)
-            _incoming.Remove(transfer.Id);
-        FileReceived?.Invoke(new FileReceipt(Path.GetFileName(transfer.SavePath), transfer.SavePath));
+        {
+            if (_incoming.Remove(transfer.Id))
+                _inFlightBytes -= transfer.ReservedBytes;
+        }
+        transfer.Assembler.Dispose();
     }
 
     // ---- Pairing / channel ---------------------------------------------------------------------
@@ -585,8 +636,20 @@ public sealed class ChatService : IAsyncDisposable
             await peer.Session.DisposeAsync();
         foreach (var peer in pending)
             await peer.DisposeAsync();
+
+        List<IncomingTransfer> incoming;
+        lock (_lock)
+        {
+            incoming = [.. _incoming.Values];
+            _incoming.Clear();
+            _inFlightBytes = 0;
+        }
+        foreach (var transfer in incoming)
+            transfer.Assembler.Dispose(); // deletes any scratch file for an unfinished transfer
+
         if (_node is not null)
             await _node.DisposeAsync();
+        try { if (Directory.Exists(_scratchDir)) Directory.Delete(_scratchDir, recursive: true); } catch { /* best-effort */ }
         _cts.Dispose();
     }
 
@@ -596,5 +659,5 @@ public sealed class ChatService : IAsyncDisposable
 
     private sealed record IncomingOffer(string Id, ReliquaryManifest Manifest, ArcanumSession Session, string PeerId);
 
-    private sealed record IncomingTransfer(string Id, ReliquaryFile File, ReliquaryAssembler Assembler, string SavePath, string PeerId);
+    private sealed record IncomingTransfer(string Id, ReliquaryFile File, ReliquaryDiskAssembler Assembler, string SavePath, string PeerId, long ReservedBytes);
 }
