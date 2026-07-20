@@ -65,7 +65,11 @@ public static class DecreeCodec
         var r = new CodexReader(body);
         var version = r.ReadByte();
         var glyph = r.ReadBytes().ToArray();
+        if (glyph.Length is 0 or > 64)
+            throw new CodexFormatException("Invalid Glyph length.");
         var providerKey = r.ReadBytes().ToArray();
+        if (providerKey.Length is 0 or > 64)
+            throw new CodexFormatException("Invalid provider Seal public key length.");
         var endpoints = BeaconCodec.Read(ref r, MaxEndpoints);
         var expiresAt = (long)r.ReadUInt64();
         var sequence = r.ReadUInt64();

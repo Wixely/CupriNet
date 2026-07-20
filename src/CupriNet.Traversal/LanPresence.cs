@@ -62,6 +62,8 @@ public static class LanPresenceCodec
         var version = r.ReadByte();
         var network = new Concordium(r.ReadString());
         var sealKey = r.ReadBytes().ToArray();
+        if (sealKey.Length is 0 or > 64)
+            throw new CodexFormatException("Invalid Seal public key length.");
         var listenPort = (int)(uint)r.ReadVarUInt();
         var issuedAt = (long)r.ReadUInt64();
         return new LanPresence

@@ -57,9 +57,14 @@ public static class ReflexiveExchange
     public static IPEndPoint Decode(ReadOnlySpan<byte> data)
     {
         var r = new CodexReader(data);
-        var address = new IPAddress(r.ReadBytes());
-        var port = (int)(uint)r.ReadVarUInt();
-        return new IPEndPoint(address, port);
+        var addressBytes = r.ReadBytes();
+        if (addressBytes.Length is not (4 or 16))
+            throw new CodexFormatException("Endpoint address must be 4 (IPv4) or 16 (IPv6) bytes.");
+        var address = new IPAddress(addressBytes);
+        var portValue = r.ReadVarUInt();
+        if (portValue > ushort.MaxValue)
+            throw new CodexFormatException("Endpoint port is out of range.");
+        return new IPEndPoint(address, (int)portValue);
     }
 
     private static async Task<byte[]> ReceiveAsync(IVessel vessel, ushort stream, CancellationToken cancellationToken)
@@ -78,6 +83,9 @@ public static class ReflexiveExchange
 /// </summary>
 public sealed class ReflexiveObserver
 {
+    /// <summary>Maximum retained observations (bounds memory and skew from a chatty peer).</summary>
+    public const int MaxObservations = 128;
+
     private readonly List<IPEndPoint> _observations = [];
 
     public int Count => _observations.Count;
@@ -85,6 +93,8 @@ public sealed class ReflexiveObserver
     public void Add(IPEndPoint observed)
     {
         ArgumentNullException.ThrowIfNull(observed);
+        if (_observations.Count >= MaxObservations)
+            _observations.RemoveAt(0); // evict oldest
         _observations.Add(observed);
     }
 

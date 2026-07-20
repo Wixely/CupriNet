@@ -24,7 +24,7 @@ public static class Palette
         }
         catch
         {
-            index = Math.Abs(idHex.GetHashCode());
+            index = idHex.GetHashCode() & 0x7FFFFFFF; // avoid Math.Abs(int.MinValue) overflow
         }
 
         return Colors[index % Colors.Length];

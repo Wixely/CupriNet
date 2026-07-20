@@ -32,6 +32,9 @@ public sealed class NoiseCipherState
     {
         if (_key is null)
             return plaintext.ToArray();
+        // Noise spec: the maximum nonce value must never be used to encrypt (would force nonce reuse).
+        if (_nonce == ulong.MaxValue)
+            throw new NoiseException("Noise nonce exhausted; the session must be re-keyed.");
         var result = _aead.Seal(_key, Nonce(_nonce), plaintext, associatedData);
         _nonce++;
         return result;
@@ -41,6 +44,8 @@ public sealed class NoiseCipherState
     {
         if (_key is null)
             return ciphertext.ToArray();
+        if (_nonce == ulong.MaxValue)
+            throw new NoiseException("Noise nonce exhausted; the session must be re-keyed.");
         var result = _aead.Open(_key, Nonce(_nonce), ciphertext, associatedData)
                      ?? throw new NoiseException("Noise decryption failed (authentication).");
         _nonce++;

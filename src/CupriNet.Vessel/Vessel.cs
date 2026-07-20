@@ -64,9 +64,11 @@ public sealed class Vessel : IVessel
             return null;
 
         var reader = new CodexReader(payload);
-        var streamId = checked((ushort)reader.ReadVarUInt());
+        var rawStreamId = reader.ReadVarUInt();
+        if (rawStreamId > ushort.MaxValue)
+            throw new CodexFormatException($"Stream id {rawStreamId} is out of range.");
         var data = reader.ReadBytes().ToArray();
-        return new VesselFrame(streamId, data);
+        return new VesselFrame((ushort)rawStreamId, data);
     }
 
     public async ValueTask DisposeAsync()

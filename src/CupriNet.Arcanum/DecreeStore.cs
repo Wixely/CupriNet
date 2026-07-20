@@ -18,6 +18,12 @@ public sealed record DecreeStoreOptions
 
     /// <summary>Max distinct Glyphs tracked before new ones are refused.</summary>
     public int MaxGlyphs { get; init; } = 4096;
+
+    /// <summary>
+    /// Longest accepted advertisement lifetime. A provider cannot pin a slot with a far-future expiry;
+    /// Decrees claiming to live longer than this from now are refused (a Ward).
+    /// </summary>
+    public long MaxLifetimeSeconds { get; init; } = 3600; // 1 hour
 }
 
 /// <summary>
@@ -41,8 +47,11 @@ public sealed class DecreeStore
     {
         ArgumentNullException.ThrowIfNull(decree);
 
-        if (now.ToUnixTimeSeconds() > decree.ExpiresAtUnix)
+        var nowUnix = now.ToUnixTimeSeconds();
+        if (nowUnix > decree.ExpiresAtUnix)
             return DecreePublishResult.Rejected;
+        if (decree.ExpiresAtUnix > nowUnix + _options.MaxLifetimeSeconds)
+            return DecreePublishResult.Rejected; // refuse far-future expiry (memory-pinning Ward)
 
         var key = Convert.ToHexStringLower(decree.Glyph);
         if (!_byGlyph.TryGetValue(key, out var bucket))

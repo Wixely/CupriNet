@@ -15,6 +15,9 @@ public sealed class Watchword
     /// <summary>Minimum salt length: 128 bits.</summary>
     public const int MinObscurationBytes = 16;
 
+    /// <summary>Maximum salt length accepted when parsing (bounds Argon2 salt from untrusted input).</summary>
+    public const int MaxObscurationBytes = 64;
+
     /// <summary>Upper bound on the (normalized) name length.</summary>
     public const int MaxAppellationLength = 256;
 
@@ -64,12 +67,12 @@ public sealed class Watchword
         {
             salt = Base64Url.DecodeFromChars(saltText);
         }
-        catch (FormatException)
+        catch (Exception)
         {
             return false;
         }
 
-        if (salt.Length < MinObscurationBytes)
+        if (salt.Length is < MinObscurationBytes or > MaxObscurationBytes)
             return false;
 
         var normalized = Normalize(name);

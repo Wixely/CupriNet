@@ -10,6 +10,8 @@ namespace CupriChat;
 
 public partial class MainWindow : Window
 {
+    private const int MaxMessagesShown = 2000;
+
     private readonly ChatService _chat = new();
     private readonly ObservableCollection<Control> _messageItems = [];
     private readonly ObservableCollection<Control> _userItems = [];
@@ -86,6 +88,7 @@ public partial class MainWindow : Window
         _joinButton.Click += OnJoin;
         _sendButton.Click += OnSend;
         _fileToggle.IsCheckedChanged += (_, _) => _chat.FileTransfersEnabled = _fileToggle.IsChecked == true;
+        Closed += async (_, _) => await _chat.DisposeAsync();
         _messageBox.KeyDown += (_, e) =>
         {
             if (e.Key == Key.Enter)
@@ -174,6 +177,8 @@ public partial class MainWindow : Window
             TextWrapping = TextWrapping.Wrap,
         };
         _messageItems.Add(line);
+        while (_messageItems.Count > MaxMessagesShown)
+            _messageItems.RemoveAt(0);
         if (_messageItems.Count > 0)
             _messagesList.ScrollIntoView(_messageItems.Count - 1);
     });

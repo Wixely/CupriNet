@@ -23,6 +23,9 @@ public sealed class CupriNodeException(string message) : Exception(message);
 /// </summary>
 public sealed class CupriNode : IAsyncDisposable
 {
+    /// <summary>Maximum time a transport handshake (Noise + identity binding + reflexion) may take.</summary>
+    private static readonly TimeSpan HandshakeTimeout = TimeSpan.FromSeconds(30);
+
     private readonly CupriNodeOptions _options;
     private readonly VesselListener _listener;
     private readonly string _advertiseHost;
@@ -110,8 +113,9 @@ public sealed class CupriNode : IAsyncDisposable
         var vessel = await TcpVessel.ConnectAsync(beacon.Host, beacon.Port, cancellationToken: cancellationToken).ConfigureAwait(false);
         try
         {
+            using var timed = LinkedHandshakeToken(cancellationToken);
             var conjunction = await NoiseConjunction.InitiateAsync(
-                vessel, Identity, Network, Suite, expectedPeer: intonation.InviterSigil, cancellationToken: cancellationToken).ConfigureAwait(false);
+                vessel, Identity, Network, Suite, expectedPeer: intonation.InviterSigil, cancellationToken: timed.Token).ConfigureAwait(false);
             await LearnReflexiveAsync(conjunction.Vessel, initiator: true, cancellationToken).ConfigureAwait(false);
             return new PairedPeer(conjunction.Vessel, conjunction.PeerSigil, conjunction.PeerSealPublicKey, isInitiator: true);
         }
@@ -128,7 +132,8 @@ public sealed class CupriNode : IAsyncDisposable
         var vessel = await _listener.AcceptAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            var conjunction = await NoiseConjunction.AcceptAsync(vessel, Identity, Network, Suite, cancellationToken).ConfigureAwait(false);
+            using var timed = LinkedHandshakeToken(cancellationToken);
+            var conjunction = await NoiseConjunction.AcceptAsync(vessel, Identity, Network, Suite, timed.Token).ConfigureAwait(false);
             await LearnReflexiveAsync(conjunction.Vessel, initiator: false, cancellationToken).ConfigureAwait(false);
             return new PairedPeer(conjunction.Vessel, conjunction.PeerSigil, conjunction.PeerSealPublicKey, isInitiator: false);
         }
@@ -151,6 +156,13 @@ public sealed class CupriNode : IAsyncDisposable
             : await ConsecrationHandshake.AcceptAsync(peer.Vessel, keys, Identity.Sigil, peer.PeerSigil, now, Suite, cancellationToken: cancellationToken).ConfigureAwait(false);
 
         return new ArcanumSession(peer.Vessel, consecration.Epoch, consecration.SessionKey, Suite);
+    }
+
+    private static CancellationTokenSource LinkedHandshakeToken(CancellationToken cancellationToken)
+    {
+        var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        cts.CancelAfter(HandshakeTimeout);
+        return cts;
     }
 
     private async Task LearnReflexiveAsync(IVessel vessel, bool initiator, CancellationToken cancellationToken)

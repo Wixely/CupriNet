@@ -45,6 +45,8 @@ public static class NoiseConjunction
         ArgumentNullException.ThrowIfNull(vessel);
         ArgumentNullException.ThrowIfNull(identity);
         ArgumentNullException.ThrowIfNull(suite);
+        if (!suite.IsSecure)
+            throw new NoiseConjunctionException("Noise transport requires a secure crypto suite (real Diffie–Hellman).");
 
         var noiseStatic = suite.Agreement.Generate();
         var handshake = new NoiseHandshakeState(suite, initiator, (noiseStatic.PrivateKey, noiseStatic.PublicKey));

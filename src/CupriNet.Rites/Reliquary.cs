@@ -80,7 +80,9 @@ public static class ReliquaryCodec
         if (fileCount > (ulong)limits.MaxFiles)
             throw new CodexFormatException($"Manifest has {fileCount} files, exceeding the maximum of {limits.MaxFiles}.");
 
+        const int HashSize = 32; // SHA-256
         var files = new List<ReliquaryFile>((int)fileCount);
+        long totalBytes = 0;
         for (var i = 0UL; i < fileCount; i++)
         {
             var path = r.ReadString();
@@ -88,11 +90,33 @@ public static class ReliquaryCodec
             var chunkSize = (int)r.ReadVarUInt();
             var fullHash = r.ReadBytes().ToArray();
             var hashCount = r.ReadVarUInt();
+
+            // Cross-validate the attacker-controlled fields so downstream cannot over-allocate or
+            // compute a negative/oversized chunk length.
+            if (length < 0)
+                throw new CodexFormatException("Negative file length.");
+            if (chunkSize <= 0 || chunkSize > limits.MaxChunkSize)
+                throw new CodexFormatException($"Invalid chunk size {chunkSize}.");
+            if (fullHash.Length != HashSize)
+                throw new CodexFormatException("File hash is not a 32-byte SHA-256.");
+            var expectedChunks = length == 0 ? 0UL : (ulong)((length + chunkSize - 1) / chunkSize);
+            if (hashCount != expectedChunks)
+                throw new CodexFormatException($"Chunk count {hashCount} does not match the declared length.");
             if (hashCount > (ulong)limits.MaxChunksPerFile)
                 throw new CodexFormatException($"File declares {hashCount} chunks, exceeding the maximum of {limits.MaxChunksPerFile}.");
-            var chunkHashes = new List<byte[]>();
+
+            totalBytes += length;
+            if (totalBytes < 0 || totalBytes > limits.MaxTotalBytes)
+                throw new CodexFormatException("Transfer exceeds the maximum total size.");
+
+            var chunkHashes = new List<byte[]>((int)hashCount);
             for (var h = 0UL; h < hashCount; h++)
-                chunkHashes.Add(r.ReadBytes().ToArray());
+            {
+                var hash = r.ReadBytes().ToArray();
+                if (hash.Length != HashSize)
+                    throw new CodexFormatException("Chunk hash is not a 32-byte SHA-256.");
+                chunkHashes.Add(hash);
+            }
 
             files.Add(new ReliquaryFile
             {

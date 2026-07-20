@@ -7,3 +7,6 @@ artifacts/
 
 # Scratch / design notes, not part of the library
 chat.txt
+
+# Security review report — deliverable, deliberately not checked in
+SECURITY-REVIEW.md

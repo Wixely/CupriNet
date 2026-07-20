@@ -5,6 +5,7 @@ using System.Buffers.Text;
 using System.Text;
 using System.Text.Json;
 using CupriNet.Abstractions;
+using CupriNet.Alembic;
 using CupriNet.Arcanum;
 using CupriNet.Codex;
 using CupriNet.Core;
@@ -13,7 +14,7 @@ using CupriNet.Rites;
 
 namespace CupriChat;
 
-/// <summary>A chat line surfaced to the UI. AuthorId is the sender's Sigil (hex) — used for colour and disambiguation.</summary>
+/// <summary>A chat line surfaced to the UI. AuthorId is the sender's Sigil (hex).</summary>
 public sealed record ChatMessage(string User, string AuthorId, string Text, DateTimeOffset At, bool IsLocal);
 
 /// <summary>A participant shown in the user list.</summary>
@@ -25,9 +26,31 @@ public sealed record FileOffer(string TransferId, string FromDisplay, string Fil
 /// <summary>A completed incoming file.</summary>
 public sealed record FileReceipt(string FileName, string SavePath);
 
-/// <summary>The wire form inside an Epistle payload. Id is the author's Sigil (hex) so it survives relaying.</summary>
-public sealed record ChatWire(string User, string Id, string Text)
+/// <summary>
+/// The wire form inside an Epistle payload. Carries the author's Seal public key and a signature over
+/// (Id, User, Text) so recipients can authenticate the author even when the message is relayed by the hub.
+/// </summary>
+public sealed record ChatWire(string User, string Id, byte[] PubKey, byte[] Sig, string Text)
 {
+    private static byte[] SignedBytes(string id, string user, string text)
+        => Encoding.UTF8.GetBytes($"{id}\n{user}\n{text}");
+
+    public static ChatWire Create(string user, string id, string text, NodeIdentity identity, ICryptoSuite suite)
+    {
+        var signature = suite.CreateSigner(identity.Seal.PrivateKey).Sign(SignedBytes(id, user, text));
+        return new ChatWire(user, id, identity.Seal.PublicKey, signature, text);
+    }
+
+    /// <summary>Verifies the author identity: the Id is the Sigil of PubKey and the signature is valid.</summary>
+    public bool Verify(ICryptoSuite suite)
+    {
+        if (PubKey.Length is 0 or > 64 || Sig.Length == 0)
+            return false;
+        if (Convert.ToHexStringLower(Sigil.FromSealPublicKey(PubKey).Span) != Id)
+            return false;
+        return suite.Verifier.Verify(SignedBytes(Id, User, Text), Sig, PubKey);
+    }
+
     public static string Serialize(ChatWire wire) => JsonSerializer.Serialize(wire);
 
     public static ChatWire? Deserialize(string json)
@@ -37,25 +60,22 @@ public sealed record ChatWire(string User, string Id, string Text)
     }
 }
 
-/// <summary>
-/// Drives a CupriNet node for CupriChat: pairing, deferred channel Consecration, chat over Epistles, and
-/// direct file transfers over the Conduit rite using the Reliquary file protocol. The node relays chat to
-/// its other peers (a hub); file transfers go only over the direct session to the chosen peer.
-/// </summary>
+/// <summary>Drives a CupriNet node for CupriChat: pairing, channel Consecration, authenticated chat, and file transfers.</summary>
 public sealed class ChatService : IAsyncDisposable
 {
     private const string NetworkId = "cuprichat";
     private const uint ReliquaryProtocol = 1;
     private const int ChunkSize = 64 * 1024;
+    private const long MaxFileBytes = 100L * 1024 * 1024; // 100 MB
+    private const int MaxPendingOffers = 16;
 
-    // Conduit frame flags for the file-transfer protocol.
     private const uint FlagOffer = 1;
     private const uint FlagAccept = 2;
     private const uint FlagDecline = 3;
     private const uint FlagChunk = 4;
 
     private readonly object _lock = new();
-    private readonly HashSet<string> _seen = new(StringComparer.Ordinal);
+    private readonly EpistleDeduper _deduper = new();
     private readonly List<PairedPeer> _pending = [];
     private readonly List<PeerSession> _sessions = [];
     private readonly Dictionary<string, string?> _users = new(StringComparer.Ordinal);
@@ -81,8 +101,6 @@ public sealed class ChatService : IAsyncDisposable
     public bool FileTransfersEnabled { get; set; }
 
     public string SelfShortId => Short(_selfId);
-
-    public string SelfId => _selfId;
 
     public string Username => _username;
 
@@ -128,14 +146,14 @@ public sealed class ChatService : IAsyncDisposable
 
     public void SetIdentity(string username, string channelName)
     {
-        _username = string.IsNullOrWhiteSpace(username) ? "anon" : username.Trim();
-        _channel = ChannelFromName(string.IsNullOrWhiteSpace(channelName) ? DefaultChannelName : channelName.Trim());
-        if (_selfId.Length > 0)
+        lock (_lock)
         {
-            lock (_lock)
+            _username = string.IsNullOrWhiteSpace(username) ? "anon" : username.Trim();
+            _channel = ChannelFromName(string.IsNullOrWhiteSpace(channelName) ? DefaultChannelName : channelName.Trim());
+            if (_selfId.Length > 0)
                 _users[_selfId] = _username;
-            RaiseUsers();
         }
+        RaiseUsers();
     }
 
     public void JoinChannel()
@@ -154,9 +172,12 @@ public sealed class ChatService : IAsyncDisposable
 
     public async Task SendAsync(string text)
     {
-        var epistle = Epistle.Text(ChatWire.Serialize(new ChatWire(_username, _selfId, text)), DateTimeOffset.UtcNow);
+        if (_node is null)
+            return;
+        var wire = ChatWire.Create(_username, _selfId, text, _node.Identity, _node.Suite);
+        var epistle = Epistle.Text(ChatWire.Serialize(wire), DateTimeOffset.UtcNow);
         lock (_lock)
-            _seen.Add(Convert.ToHexStringLower(epistle.MessageId));
+            _deduper.TryMarkSeen(epistle.MessageId);
 
         await BroadcastAsync(epistle, except: null, _cts.Token);
         MessageArrived?.Invoke(new ChatMessage(_username, _selfId, text, DateTimeOffset.Now, IsLocal: true));
@@ -164,7 +185,6 @@ public sealed class ChatService : IAsyncDisposable
 
     // ---- File transfer -------------------------------------------------------------------------
 
-    /// <summary>Offers a file to a directly-connected peer (identified by its Sigil hex).</summary>
     public async Task SendFileAsync(string peerIdHex, string filePath)
     {
         if (_node is null)
@@ -177,19 +197,25 @@ public sealed class ChatService : IAsyncDisposable
             return;
         }
 
+        var info = new FileInfo(filePath);
+        if (info.Length > MaxFileBytes)
+        {
+            Status?.Invoke($"File is too large (max {FormatSize(MaxFileBytes)}).");
+            return;
+        }
+
         var content = await File.ReadAllBytesAsync(filePath, _cts.Token);
         var name = Path.GetFileName(filePath);
         var manifest = ReliquaryBuilder.Build([(name, content)], ChunkSize, _node.Suite);
         var transferId = Convert.ToHexStringLower(manifest.TransferId);
 
         lock (_lock)
-            _outgoing[transferId] = new OutgoingTransfer(transferId, manifest, content, session);
+            _outgoing[transferId] = new OutgoingTransfer(transferId, manifest, content, session, peerIdHex);
 
         await session.Conduits.SendAsync(Frame(FlagOffer, ReliquaryCodec.Encode(manifest)), _cts.Token);
         Status?.Invoke($"Offered '{name}' ({FormatSize(content.Length)}). Waiting for the peer to accept…");
     }
 
-    /// <summary>Accepts a pending offer and starts receiving into <paramref name="savePath"/>.</summary>
     public async Task AcceptFileAsync(string transferId, string savePath)
     {
         IncomingOffer? offer;
@@ -199,14 +225,19 @@ public sealed class ChatService : IAsyncDisposable
             return;
 
         var file = offer.Manifest.Files[0];
+        var transfer = new IncomingTransfer(transferId, file, new ReliquaryAssembler(file, _node.Suite), savePath, offer.PeerId);
         lock (_lock)
-            _incoming[transferId] = new IncomingTransfer(transferId, file, new ReliquaryAssembler(file, _node.Suite), savePath, offer.Session);
+            _incoming[transferId] = transfer;
 
         await offer.Session.Conduits.SendAsync(Frame(FlagAccept, offer.Manifest.TransferId), _cts.Token);
-        Status?.Invoke($"Receiving '{file.RelativePath}'…");
+
+        // An empty (zero-chunk) file is already complete and no chunk frames will arrive.
+        if (transfer.Assembler.IsComplete)
+            await FinalizeIncomingAsync(transfer, _cts.Token);
+        else
+            Status?.Invoke($"Receiving '{file.RelativePath}'…");
     }
 
-    /// <summary>Declines a pending offer.</summary>
     public async Task DeclineFileAsync(string transferId)
     {
         IncomingOffer? offer;
@@ -219,6 +250,7 @@ public sealed class ChatService : IAsyncDisposable
 
     private async Task ConduitLoopAsync(PeerSession peer, CancellationToken cancellationToken)
     {
+        var peerId = Convert.ToHexStringLower(peer.Sigil.Span);
         try
         {
             while (!cancellationToken.IsCancellationRequested)
@@ -231,18 +263,10 @@ public sealed class ChatService : IAsyncDisposable
 
                 switch (frame.Flags)
                 {
-                    case FlagOffer:
-                        await HandleOfferAsync(peer, frame.Payload, cancellationToken);
-                        break;
-                    case FlagAccept:
-                        await HandleAcceptAsync(frame.Payload, cancellationToken);
-                        break;
-                    case FlagDecline:
-                        HandleDecline(frame.Payload);
-                        break;
-                    case FlagChunk:
-                        await HandleChunkAsync(frame.Payload, cancellationToken);
-                        break;
+                    case FlagOffer: await HandleOfferAsync(peer, peerId, frame.Payload, cancellationToken); break;
+                    case FlagAccept: await HandleAcceptAsync(peerId, frame.Payload, cancellationToken); break;
+                    case FlagDecline: HandleDecline(peerId, frame.Payload); break;
+                    case FlagChunk: await HandleChunkAsync(peerId, frame.Payload, cancellationToken); break;
                 }
             }
         }
@@ -255,7 +279,7 @@ public sealed class ChatService : IAsyncDisposable
         }
     }
 
-    private async Task HandleOfferAsync(PeerSession peer, byte[] payload, CancellationToken cancellationToken)
+    private async Task HandleOfferAsync(PeerSession peer, string peerId, byte[] payload, CancellationToken cancellationToken)
     {
         ReliquaryManifest manifest;
         try { manifest = ReliquaryCodec.Decode(payload); }
@@ -264,8 +288,9 @@ public sealed class ChatService : IAsyncDisposable
             return;
 
         var transferId = Convert.ToHexStringLower(manifest.TransferId);
+        var file = manifest.Files[0];
 
-        if (!FileTransfersEnabled)
+        if (!FileTransfersEnabled || file.Length > MaxFileBytes)
         {
             await peer.Session.Conduits.SendAsync(Frame(FlagDecline, manifest.TransferId), cancellationToken);
             return;
@@ -274,21 +299,26 @@ public sealed class ChatService : IAsyncDisposable
         string fromName;
         lock (_lock)
         {
-            _offers[transferId] = new IncomingOffer(transferId, manifest, peer.Session);
-            fromName = _users.TryGetValue(Convert.ToHexStringLower(peer.Sigil.Span), out var n) && n is not null ? n : "(peer)";
+            if (_offers.Count >= MaxPendingOffers)
+            {
+                // too many pending offers from a flood — refuse without storing
+                _ = peer.Session.Conduits.SendAsync(Frame(FlagDecline, manifest.TransferId), cancellationToken);
+                return;
+            }
+            _offers[transferId] = new IncomingOffer(transferId, manifest, peer.Session, peerId);
+            fromName = _users.TryGetValue(peerId, out var n) && n is not null ? n : "(peer)";
         }
 
-        var file = manifest.Files[0];
-        FileOfferReceived?.Invoke(new FileOffer(transferId, $"{fromName}#{Short(Convert.ToHexStringLower(peer.Sigil.Span))}", file.RelativePath, file.Length));
+        FileOfferReceived?.Invoke(new FileOffer(transferId, $"{fromName}#{Short(peerId)}", Path.GetFileName(file.RelativePath), file.Length));
     }
 
-    private async Task HandleAcceptAsync(byte[] transferIdBytes, CancellationToken cancellationToken)
+    private async Task HandleAcceptAsync(string peerId, byte[] transferIdBytes, CancellationToken cancellationToken)
     {
         var transferId = Convert.ToHexStringLower(transferIdBytes);
         OutgoingTransfer? transfer;
         lock (_lock)
             _outgoing.TryGetValue(transferId, out transfer);
-        if (transfer is null)
+        if (transfer is null || transfer.PeerId != peerId) // only the offered peer may accept
             return;
 
         var file = transfer.Manifest.Files[0];
@@ -308,15 +338,20 @@ public sealed class ChatService : IAsyncDisposable
         Status?.Invoke($"Sent '{file.RelativePath}'.");
     }
 
-    private void HandleDecline(byte[] transferIdBytes)
+    private void HandleDecline(string peerId, byte[] transferIdBytes)
     {
         var transferId = Convert.ToHexStringLower(transferIdBytes);
         lock (_lock)
-            _outgoing.Remove(transferId);
+        {
+            if (_outgoing.TryGetValue(transferId, out var t) && t.PeerId == peerId)
+                _outgoing.Remove(transferId);
+            else
+                return;
+        }
         Status?.Invoke("The peer declined the file.");
     }
 
-    private async Task HandleChunkAsync(byte[] payload, CancellationToken cancellationToken)
+    private async Task HandleChunkAsync(string peerId, byte[] payload, CancellationToken cancellationToken)
     {
         var reader = new CodexReader(payload);
         var transferId = Convert.ToHexStringLower(reader.ReadBytes());
@@ -326,22 +361,24 @@ public sealed class ChatService : IAsyncDisposable
         IncomingTransfer? transfer;
         lock (_lock)
             _incoming.TryGetValue(transferId, out transfer);
-        if (transfer is null)
+        if (transfer is null || transfer.PeerId != peerId) // only the offering peer may deliver chunks
             return;
 
-        if (!transfer.Assembler.AcceptChunk(chunkIndex, data))
+        if (!transfer.Assembler.AcceptChunk(chunkIndex, data) || !transfer.Assembler.IsComplete)
             return;
 
-        if (!transfer.Assembler.IsComplete)
-            return;
+        await FinalizeIncomingAsync(transfer, cancellationToken);
+    }
 
+    private async Task FinalizeIncomingAsync(IncomingTransfer transfer, CancellationToken cancellationToken)
+    {
         byte[] bytes;
         try { bytes = transfer.Assembler.Assemble(); }
         catch (Exception ex) { Status?.Invoke($"File failed verification: {ex.Message}"); return; }
 
         await File.WriteAllBytesAsync(transfer.SavePath, bytes, cancellationToken);
         lock (_lock)
-            _incoming.Remove(transferId);
+            _incoming.Remove(transfer.Id);
         FileReceived?.Invoke(new FileReceipt(Path.GetFileName(transfer.SavePath), transfer.SavePath));
     }
 
@@ -358,7 +395,8 @@ public sealed class ChatService : IAsyncDisposable
             {
                 var peer = await _node.AcceptAsync(cancellationToken);
                 Status?.Invoke("A peer paired with us.");
-                await OnPeerPairedAsync(peer);
+                // Do not block the accept loop on Consecration (which can wait for the peer to join).
+                _ = Task.Run(() => OnPeerPairedAsync(peer));
             }
             catch (OperationCanceledException)
             {
@@ -405,6 +443,7 @@ public sealed class ChatService : IAsyncDisposable
         }
         catch (OperationCanceledException)
         {
+            await peer.DisposeAsync();
         }
         catch (Exception ex)
         {
@@ -427,13 +466,13 @@ public sealed class ChatService : IAsyncDisposable
 
                 bool isNew;
                 lock (_lock)
-                    isNew = _seen.Add(Convert.ToHexStringLower(message.Epistle.MessageId));
+                    isNew = _deduper.TryMarkSeen(message.Epistle.MessageId);
                 if (!isNew)
                     continue;
 
                 var wire = ChatWire.Deserialize(message.Epistle.AsText());
-                if (wire is null)
-                    continue;
+                if (wire is null || _node is null || !wire.Verify(_node.Suite) || wire.Id == _selfId)
+                    continue; // drop unauthenticated / self-impersonating messages
 
                 UpdateUser(wire.Id, wire.User);
                 MessageArrived?.Invoke(new ChatMessage(wire.User, wire.Id, wire.Text, DateTimeOffset.Now, IsLocal: false));
@@ -539,10 +578,17 @@ public sealed class ChatService : IAsyncDisposable
     {
         await _cts.CancelAsync();
         List<PeerSession> sessions;
+        List<PairedPeer> pending;
         lock (_lock)
+        {
             sessions = [.. _sessions];
+            pending = [.. _pending];
+            _pending.Clear();
+        }
         foreach (var peer in sessions)
             await peer.Session.DisposeAsync();
+        foreach (var peer in pending)
+            await peer.DisposeAsync();
         if (_node is not null)
             await _node.DisposeAsync();
         _cts.Dispose();
@@ -550,9 +596,9 @@ public sealed class ChatService : IAsyncDisposable
 
     private sealed record PeerSession(Sigil Sigil, ArcanumSession Session);
 
-    private sealed record OutgoingTransfer(string Id, ReliquaryManifest Manifest, byte[] Content, ArcanumSession Session);
+    private sealed record OutgoingTransfer(string Id, ReliquaryManifest Manifest, byte[] Content, ArcanumSession Session, string PeerId);
 
-    private sealed record IncomingOffer(string Id, ReliquaryManifest Manifest, ArcanumSession Session);
+    private sealed record IncomingOffer(string Id, ReliquaryManifest Manifest, ArcanumSession Session, string PeerId);
 
-    private sealed record IncomingTransfer(string Id, ReliquaryFile File, ReliquaryAssembler Assembler, string SavePath, ArcanumSession Session);
+    private sealed record IncomingTransfer(string Id, ReliquaryFile File, ReliquaryAssembler Assembler, string SavePath, string PeerId);
 }

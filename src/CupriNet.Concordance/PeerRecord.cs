@@ -69,6 +69,8 @@ public static class PeerRecordCodec
     {
         var r = new CodexReader(body);
         var sealKey = r.ReadBytes().ToArray();
+        if (sealKey.Length is 0 or > 64)
+            throw new CodexFormatException("Invalid Seal public key length.");
         var endpoints = BeaconCodec.Read(ref r, MaxEndpoints);
         var sequence = r.ReadUInt64();
         var issuedAt = (long)r.ReadUInt64();

@@ -136,12 +136,16 @@ public sealed class NoiseHandshakeState
             switch (token)
             {
                 case Token.E:
+                    if (offset + DhLen > message.Length)
+                        throw new NoiseException("Handshake message is too short for the ephemeral key.");
                     _remoteEphemeral = message.Slice(offset, DhLen).ToArray();
                     offset += DhLen;
                     _symmetric.MixHash(_remoteEphemeral);
                     break;
                 case Token.S:
                     var length = _symmetric.HasKey ? DhLen + 16 : DhLen;
+                    if (offset + length > message.Length)
+                        throw new NoiseException("Handshake message is too short for the static key.");
                     _remoteStatic = _symmetric.DecryptAndHash(message.Slice(offset, length));
                     offset += length;
                     break;

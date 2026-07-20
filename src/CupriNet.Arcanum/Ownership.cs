@@ -222,11 +222,17 @@ public static class Ownership
     /// Validates a linear ownership chain and returns its head. Throws on a broken hash link, a
     /// non-monotonic Reign, a channel mismatch, or a transfer not signed by the reigning owner.
     /// </summary>
+    /// <summary>Upper bound on a resolvable ownership chain (a Ward against a peer supplying a huge chain).</summary>
+    public const int MaxChainLength = 4096;
+
     public static OwnershipState Resolve(ChannelDescriptor descriptor, IReadOnlyList<AscensionLink> links, ICryptoSuite suite)
     {
         ArgumentNullException.ThrowIfNull(descriptor);
         ArgumentNullException.ThrowIfNull(links);
         ArgumentNullException.ThrowIfNull(suite);
+
+        if (links.Count > MaxChainLength)
+            throw new OwnershipException($"Ownership chain of {links.Count} exceeds the maximum of {MaxChainLength}.");
 
         if (!VerifyDescriptor(descriptor, suite))
             throw new OwnershipException("Channel descriptor signature is invalid.");
