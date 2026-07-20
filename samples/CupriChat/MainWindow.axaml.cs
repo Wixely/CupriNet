@@ -203,12 +203,12 @@ public partial class MainWindow : Window
         finally { _connectButton.IsEnabled = true; }
     }
 
-    private void OnJoin(object? sender, RoutedEventArgs e)
+    private async void OnJoin(object? sender, RoutedEventArgs e)
     {
         _chat.SetIdentity(_usernameBox.Text ?? "anon", _channelBox.Text ?? ChatService.DefaultChannelName);
-        _chat.JoinChannel();
-        _identityText.Text = $"you: {_chat.Username}#{_chat.SelfShortId}";
         ShowStep(3);
+        await _chat.JoinChannelAsync();
+        _identityText.Text = $"you: {_chat.Username}#{_chat.SelfShortId} (channel persona)";
     }
 
     private async void OnSend(object? sender, RoutedEventArgs e)

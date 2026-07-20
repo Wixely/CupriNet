@@ -79,7 +79,9 @@ public sealed class ChatService : IAsyncDisposable
 
     private long _inFlightBytes;
     private CupriNode? _node;
+    private ISecretStore? _store;
     private KindredBook? _kindred;
+    private RiteIdentity? _persona;
     private IReadOnlyList<Beacon> _selfBeacons = [];
     private string _username = "anon";
     private Watchword _channel = ChannelFromName(DefaultChannelName);
@@ -112,16 +114,16 @@ public sealed class ChatService : IAsyncDisposable
         Directory.CreateDirectory(home);
         var suite = new BouncyCastleSuite();
         var masterKey = KeyFileMasterKey.LoadOrCreate(Path.Combine(home, "master.key"));
-        var store = new FileSecretStore(Path.Combine(home, "secrets"), new AeadDataProtector(suite, masterKey));
+        _store = new FileSecretStore(Path.Combine(home, "secrets"), new AeadDataProtector(suite, masterKey));
 
         _node = await CupriNode.CreateAsync(new CupriNodeOptions
         {
             Concordium = NetworkId,
             ListenAddress = IPAddress.Parse(localIp),
             Suite = suite,
-            SecretStore = store,
+            SecretStore = _store,
         }, _cts.Token);
-        _kindred = await KindredBook.LoadAsync(store, _cts.Token);
+        _kindred = await KindredBook.LoadAsync(_store, _cts.Token);
 
         _selfId = Convert.ToHexStringLower(_node.Identity.Sigil.Span);
         _selfBeacons = [new Beacon(EndpointKind.Host, localIp, _node.LocalEndPoint.Port)];
@@ -187,6 +189,7 @@ public sealed class ChatService : IAsyncDisposable
         if (_node is null || _kindred is null)
             return;
         SetIdentity(username, channelName);
+        await EnsurePersonaAsync(channelName);
         lock (_lock)
             _joined = true;
 
@@ -215,8 +218,10 @@ public sealed class ChatService : IAsyncDisposable
         }
     }
 
-    public void JoinChannel()
+    public async Task JoinChannelAsync()
     {
+        await EnsurePersonaAsync(_channelName);
+
         List<PairedPeer> toJoin;
         lock (_lock)
         {
@@ -227,6 +232,48 @@ public sealed class ChatService : IAsyncDisposable
 
         foreach (var peer in toJoin)
             _ = Task.Run(() => ConsecrateAsync(peer, _cts.Token));
+    }
+
+    /// <summary>
+    /// Loads or creates this channel's persona — a Seal keypair distinct from our overlay identity — and
+    /// adopts it as our in-channel identity. We cultivate the overlay under our Sigil, but what we SAY in
+    /// this channel is attributed to the persona, unlinkable to that overlay Sigil. Personas are persisted
+    /// per channel, so we remain the same member across runs without ever exposing our overlay identity.
+    /// </summary>
+    private async Task EnsurePersonaAsync(string channelName)
+    {
+        if (_node is null || _store is null)
+            return;
+
+        var key = "persona/" + channelName;
+        RiteIdentity persona;
+        var stored = await _store.LoadAsync(key, _cts.Token);
+        if (stored is not null)
+        {
+            var r = new CodexReader(stored);
+            var priv = r.ReadBytes().ToArray();
+            var pub = r.ReadBytes().ToArray();
+            persona = new RiteIdentity(pub, priv);
+        }
+        else
+        {
+            var seal = _node.Suite.GenerateSeal();
+            persona = new RiteIdentity(seal.PublicKey, seal.PrivateKey);
+            var w = new CodexWriter();
+            w.WriteBytes(seal.PrivateKey);
+            w.WriteBytes(seal.PublicKey);
+            await _store.StoreAsync(key, w.ToArray(), _cts.Token);
+        }
+
+        var personaId = Convert.ToHexStringLower(Sigil.FromSealPublicKey(persona.SealPublicKey).Span);
+        lock (_lock)
+        {
+            _persona = persona;
+            _users.Remove(_selfId); // swap our list entry from the overlay id to the channel persona
+            _selfId = personaId;
+            _users[_selfId] = _username;
+        }
+        RaiseUsers();
     }
 
     public async Task SendAsync(string text)
@@ -582,7 +629,8 @@ public sealed class ChatService : IAsyncDisposable
         try
         {
             Status?.Invoke("Joining channel with a peer…");
-            var session = await _node!.ConsecrateAsync(peer, _channel, DateTimeOffset.UtcNow, cancellationToken: cancellationToken);
+            var options = new ConsecrateOptions { ChannelIdentity = _persona };
+            var session = await _node!.ConsecrateAsync(peer, _channel, DateTimeOffset.UtcNow, options, cancellationToken);
             var peerSession = new PeerSession(peer.PeerSigil, peer.PeerSealPublicKey, session);
 
             lock (_lock)
