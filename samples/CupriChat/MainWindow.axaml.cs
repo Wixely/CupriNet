@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Documents;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Media;
@@ -45,9 +46,18 @@ public partial class MainWindow : Window
     private readonly Button _joinButton;
 
     private readonly ListBox _messagesList;
+    private readonly Border _messagesBorder;
     private readonly TextBox _messageBox;
     private readonly Button _sendButton;
     private readonly ListBox _usersList;
+
+    private IReadOnlyList<UserView> _members = [];
+
+    // @-mention tab-completion state (to cycle through matches on repeated Tab)
+    private int _mentionAt = -1;
+    private string _mentionPrefix = string.Empty;
+    private string _mentionLast = string.Empty;
+    private int _mentionIndex;
 
     public MainWindow()
     {
@@ -80,6 +90,7 @@ public partial class MainWindow : Window
         _joinButton = this.FindControl<Button>("JoinButton")!;
 
         _messagesList = this.FindControl<ListBox>("MessagesList")!;
+        _messagesBorder = this.FindControl<Border>("MessagesBorder")!;
         _messageBox = this.FindControl<TextBox>("MessageBox")!;
         _sendButton = this.FindControl<Button>("SendButton")!;
         _usersList = this.FindControl<ListBox>("UsersList")!;
@@ -109,6 +120,10 @@ public partial class MainWindow : Window
             {
                 OnSend(this, e);
                 e.Handled = true;
+            }
+            else if (e.Key == Key.Tab && TryCompleteMention())
+            {
+                e.Handled = true; // consume Tab so focus doesn't move
             }
         };
 
@@ -224,22 +239,45 @@ public partial class MainWindow : Window
     private void OnMessage(ChatMessage message) => Dispatcher.UIThread.Post(() =>
     {
         var who = $"{message.User}#{Short(message.AuthorId)}";
-        var line = new TextBlock
+        var stamp = $"[{message.At:HH:mm:ss}] ";
+        var mentioned = !message.IsLocal && MentionsMe(message.Text);
+
+        var line = new TextBlock { TextWrapping = TextWrapping.Wrap };
+        if (mentioned)
         {
-            Text = $"[{message.At:HH:mm}] {who}: {message.Text}",
-            Foreground = Palette.For(message.AuthorId),
-            FontWeight = message.IsLocal ? FontWeight.Bold : FontWeight.Normal,
-            TextWrapping = TextWrapping.Wrap,
-        };
+            // Someone @'d us: large red, and flash the chat box.
+            line.Text = $"{stamp}{who}: {message.Text}";
+            line.Foreground = Brushes.Red;
+            line.FontWeight = FontWeight.Bold;
+            line.FontSize = 18;
+        }
+        else if (message.IsLocal)
+        {
+            // Our own messages: white text, with our username underlined.
+            line.Inlines!.Add(new Run(stamp) { Foreground = Brushes.White });
+            line.Inlines.Add(new Run(who) { Foreground = Brushes.White, TextDecorations = TextDecorations.Underline });
+            line.Inlines.Add(new Run($": {message.Text}") { Foreground = Brushes.White });
+            line.FontWeight = FontWeight.Bold;
+        }
+        else
+        {
+            line.Text = $"{stamp}{who}: {message.Text}";
+            line.Foreground = Palette.For(message.AuthorId);
+        }
+
         _messageItems.Add(line);
         while (_messageItems.Count > MaxMessagesShown)
             _messageItems.RemoveAt(0);
         if (_messageItems.Count > 0)
             _messagesList.ScrollIntoView(_messageItems.Count - 1);
+
+        if (mentioned)
+            FlashChatBox();
     });
 
     private void OnUsers(IReadOnlyList<UserView> users) => Dispatcher.UIThread.Post(() =>
     {
+        _members = users;
         _userItems.Clear();
         foreach (var user in users)
         {
@@ -248,6 +286,7 @@ public partial class MainWindow : Window
                 Text = user.Display,
                 Foreground = Palette.For(user.Id),
                 FontWeight = user.IsSelf ? FontWeight.Bold : FontWeight.Normal,
+                TextDecorations = user.IsSelf ? TextDecorations.Underline : null,
                 TextWrapping = TextWrapping.Wrap,
             };
 
@@ -264,6 +303,91 @@ public partial class MainWindow : Window
     });
 
     private void OnStatus(string status) => Dispatcher.UIThread.Post(() => _statusText.Text = status);
+
+    /// <summary>True if the text contains an @-mention of our own username (whole-name match, case-insensitive).</summary>
+    private bool MentionsMe(string text)
+    {
+        var me = _chat.Username;
+        if (string.IsNullOrEmpty(me))
+            return false;
+
+        var i = 0;
+        while ((i = text.IndexOf('@', i)) >= 0)
+        {
+            var start = i + 1;
+            if (start + me.Length <= text.Length
+                && string.Compare(text, start, me, 0, me.Length, StringComparison.OrdinalIgnoreCase) == 0)
+            {
+                var after = start + me.Length;
+                if (after == text.Length || !IsNameChar(text[after]))
+                    return true;
+            }
+            i++;
+        }
+        return false;
+    }
+
+    private static bool IsNameChar(char c) => char.IsLetterOrDigit(c) || c is '_' or '-';
+
+    /// <summary>Briefly flashes the message pane border red to draw attention to a mention.</summary>
+    private async void FlashChatBox()
+    {
+        var normal = Brush.Parse("#888");
+        for (var i = 0; i < 4; i++)
+        {
+            _messagesBorder.BorderBrush = Brushes.Red;
+            _messagesBorder.BorderThickness = new Thickness(2);
+            await Task.Delay(130);
+            _messagesBorder.BorderBrush = normal;
+            _messagesBorder.BorderThickness = new Thickness(1);
+            await Task.Delay(130);
+        }
+    }
+
+    /// <summary>Tab-completes an @-mention from the current channel members (never our own name); cycles on repeated Tab.</summary>
+    private bool TryCompleteMention()
+    {
+        var text = _messageBox.Text ?? string.Empty;
+        var caret = Math.Clamp(_messageBox.CaretIndex, 0, text.Length);
+        if (caret == 0)
+            return false;
+
+        var at = text.LastIndexOf('@', caret - 1);
+        if (at < 0)
+            return false;
+        var token = text.Substring(at + 1, caret - at - 1);
+        if (token.Contains(' ') || token.Contains('\n'))
+            return false;
+
+        // We are cycling if the token is exactly what we last inserted at this same '@'.
+        var continuing = _mentionAt == at && _mentionLast.Length > 0 && token.Equals(_mentionLast, StringComparison.Ordinal);
+        var prefix = continuing ? _mentionPrefix : token;
+
+        var candidates = MentionCandidates(prefix);
+        if (candidates.Count == 0)
+            return false;
+
+        var index = continuing ? (_mentionIndex + 1) % candidates.Count : 0;
+        var chosen = candidates[index];
+
+        _messageBox.Text = string.Concat(text.AsSpan(0, at + 1), chosen, text.AsSpan(caret));
+        _messageBox.CaretIndex = at + 1 + chosen.Length;
+
+        _mentionAt = at;
+        _mentionPrefix = prefix;
+        _mentionLast = chosen;
+        _mentionIndex = index;
+        return true;
+    }
+
+    private List<string> MentionCandidates(string prefix) =>
+        _members
+            .Where(u => !u.IsSelf && !string.IsNullOrEmpty(u.Name))
+            .Select(u => u.Name)
+            .Where(n => n.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)
+            .ToList();
 
     private async Task SendFileToAsync(string peerId)
     {

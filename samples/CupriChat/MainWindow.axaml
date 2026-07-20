@@ -57,7 +57,7 @@
       <!-- Page 3: Chat -->
       <Grid Name="Page3" IsVisible="False" ColumnDefinitions="*,10,210">
         <Grid Grid.Column="0" RowDefinitions="*,Auto">
-          <Border Grid.Row="0" BorderBrush="#888" BorderThickness="1" CornerRadius="4">
+          <Border Name="MessagesBorder" Grid.Row="0" BorderBrush="#888" BorderThickness="1" CornerRadius="4">
             <ListBox Name="MessagesList"/>
           </Border>
           <DockPanel Grid.Row="1" Margin="0,8,0,0">

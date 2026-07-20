@@ -19,8 +19,8 @@ namespace CupriChat;
 /// <summary>A chat line surfaced to the UI. AuthorId is the sender's Sigil (hex).</summary>
 public sealed record ChatMessage(string User, string AuthorId, string Text, DateTimeOffset At, bool IsLocal);
 
-/// <summary>A participant shown in the user list.</summary>
-public sealed record UserView(string Id, string Display, bool IsSelf, bool IsDirectPeer);
+/// <summary>A participant shown in the user list. Name is the raw display name (for @-mentions/completion).</summary>
+public sealed record UserView(string Id, string Display, string Name, bool IsSelf, bool IsDirectPeer);
 
 /// <summary>A past channel we can rejoin by re-dialing the trusted peers who proved they knew it.</summary>
 public sealed record ChannelHistory(string ChannelName, IReadOnlyList<string> PeerShortIds);
@@ -870,7 +870,7 @@ public sealed class ChatService : IAsyncDisposable
         {
             // The user list is keyed by channel PERSONA (the in-channel identity), never the overlay Sigil.
             snapshot = _users
-                .Select(kv => new UserView(kv.Key, FormatUser(kv.Key, kv.Value), kv.Key == _selfId, _directPersonas.Contains(kv.Key)))
+                .Select(kv => new UserView(kv.Key, FormatUser(kv.Key, kv.Value), kv.Value ?? string.Empty, kv.Key == _selfId, _directPersonas.Contains(kv.Key)))
                 .OrderByDescending(u => u.IsSelf)
                 .ThenBy(u => u.Display, StringComparer.OrdinalIgnoreCase)
                 .ToList();

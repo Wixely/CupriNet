@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+<rect x="28" y="28" width="456" height="456" rx="100" ry="100" fill="#fe600b" fill-opacity="1.000" />
+<g transform="rotate(0.000 256.000 256.000)"><g transform="translate(51.2000 51.2000) scale(17.066667 17.066667)" style="color:#0084ff;"><path d="M19.02 6.858a2 2 0 0 1 1 1.752v6.555c0 .728 -.395 1.4 -1.032 1.753l-6.017 3.844a2 2 0 0 1 -1.948 0l-6.016 -3.844a2 2 0 0 1 -1.032 -1.752v-6.556c0 -.728 .395 -1.4 1.032 -1.753l6.017 -3.582a2.062 2.062 0 0 1 2 0l6.017 3.583h-.029l.008 0" />
+  <path d="M10 8h4l-2 8" /></g></g>
+</svg>
