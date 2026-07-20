@@ -25,5 +25,6 @@
     <ProjectReference Include="..\..\src\CupriNet.Rites\CupriNet.Rites.csproj" />
     <ProjectReference Include="..\..\src\CupriNet.Hosting\CupriNet.Hosting.csproj" />
     <ProjectReference Include="..\..\src\CupriNet.Noise\CupriNet.Noise.csproj" />
+    <ProjectReference Include="..\..\src\CupriNet.Traversal\CupriNet.Traversal.csproj" />
   </ItemGroup>
 </Project>

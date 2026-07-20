@@ -13,6 +13,7 @@
     <Project Path="src/CupriNet.Noise/CupriNet.Noise.csproj" />
     <Project Path="src/CupriNet.Persistence/CupriNet.Persistence.csproj" />
     <Project Path="src/CupriNet.Rites/CupriNet.Rites.csproj" />
+    <Project Path="src/CupriNet.Traversal/CupriNet.Traversal.csproj" />
     <Project Path="src/CupriNet.Vessel/CupriNet.Vessel.csproj" />
   </Folder>
   <Folder Name="/tests/">
