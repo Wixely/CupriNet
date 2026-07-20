@@ -130,6 +130,45 @@ public sealed class CupriNode : IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// Re-dials a previously trusted peer directly from its cached beacons — no fresh Intonation — pinning
+    /// its <see cref="KnownPeer.Sigil"/> so any other identity answering at that address is rejected. Tries
+    /// each dialable beacon in turn. This is the fast path back to contacts we have already Consecrated with.
+    /// </summary>
+    public async Task<PairedPeer> ReconnectAsync(KnownPeer peer, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(peer);
+        var dialable = peer.Beacons.Where(b => b.Kind is EndpointKind.Host or EndpointKind.Mapped or EndpointKind.Manual).ToList();
+        if (dialable.Count == 0)
+            throw new CupriNodeException("Known peer has no dialable beacon.");
+
+        Exception? last = null;
+        foreach (var beacon in dialable)
+        {
+            IVessel vessel;
+            try { vessel = await TcpVessel.ConnectAsync(beacon.Host, beacon.Port, cancellationToken: cancellationToken).ConfigureAwait(false); }
+            catch (Exception ex) { last = ex; continue; }
+
+            try
+            {
+                using var timed = LinkedHandshakeToken(cancellationToken);
+                if (_options.EnableToll)
+                    await Toll.SolveAsync(vessel, timed.Token).ConfigureAwait(false);
+                var conjunction = await NoiseConjunction.InitiateAsync(
+                    vessel, Identity, Network, Suite, expectedPeer: peer.Sigil, cancellationToken: timed.Token).ConfigureAwait(false);
+                await LearnReflexiveAsync(conjunction.Vessel, initiator: true, cancellationToken).ConfigureAwait(false);
+                return new PairedPeer(conjunction.Vessel, conjunction.PeerSigil, conjunction.PeerSealPublicKey, isInitiator: true);
+            }
+            catch (Exception ex)
+            {
+                last = ex;
+                await vessel.DisposeAsync().ConfigureAwait(false);
+            }
+        }
+
+        throw new CupriNodeException($"Could not reconnect to the trusted peer: {last?.Message ?? "all beacons unreachable"}.");
+    }
+
     /// <summary>Accepts one inbound connection and completes the Conjunction pairing as the responder.</summary>
     public async Task<PairedPeer> AcceptAsync(CancellationToken cancellationToken = default)
     {
