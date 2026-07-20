@@ -64,6 +64,7 @@ public sealed class NoiseHandshakeState
     private readonly NoiseSymmetricState _symmetric;
     private readonly bool _initiator;
     private readonly (byte[] Private, byte[] Public) _staticKey;
+    private readonly Func<(byte[] Private, byte[] Public)> _generateEphemeral;
 
     private (byte[] Private, byte[] Public)? _ephemeral;
     private byte[]? _remoteStatic;
@@ -71,14 +72,22 @@ public sealed class NoiseHandshakeState
     private int _messageIndex;
 
     /// <summary>Creates a handshake for the given role and long-term static key pair.</summary>
-    public NoiseHandshakeState(ICryptoSuite suite, bool initiator, (byte[] Private, byte[] Public) staticKey)
+    /// <param name="ephemeralFactory">
+    /// Source of ephemeral key pairs. Leave null in production (uses the suite's secure generator);
+    /// tests inject a fixed pair to reproduce known-answer vectors.
+    /// </param>
+    public NoiseHandshakeState(
+        ICryptoSuite suite, bool initiator, (byte[] Private, byte[] Public) staticKey,
+        ReadOnlyMemory<byte> prologue = default,
+        Func<(byte[] Private, byte[] Public)>? ephemeralFactory = null)
     {
         _suite = suite ?? throw new ArgumentNullException(nameof(suite));
         _dh = suite.Agreement;
         _initiator = initiator;
         _staticKey = staticKey;
+        _generateEphemeral = ephemeralFactory ?? _dh.Generate;
         _symmetric = new NoiseSymmetricState(suite, ProtocolName);
-        _symmetric.MixHash([]); // empty prologue
+        _symmetric.MixHash(prologue.Span); // empty by default
     }
 
     /// <summary>True once all handshake messages have been processed.</summary>
@@ -98,7 +107,7 @@ public sealed class NoiseHandshakeState
             switch (token)
             {
                 case Token.E:
-                    _ephemeral = _dh.Generate();
+                    _ephemeral = _generateEphemeral();
                     buffer.AddRange(_ephemeral.Value.Public);
                     _symmetric.MixHash(_ephemeral.Value.Public);
                     break;
