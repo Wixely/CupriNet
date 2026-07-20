@@ -8,4 +8,22 @@
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
     <Deterministic>true</Deterministic>
   </PropertyGroup>
+
+  <!-- Package metadata (applied when a project opts into packing; see src/Directory.Build.props). -->
+  <PropertyGroup>
+    <Version>0.1.0</Version>
+    <Authors>Wixely</Authors>
+    <Company>Wixely</Company>
+    <Product>CupriNet</Product>
+    <Description>CupriNet — a 100% managed, decentralized, pseudonymous peer-to-peer networking library (Concordance overlay + Arcanum channels).</Description>
+    <PackageProjectUrl>https://github.com/Wixely/CupriNet</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/Wixely/CupriNet</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageTags>p2p;networking;decentralized;noise;overlay;dht</PackageTags>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <!-- Only projects that opt in (src/) are packable; tests and samples are not. -->
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
 </Project>
