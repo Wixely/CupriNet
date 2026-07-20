@@ -23,6 +23,8 @@ public sealed class NoiseVessel : IVessel
 
     public EndPoint? RemoteEndPoint => _inner.RemoteEndPoint;
 
+    public EndPoint? LocalEndPoint => _inner.LocalEndPoint;
+
     public async ValueTask SendAsync(ushort streamId, ReadOnlyMemory<byte> payload, CancellationToken cancellationToken = default)
     {
         await _sendLock.WaitAsync(cancellationToken).ConfigureAwait(false);

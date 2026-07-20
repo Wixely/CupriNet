@@ -12,6 +12,9 @@ public interface IVessel : IAsyncDisposable
     /// <summary>The remote peer's endpoint, if connected.</summary>
     EndPoint? RemoteEndPoint { get; }
 
+    /// <summary>This side's local endpoint, if connected.</summary>
+    EndPoint? LocalEndPoint { get; }
+
     /// <summary>Sends a payload on a logical stream.</summary>
     ValueTask SendAsync(ushort streamId, ReadOnlyMemory<byte> payload, CancellationToken cancellationToken = default);
 

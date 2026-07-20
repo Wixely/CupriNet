@@ -141,6 +141,8 @@ public class NoiseTransportTests
 
         public EndPoint? RemoteEndPoint => null;
 
+        public EndPoint? LocalEndPoint => null;
+
         public ValueTask SendAsync(ushort streamId, ReadOnlyMemory<byte> payload, CancellationToken cancellationToken = default)
         {
             Sent.Add((streamId, payload.ToArray()));

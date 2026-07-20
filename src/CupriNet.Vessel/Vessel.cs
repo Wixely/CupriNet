@@ -33,6 +33,9 @@ public sealed class Vessel : IVessel
     /// <summary>The remote peer's endpoint, if connected.</summary>
     public EndPoint? RemoteEndPoint => _client.Client.RemoteEndPoint;
 
+    /// <summary>This side's local endpoint, if connected.</summary>
+    public EndPoint? LocalEndPoint => _client.Client.LocalEndPoint;
+
     /// <summary>Sends a payload on a logical stream. Writes are serialized so frames never interleave.</summary>
     public async ValueTask SendAsync(ushort streamId, ReadOnlyMemory<byte> payload, CancellationToken cancellationToken = default)
     {
