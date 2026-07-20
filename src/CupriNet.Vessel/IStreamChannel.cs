@@ -17,9 +17,9 @@ public interface IStreamChannel
 /// Adapts a single stream of a <see cref="Vessel"/> as an <see cref="IStreamChannel"/>. Safe only when
 /// one stream is read from the Vessel; for concurrent streams use a <see cref="VesselMux"/>.
 /// </summary>
-public sealed class VesselStreamChannel(Vessel vessel, ushort streamId) : IStreamChannel
+public sealed class VesselStreamChannel(IVessel vessel, ushort streamId) : IStreamChannel
 {
-    private readonly Vessel _vessel = vessel ?? throw new ArgumentNullException(nameof(vessel));
+    private readonly IVessel _vessel = vessel ?? throw new ArgumentNullException(nameof(vessel));
 
     public ValueTask SendAsync(ReadOnlyMemory<byte> payload, CancellationToken cancellationToken = default)
         => _vessel.SendAsync(streamId, payload, cancellationToken);

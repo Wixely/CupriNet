@@ -10,14 +10,14 @@ namespace CupriNet.Vessel;
 /// </summary>
 public sealed class VesselMux : IAsyncDisposable
 {
-    private readonly Vessel _vessel;
+    private readonly IVessel _vessel;
     private readonly bool _ownsVessel;
     private readonly ConcurrentDictionary<ushort, Channel<byte[]>> _streams = new();
     private readonly CancellationTokenSource _cts = new();
     private readonly Task _pump;
 
     /// <summary>Starts pumping frames off the Vessel. If <paramref name="ownsVessel"/>, disposal also closes it.</summary>
-    public VesselMux(Vessel vessel, bool ownsVessel = false)
+    public VesselMux(IVessel vessel, bool ownsVessel = false)
     {
         _vessel = vessel ?? throw new ArgumentNullException(nameof(vessel));
         _ownsVessel = ownsVessel;

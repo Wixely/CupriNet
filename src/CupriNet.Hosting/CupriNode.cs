@@ -103,9 +103,9 @@ public sealed class CupriNode : IAsyncDisposable
         var vessel = await TcpVessel.ConnectAsync(beacon.Host, beacon.Port, cancellationToken: cancellationToken).ConfigureAwait(false);
         try
         {
-            var conjunction = await ConjunctionHandshake.InitiateAsync(
+            var conjunction = await NoiseConjunction.InitiateAsync(
                 vessel, Identity, Network, Suite, expectedPeer: intonation.InviterSigil, cancellationToken: cancellationToken).ConfigureAwait(false);
-            return new PairedPeer(vessel, conjunction.PeerSigil, conjunction.PeerSealPublicKey, isInitiator: true);
+            return new PairedPeer(conjunction.Vessel, conjunction.PeerSigil, conjunction.PeerSealPublicKey, isInitiator: true);
         }
         catch
         {
@@ -120,8 +120,8 @@ public sealed class CupriNode : IAsyncDisposable
         var vessel = await _listener.AcceptAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            var conjunction = await ConjunctionHandshake.AcceptAsync(vessel, Identity, Network, Suite, cancellationToken).ConfigureAwait(false);
-            return new PairedPeer(vessel, conjunction.PeerSigil, conjunction.PeerSealPublicKey, isInitiator: false);
+            var conjunction = await NoiseConjunction.AcceptAsync(vessel, Identity, Network, Suite, cancellationToken).ConfigureAwait(false);
+            return new PairedPeer(conjunction.Vessel, conjunction.PeerSigil, conjunction.PeerSealPublicKey, isInitiator: false);
         }
         catch
         {

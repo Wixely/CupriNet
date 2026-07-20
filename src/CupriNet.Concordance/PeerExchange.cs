@@ -1,6 +1,6 @@
 using CupriNet.Alembic;
 using CupriNet.Codex;
-using VesselSession = CupriNet.Vessel.Vessel;
+using VesselSession = CupriNet.Vessel.IVessel;
 
 namespace CupriNet.Concordance;
 

@@ -16,7 +16,7 @@ public readonly record struct VesselFrame(ushort StreamId, byte[] Payload);
 /// Phase 1 carries frames in the clear over TCP. The Noise session is layered in later without changing
 /// this framing: payloads become AEAD-sealed, but the stream-id + length-prefixed shape is unchanged.
 /// </remarks>
-public sealed class Vessel : IAsyncDisposable
+public sealed class Vessel : IVessel
 {
     private readonly TcpClient _client;
     private readonly Stream _stream;

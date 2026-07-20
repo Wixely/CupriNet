@@ -1,7 +1,7 @@
 using CupriNet.Abstractions;
 using CupriNet.Alembic;
 using CupriNet.Core;
-using VesselSession = CupriNet.Vessel.Vessel;
+using VesselSession = CupriNet.Vessel.IVessel;
 
 namespace CupriNet.Conjunction;
 

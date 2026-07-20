@@ -1,5 +1,5 @@
 using CupriNet.Abstractions;
-using VesselSession = CupriNet.Vessel.Vessel;
+using VesselSession = CupriNet.Vessel.IVessel;
 
 namespace CupriNet.Hosting;
 

@@ -4,6 +4,7 @@
     <ProjectReference Include="..\CupriNet.Alembic\CupriNet.Alembic.csproj" />
     <ProjectReference Include="..\CupriNet.Codex\CupriNet.Codex.csproj" />
     <ProjectReference Include="..\CupriNet.Core\CupriNet.Core.csproj" />
+    <ProjectReference Include="..\CupriNet.Noise\CupriNet.Noise.csproj" />
     <ProjectReference Include="..\CupriNet.Vessel\CupriNet.Vessel.csproj" />
   </ItemGroup>
 </Project>
