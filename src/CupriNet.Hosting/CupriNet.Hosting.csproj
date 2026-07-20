@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="..\CupriNet.Abstractions\CupriNet.Abstractions.csproj" />
+    <ProjectReference Include="..\CupriNet.Alembic\CupriNet.Alembic.csproj" />
+    <ProjectReference Include="..\CupriNet.Alembic.BouncyCastle\CupriNet.Alembic.BouncyCastle.csproj" />
+    <ProjectReference Include="..\CupriNet.Codex\CupriNet.Codex.csproj" />
+    <ProjectReference Include="..\CupriNet.Core\CupriNet.Core.csproj" />
+    <ProjectReference Include="..\CupriNet.Concordance\CupriNet.Concordance.csproj" />
+    <ProjectReference Include="..\CupriNet.Arcanum\CupriNet.Arcanum.csproj" />
+    <ProjectReference Include="..\CupriNet.Conjunction\CupriNet.Conjunction.csproj" />
+    <ProjectReference Include="..\CupriNet.Rites\CupriNet.Rites.csproj" />
+    <ProjectReference Include="..\CupriNet.Persistence\CupriNet.Persistence.csproj" />
+    <ProjectReference Include="..\CupriNet.Vessel\CupriNet.Vessel.csproj" />
+  </ItemGroup>
+</Project>

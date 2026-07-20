@@ -1,0 +1,20 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/CupriNet.Abstractions/CupriNet.Abstractions.csproj" />
+    <Project Path="src/CupriNet.Alembic.BouncyCastle/CupriNet.Alembic.BouncyCastle.csproj" />
+    <Project Path="src/CupriNet.Alembic.Simulacrum/CupriNet.Alembic.Simulacrum.csproj" />
+    <Project Path="src/CupriNet.Alembic/CupriNet.Alembic.csproj" />
+    <Project Path="src/CupriNet.Arcanum/CupriNet.Arcanum.csproj" />
+    <Project Path="src/CupriNet.Codex/CupriNet.Codex.csproj" />
+    <Project Path="src/CupriNet.Concordance/CupriNet.Concordance.csproj" />
+    <Project Path="src/CupriNet.Conjunction/CupriNet.Conjunction.csproj" />
+    <Project Path="src/CupriNet.Core/CupriNet.Core.csproj" />
+    <Project Path="src/CupriNet.Hosting/CupriNet.Hosting.csproj" />
+    <Project Path="src/CupriNet.Persistence/CupriNet.Persistence.csproj" />
+    <Project Path="src/CupriNet.Rites/CupriNet.Rites.csproj" />
+    <Project Path="src/CupriNet.Vessel/CupriNet.Vessel.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/CupriNet.UnitTests/CupriNet.UnitTests.csproj" />
+  </Folder>
+</Solution>

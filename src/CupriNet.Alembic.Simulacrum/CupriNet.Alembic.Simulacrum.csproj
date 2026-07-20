@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="..\CupriNet.Alembic\CupriNet.Alembic.csproj" />
+  </ItemGroup>
+</Project>

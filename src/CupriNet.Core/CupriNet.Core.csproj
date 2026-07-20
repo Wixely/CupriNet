@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="..\CupriNet.Abstractions\CupriNet.Abstractions.csproj" />
+    <ProjectReference Include="..\CupriNet.Alembic\CupriNet.Alembic.csproj" />
+    <ProjectReference Include="..\CupriNet.Codex\CupriNet.Codex.csproj" />
+  </ItemGroup>
+</Project>
