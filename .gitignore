@@ -8,5 +8,8 @@ artifacts/
 # Scratch / design notes, not part of the library
 chat.txt
 
+# CupriChat local persistence (identity + trusted-peer book)
+samples/CupriChat/.data/
+
 # Security review report — deliverable, deliberately not checked in
 SECURITY-REVIEW.md

@@ -31,6 +31,13 @@
           <Button Name="ConnectButton" Content="Connect"/>
           <Button Name="ToStep2Button" Content="Next →"/>
         </StackPanel>
+
+        <TextBlock Name="HistoryHeader" Text="Rejoin a channel you trust" FontWeight="Bold" Margin="0,10,0,0" IsVisible="False"/>
+        <TextBlock Name="HistoryHint" Text="These are channels you joined before. Click one to re-dial the same trusted peers directly — no new link needed."
+                   TextWrapping="Wrap" Foreground="Gray" IsVisible="False"/>
+        <Border Name="HistoryBox" BorderBrush="#888" BorderThickness="1" CornerRadius="4" MaxHeight="150" IsVisible="False">
+          <ListBox Name="HistoryList"/>
+        </Border>
       </StackPanel>
 
       <!-- Page 2: Username & channel -->

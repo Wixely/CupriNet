@@ -6,10 +6,12 @@ using System.Text;
 using System.Text.Json;
 using CupriNet.Abstractions;
 using CupriNet.Alembic;
+using CupriNet.Alembic.BouncyCastle;
 using CupriNet.Arcanum;
 using CupriNet.Codex;
 using CupriNet.Core;
 using CupriNet.Hosting;
+using CupriNet.Persistence;
 using CupriNet.Rites;
 
 namespace CupriChat;
@@ -19,6 +21,9 @@ public sealed record ChatMessage(string User, string AuthorId, string Text, Date
 
 /// <summary>A participant shown in the user list.</summary>
 public sealed record UserView(string Id, string Display, bool IsSelf, bool IsDirectPeer);
+
+/// <summary>A past channel we can rejoin by re-dialing the trusted peers who proved they knew it.</summary>
+public sealed record ChannelHistory(string ChannelName, IReadOnlyList<string> PeerShortIds);
 
 /// <summary>An incoming file offer awaiting the user's decision.</summary>
 public sealed record FileOffer(string TransferId, string FromDisplay, string FileName, long Size);
@@ -49,6 +54,7 @@ public sealed class ChatService : IAsyncDisposable
 {
     private const string NetworkId = "cuprichat";
     private const uint ReliquaryProtocol = 1;
+    private const uint BeaconProtocol = 2;
     private const int ChunkSize = 64 * 1024;
     private const long MaxFileBytes = 100L * 1024 * 1024; // 100 MB
     private const int MaxPendingOffers = 16;
@@ -73,8 +79,11 @@ public sealed class ChatService : IAsyncDisposable
 
     private long _inFlightBytes;
     private CupriNode? _node;
+    private KindredBook? _kindred;
+    private IReadOnlyList<Beacon> _selfBeacons = [];
     private string _username = "anon";
     private Watchword _channel = ChannelFromName(DefaultChannelName);
+    private string _channelName = DefaultChannelName;
     private string _selfId = string.Empty;
     private bool _joined;
 
@@ -95,19 +104,43 @@ public sealed class ChatService : IAsyncDisposable
     public async Task StartAsync()
     {
         var localIp = LocalIPv4();
+
+        // Persist identity and the trusted-peer book under a per-instance home (CUPRICHAT_HOME lets two
+        // instances on one machine keep distinct identities). The store is encrypted at rest with a key file.
+        var home = Environment.GetEnvironmentVariable("CUPRICHAT_HOME")
+                   ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "CupriChat");
+        Directory.CreateDirectory(home);
+        var suite = new BouncyCastleSuite();
+        var masterKey = KeyFileMasterKey.LoadOrCreate(Path.Combine(home, "master.key"));
+        var store = new FileSecretStore(Path.Combine(home, "secrets"), new AeadDataProtector(suite, masterKey));
+
         _node = await CupriNode.CreateAsync(new CupriNodeOptions
         {
             Concordium = NetworkId,
             ListenAddress = IPAddress.Parse(localIp),
+            Suite = suite,
+            SecretStore = store,
         }, _cts.Token);
+        _kindred = await KindredBook.LoadAsync(store, _cts.Token);
 
         _selfId = Convert.ToHexStringLower(_node.Identity.Sigil.Span);
+        _selfBeacons = [new Beacon(EndpointKind.Host, localIp, _node.LocalEndPoint.Port)];
         lock (_lock)
             _users[_selfId] = _username;
         RaiseUsers();
 
         _ = Task.Run(() => AcceptLoopAsync(_cts.Token));
         Status?.Invoke($"Ready on {localIp}:{_node.LocalEndPoint.Port}");
+    }
+
+    /// <summary>Past channels we can rejoin directly, from the trusted-peer book (most recent first).</summary>
+    public IReadOnlyList<ChannelHistory> History()
+    {
+        if (_kindred is null)
+            return [];
+        return _kindred.Channels()
+            .Select(name => new ChannelHistory(name, _kindred.Peers(name).Select(p => Short(Convert.ToHexStringLower(p.Sigil.Span))).ToList()))
+            .ToList();
     }
 
     public string GenerateLink()
@@ -137,11 +170,49 @@ public sealed class ChatService : IAsyncDisposable
         lock (_lock)
         {
             _username = string.IsNullOrWhiteSpace(username) ? "anon" : username.Trim();
-            _channel = ChannelFromName(string.IsNullOrWhiteSpace(channelName) ? DefaultChannelName : channelName.Trim());
+            _channelName = string.IsNullOrWhiteSpace(channelName) ? DefaultChannelName : channelName.Trim();
+            _channel = ChannelFromName(_channelName);
             if (_selfId.Length > 0)
                 _users[_selfId] = _username;
         }
         RaiseUsers();
+    }
+
+    /// <summary>
+    /// Rejoins a past channel by re-dialing every trusted peer we cached for it — no fresh link needed.
+    /// This is the "route straight back to people we trust" path from the front-page history.
+    /// </summary>
+    public async Task ReconnectChannelAsync(string channelName, string username)
+    {
+        if (_node is null || _kindred is null)
+            return;
+        SetIdentity(username, channelName);
+        lock (_lock)
+            _joined = true;
+
+        var peers = _kindred.Peers(channelName);
+        if (peers.Count == 0)
+        {
+            Status?.Invoke("No trusted peers cached for that channel yet.");
+            return;
+        }
+
+        Status?.Invoke($"Reconnecting to {peers.Count} trusted peer(s) in '{channelName}'…");
+        foreach (var known in peers)
+            _ = Task.Run(() => ReconnectPeerAsync(known, _cts.Token));
+    }
+
+    private async Task ReconnectPeerAsync(KnownPeer known, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var peer = await _node!.ReconnectAsync(known, cancellationToken);
+            await ConsecrateAsync(peer, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            Status?.Invoke($"Could not reach a trusted peer ({Short(Convert.ToHexStringLower(known.Sigil.Span))}): {ex.Message}");
+        }
     }
 
     public void JoinChannel()
@@ -266,6 +337,12 @@ public sealed class ChatService : IAsyncDisposable
                 var frame = await peer.Session.Conduits.ReceiveAsync(cancellationToken);
                 if (frame is null)
                     break;
+
+                if (frame.ProtocolId == BeaconProtocol)
+                {
+                    await HandlePeerBeaconsAsync(peer, frame.Payload, cancellationToken);
+                    continue;
+                }
                 if (frame.ProtocolId != ReliquaryProtocol)
                     continue;
 
@@ -295,6 +372,46 @@ public sealed class ChatService : IAsyncDisposable
             foreach (var transfer in orphaned)
                 ReleaseIncoming(transfer);
         }
+    }
+
+    private async Task SendSelfBeaconsAsync(PeerSession peer, CancellationToken cancellationToken)
+    {
+        var w = new CodexWriter();
+        BeaconCodec.Write(w, _selfBeacons, KnownPeerCodec.MaxBeacons);
+        var frame = new ConduitFrame { ProtocolId = BeaconProtocol, SchemaVersion = 1, Flags = 0, Payload = w.ToArray() };
+        try { await peer.Session.Conduits.SendAsync(frame, cancellationToken); }
+        catch { /* best-effort: reconnect info is optional */ }
+    }
+
+    private async Task HandlePeerBeaconsAsync(PeerSession peer, byte[] payload, CancellationToken cancellationToken)
+    {
+        if (_kindred is null || peer.SealPublicKey.Length == 0)
+            return;
+
+        IReadOnlyList<Beacon> beacons;
+        try
+        {
+            var r = new CodexReader(payload);
+            beacons = BeaconCodec.Read(ref r, KnownPeerCodec.MaxBeacons);
+        }
+        catch { return; }
+        if (beacons.Count == 0)
+            return;
+
+        // The peer completed a Consecration with us, so it proved it knew this channel. Remember it (with
+        // its dialable beacons) under the channel name so we can route straight back to it on a later run.
+        var known = new KnownPeer
+        {
+            Sigil = peer.Sigil,
+            SealPublicKey = peer.SealPublicKey,
+            Beacons = beacons,
+            LastSeenUnix = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
+        };
+        string channelName;
+        lock (_lock)
+            channelName = _channelName;
+        try { await _kindred.RememberAsync(channelName, known, cancellationToken); }
+        catch (Exception ex) { Status?.Invoke($"Could not remember a trusted peer: {ex.Message}"); }
     }
 
     private async Task HandleOfferAsync(PeerSession peer, string peerId, byte[] payload, CancellationToken cancellationToken)
@@ -466,7 +583,7 @@ public sealed class ChatService : IAsyncDisposable
         {
             Status?.Invoke("Joining channel with a peer…");
             var session = await _node!.ConsecrateAsync(peer, _channel, DateTimeOffset.UtcNow, cancellationToken);
-            var peerSession = new PeerSession(peer.PeerSigil, session);
+            var peerSession = new PeerSession(peer.PeerSigil, peer.PeerSealPublicKey, session);
 
             lock (_lock)
             {
@@ -477,6 +594,9 @@ public sealed class ChatService : IAsyncDisposable
             Status?.Invoke("A peer joined the channel.");
             _ = Task.Run(() => ReceiveLoopAsync(peerSession, cancellationToken));
             _ = Task.Run(() => ConduitLoopAsync(peerSession, cancellationToken));
+
+            // Exchange dialable beacons so each side can re-dial the other later (trusted reconnect).
+            await SendSelfBeaconsAsync(peerSession, cancellationToken);
         }
         catch (OperationCanceledException)
         {
@@ -653,7 +773,7 @@ public sealed class ChatService : IAsyncDisposable
         _cts.Dispose();
     }
 
-    private sealed record PeerSession(Sigil Sigil, ArcanumSession Session);
+    private sealed record PeerSession(Sigil Sigil, byte[] SealPublicKey, ArcanumSession Session);
 
     private sealed record OutgoingTransfer(string Id, ReliquaryManifest Manifest, byte[] Content, ArcanumSession Session, string PeerId);
 

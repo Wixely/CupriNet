@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
@@ -32,6 +33,12 @@ public partial class MainWindow : Window
     private readonly Button _connectButton;
     private readonly Button _toStep2Button;
 
+    private readonly TextBlock _historyHeader;
+    private readonly TextBlock _historyHint;
+    private readonly Border _historyBox;
+    private readonly ListBox _historyList;
+    private readonly ObservableCollection<Control> _historyItems = [];
+
     private readonly TextBox _usernameBox;
     private readonly TextBox _channelBox;
     private readonly Button _backTo1Button;
@@ -62,6 +69,11 @@ public partial class MainWindow : Window
         _connectButton = this.FindControl<Button>("ConnectButton")!;
         _toStep2Button = this.FindControl<Button>("ToStep2Button")!;
 
+        _historyHeader = this.FindControl<TextBlock>("HistoryHeader")!;
+        _historyHint = this.FindControl<TextBlock>("HistoryHint")!;
+        _historyBox = this.FindControl<Border>("HistoryBox")!;
+        _historyList = this.FindControl<ListBox>("HistoryList")!;
+
         _usernameBox = this.FindControl<TextBox>("UsernameBox")!;
         _channelBox = this.FindControl<TextBox>("ChannelBox")!;
         _backTo1Button = this.FindControl<Button>("BackTo1Button")!;
@@ -74,6 +86,8 @@ public partial class MainWindow : Window
 
         _messagesList.ItemsSource = _messageItems;
         _usersList.ItemsSource = _userItems;
+        _historyList.ItemsSource = _historyItems;
+        _historyList.SelectionChanged += OnHistorySelected;
 
         _chat.MessageArrived += OnMessage;
         _chat.Status += OnStatus;
@@ -100,15 +114,56 @@ public partial class MainWindow : Window
 
         Opened += async (_, _) =>
         {
-            try { await _chat.StartAsync(); }
+            try
+            {
+                await _chat.StartAsync();
+                RefreshHistory();
+            }
             catch (Exception ex) { OnStatus($"Start failed: {ex.Message}"); }
         };
 
         ShowStep(1);
     }
 
+    private void RefreshHistory()
+    {
+        _historyItems.Clear();
+        var history = _chat.History();
+        foreach (var entry in history)
+        {
+            var peers = entry.PeerShortIds.Count == 0
+                ? "no cached peers"
+                : $"{entry.PeerShortIds.Count} peer(s): {string.Join(", ", entry.PeerShortIds)}";
+            var item = new StackPanel { Tag = entry.ChannelName, Margin = new Thickness(2) };
+            item.Children.Add(new TextBlock { Text = entry.ChannelName, FontWeight = FontWeight.Bold });
+            item.Children.Add(new TextBlock { Text = peers, Foreground = Brushes.Gray, FontSize = 11 });
+            _historyItems.Add(item);
+        }
+
+        var any = _historyItems.Count > 0;
+        _historyHeader.IsVisible = any;
+        _historyHint.IsVisible = any;
+        _historyBox.IsVisible = any;
+    }
+
+    private async void OnHistorySelected(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_historyList.SelectedItem is not Control { Tag: string channelName })
+            return;
+        _historyList.SelectedItem = null;
+
+        var username = string.IsNullOrWhiteSpace(_usernameBox.Text) ? "anon" : _usernameBox.Text!.Trim();
+        _channelBox.Text = channelName;
+        _identityText.Text = $"you: {username}#{_chat.SelfShortId}";
+        ShowStep(3);
+        try { await _chat.ReconnectChannelAsync(channelName, username); }
+        catch (Exception ex) { OnStatus($"Reconnect error: {ex.Message}"); }
+    }
+
     private void ShowStep(int step)
     {
+        if (step == 1)
+            RefreshHistory();
         _page1.IsVisible = step == 1;
         _page2.IsVisible = step == 2;
         _page3.IsVisible = step == 3;
