@@ -54,7 +54,10 @@ public sealed class ChatService : IAsyncDisposable
 {
     private const string NetworkId = "cuprichat";
     private const uint ReliquaryProtocol = 1;
-    private const uint BeaconProtocol = 2;
+    private const uint HelloProtocol = 2;
+    private const uint RosterProtocol = 3;
+    private const int MaxRosterEntries = 256;
+    private const int MaxNameLength = 64;
     private const int ChunkSize = 64 * 1024;
     private const long MaxFileBytes = 100L * 1024 * 1024; // 100 MB
     private const int MaxPendingOffers = 16;
@@ -74,6 +77,8 @@ public sealed class ChatService : IAsyncDisposable
     private readonly Dictionary<string, OutgoingTransfer> _outgoing = new(StringComparer.Ordinal);
     private readonly Dictionary<string, IncomingOffer> _offers = new(StringComparer.Ordinal);
     private readonly Dictionary<string, IncomingTransfer> _incoming = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _directPersonas = new(StringComparer.Ordinal); // persona ids we hold a direct session with
+    private readonly HashSet<string> _connecting = new(StringComparer.Ordinal);     // overlay ids we are dialing (dedup)
     private readonly CancellationTokenSource _cts = new();
     private readonly string _scratchDir = Path.Combine(Path.GetTempPath(), "cuprichat", Guid.NewGuid().ToString("N"));
 
@@ -293,17 +298,20 @@ public sealed class ChatService : IAsyncDisposable
 
     // ---- File transfer -------------------------------------------------------------------------
 
-    public async Task SendFileAsync(string peerIdHex, string filePath)
+    public async Task SendFileAsync(string personaId, string filePath)
     {
         if (_node is null)
             return;
 
-        var session = SessionFor(peerIdHex);
-        if (session is null)
+        // The UI selects a member by persona; transfers are keyed by the overlay (transport) identity.
+        var peerSession = PeerSessionFor(personaId);
+        if (peerSession is null)
         {
             Status?.Invoke("That user is not directly connected — cannot send a file.");
             return;
         }
+        var session = peerSession.Session;
+        var peerIdHex = Convert.ToHexStringLower(peerSession.Sigil.Span);
 
         var info = new FileInfo(filePath);
         if (info.Length > MaxFileBytes)
@@ -385,9 +393,18 @@ public sealed class ChatService : IAsyncDisposable
                 if (frame is null)
                     break;
 
-                if (frame.ProtocolId == BeaconProtocol)
+                // Every channel frame is authored by the sender's persona (verified envelope); learn it.
+                if (frame.AuthorSealPublicKey is { } personaKey)
+                    NotePeerPersona(peer, personaKey);
+
+                if (frame.ProtocolId == HelloProtocol)
                 {
-                    await HandlePeerBeaconsAsync(peer, frame.Payload, cancellationToken);
+                    await HandleHelloAsync(peer, frame.Payload, cancellationToken);
+                    continue;
+                }
+                if (frame.ProtocolId == RosterProtocol)
+                {
+                    HandlePeerRoster(frame.Payload);
                     continue;
                 }
                 if (frame.ProtocolId != ReliquaryProtocol)
@@ -421,44 +438,147 @@ public sealed class ChatService : IAsyncDisposable
         }
     }
 
-    private async Task SendSelfBeaconsAsync(PeerSession peer, CancellationToken cancellationToken)
+    /// <summary>Records the peer's channel persona (from its verified frame envelope) and marks it directly connected.</summary>
+    private void NotePeerPersona(PeerSession peer, byte[] personaKey)
     {
-        var w = new CodexWriter();
-        BeaconCodec.Write(w, _selfBeacons, KnownPeerCodec.MaxBeacons);
-        var frame = new ConduitFrame { ProtocolId = BeaconProtocol, SchemaVersion = 1, Flags = 0, Payload = w.ToArray() };
-        try { await peer.Session.Conduits.SendAsync(frame, cancellationToken); }
-        catch { /* best-effort: reconnect info is optional */ }
+        if (personaKey.Length is 0 or > 64)
+            return;
+        var personaHex = Convert.ToHexStringLower(RiteAuthor.AuthorSigil(personaKey).Span);
+        bool changed;
+        lock (_lock)
+        {
+            changed = peer.PersonaHex != personaHex;
+            peer.PersonaHex = personaHex;
+            _directPersonas.Add(personaHex);
+            _users.TryAdd(personaHex, null); // show them immediately; the display name resolves via Hello/messages
+        }
+        if (changed)
+            RaiseUsers();
     }
 
-    private async Task HandlePeerBeaconsAsync(PeerSession peer, byte[] payload, CancellationToken cancellationToken)
+    /// <summary>A greeting sent right after Consecration: our display name and dialable beacons.</summary>
+    private async Task SendHelloAsync(PeerSession peer, CancellationToken cancellationToken)
     {
-        if (_kindred is null || peer.SealPublicKey.Length == 0)
-            return;
+        var w = new CodexWriter();
+        w.WriteString(_username.Length > MaxNameLength ? _username[..MaxNameLength] : _username);
+        BeaconCodec.Write(w, _selfBeacons, KnownPeerCodec.MaxBeacons);
+        var frame = new ConduitFrame { ProtocolId = HelloProtocol, SchemaVersion = 1, Flags = 0, Payload = w.ToArray() };
+        try { await peer.Session.Conduits.SendAsync(frame, cancellationToken); }
+        catch { /* best-effort */ }
+    }
 
+    private async Task HandleHelloAsync(PeerSession peer, byte[] payload, CancellationToken cancellationToken)
+    {
+        string name;
         IReadOnlyList<Beacon> beacons;
         try
         {
             var r = new CodexReader(payload);
+            name = r.ReadString();
             beacons = BeaconCodec.Read(ref r, KnownPeerCodec.MaxBeacons);
         }
         catch { return; }
-        if (beacons.Count == 0)
+        if (name.Length > MaxNameLength)
+            name = name[..MaxNameLength];
+
+        if (peer.PersonaHex is { } persona)
+            UpdateUser(persona, name);
+
+        // The peer Consecrated with us, so it proved it knew this channel. Remember its overlay dial-info
+        // under the channel name so we (and our roster) can route straight back to it later.
+        if (_kindred is not null && peer.SealPublicKey.Length > 0 && beacons.Count > 0)
+        {
+            var known = new KnownPeer
+            {
+                Sigil = peer.Sigil,
+                SealPublicKey = peer.SealPublicKey,
+                Beacons = beacons,
+                LastSeenUnix = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
+            };
+            string channelName;
+            lock (_lock)
+                channelName = _channelName;
+            try { await _kindred.RememberAsync(channelName, known, cancellationToken); }
+            catch (Exception ex) { Status?.Invoke($"Could not remember a trusted peer: {ex.Message}"); }
+        }
+    }
+
+    /// <summary>Sends the members we know (their dialable overlay info) so the peer can join the full mesh.</summary>
+    private async Task SendRosterAsync(PeerSession peer, CancellationToken cancellationToken)
+    {
+        if (_node is null)
             return;
 
-        // The peer completed a Consecration with us, so it proved it knew this channel. Remember it (with
-        // its dialable beacons) under the channel name so we can route straight back to it on a later run.
-        var known = new KnownPeer
-        {
-            Sigil = peer.Sigil,
-            SealPublicKey = peer.SealPublicKey,
-            Beacons = beacons,
-            LastSeenUnix = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
-        };
-        string channelName;
+        List<KnownPeer> roster =
+        [
+            new KnownPeer
+            {
+                Sigil = _node.Identity.Sigil,
+                SealPublicKey = _node.Identity.Seal.PublicKey,
+                Beacons = _selfBeacons,
+                LastSeenUnix = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
+            },
+        ];
         lock (_lock)
-            channelName = _channelName;
-        try { await _kindred.RememberAsync(channelName, known, cancellationToken); }
-        catch (Exception ex) { Status?.Invoke($"Could not remember a trusted peer: {ex.Message}"); }
+        {
+            if (_kindred is not null)
+                roster.AddRange(_kindred.Peers(_channelName));
+        }
+        if (roster.Count > MaxRosterEntries)
+            roster = roster.Take(MaxRosterEntries).ToList();
+
+        var w = new CodexWriter();
+        w.WriteVarUInt((ulong)roster.Count);
+        foreach (var member in roster)
+            w.WriteBytes(KnownPeerCodec.Encode(member));
+        var frame = new ConduitFrame { ProtocolId = RosterProtocol, SchemaVersion = 1, Flags = 0, Payload = w.ToArray() };
+        try { await peer.Session.Conduits.SendAsync(frame, cancellationToken); }
+        catch { /* best-effort */ }
+    }
+
+    private void HandlePeerRoster(byte[] payload)
+    {
+        var r = new CodexReader(payload);
+        ulong count;
+        try { count = r.ReadVarUInt(); }
+        catch { return; }
+        if (count > (ulong)MaxRosterEntries)
+            return;
+
+        for (var i = 0UL; i < count; i++)
+        {
+            KnownPeer member;
+            try { member = KnownPeerCodec.Decode(r.ReadBytes()); }
+            catch { break; }
+            ConsiderRosterMember(member);
+        }
+    }
+
+    /// <summary>Dials a rostered member we are not already connected to, so a single join fans out to the whole mesh.</summary>
+    private void ConsiderRosterMember(KnownPeer known)
+    {
+        if (_node is null)
+            return;
+        var sigilHex = Convert.ToHexStringLower(known.Sigil.Span);
+        lock (_lock)
+        {
+            if (sigilHex == Convert.ToHexStringLower(_node.Identity.Sigil.Span))
+                return; // it's us
+            if (_sessions.Any(s => Convert.ToHexStringLower(s.Sigil.Span) == sigilHex))
+                return; // already connected
+            if (!_connecting.Add(sigilHex))
+                return; // already dialing
+        }
+
+        _ = Task.Run(async () =>
+        {
+            try { await ReconnectPeerAsync(known, _cts.Token); }
+            finally
+            {
+                lock (_lock)
+                    _connecting.Remove(sigilHex);
+            }
+        });
     }
 
     private async Task HandleOfferAsync(PeerSession peer, string peerId, byte[] payload, CancellationToken cancellationToken)
@@ -488,10 +608,12 @@ public sealed class ChatService : IAsyncDisposable
                 return;
             }
             _offers[transferId] = new IncomingOffer(transferId, manifest, peer.Session, peerId);
-            fromName = _users.TryGetValue(peerId, out var n) && n is not null ? n : "(peer)";
+            var displayId = peer.PersonaHex ?? peerId;
+            fromName = _users.TryGetValue(displayId, out var n) && n is not null ? n : "(peer)";
         }
 
-        FileOfferReceived?.Invoke(new FileOffer(transferId, $"{fromName}#{Short(peerId)}", Path.GetFileName(file.RelativePath), file.Length));
+        var fromId = peer.PersonaHex ?? peerId;
+        FileOfferReceived?.Invoke(new FileOffer(transferId, $"{fromName}#{Short(fromId)}", Path.GetFileName(file.RelativePath), file.Length));
     }
 
     private async Task HandleAcceptAsync(string peerId, byte[] transferIdBytes, CancellationToken cancellationToken)
@@ -634,17 +756,16 @@ public sealed class ChatService : IAsyncDisposable
             var peerSession = new PeerSession(peer.PeerSigil, peer.PeerSealPublicKey, session);
 
             lock (_lock)
-            {
                 _sessions.Add(peerSession);
-                _users.TryAdd(Convert.ToHexStringLower(peer.PeerSigil.Span), null);
-            }
             RaiseUsers();
             Status?.Invoke("A peer joined the channel.");
             _ = Task.Run(() => ReceiveLoopAsync(peerSession, cancellationToken));
             _ = Task.Run(() => ConduitLoopAsync(peerSession, cancellationToken));
 
-            // Exchange dialable beacons so each side can re-dial the other later (trusted reconnect).
-            await SendSelfBeaconsAsync(peerSession, cancellationToken);
+            // Greet the peer (name + dialable beacons), then share the members we know so a single join
+            // fans out into a direct mesh with everyone in the channel.
+            await SendHelloAsync(peerSession, cancellationToken);
+            await SendRosterAsync(peerSession, cancellationToken);
         }
         catch (OperationCanceledException)
         {
@@ -704,7 +825,11 @@ public sealed class ChatService : IAsyncDisposable
         finally
         {
             lock (_lock)
+            {
                 _sessions.RemoveAll(p => ReferenceEquals(p.Session, peer.Session));
+                if (peer.PersonaHex is { } persona)
+                    _directPersonas.Remove(persona); // no longer a direct peer (may still be heard via relay)
+            }
             RaiseUsers();
             await peer.Session.DisposeAsync();
         }
@@ -723,10 +848,12 @@ public sealed class ChatService : IAsyncDisposable
         }
     }
 
-    private ArcanumSession? SessionFor(string peerIdHex)
+    /// <summary>Finds a direct session by the member's channel persona id (or, as a fallback, its overlay id).</summary>
+    private PeerSession? PeerSessionFor(string id)
     {
         lock (_lock)
-            return _sessions.FirstOrDefault(p => Convert.ToHexStringLower(p.Sigil.Span) == peerIdHex)?.Session;
+            return _sessions.FirstOrDefault(p => p.PersonaHex == id)
+                   ?? _sessions.FirstOrDefault(p => Convert.ToHexStringLower(p.Sigil.Span) == id);
     }
 
     private void UpdateUser(string id, string name)
@@ -741,9 +868,9 @@ public sealed class ChatService : IAsyncDisposable
         List<UserView> snapshot;
         lock (_lock)
         {
-            var directIds = _sessions.Select(p => Convert.ToHexStringLower(p.Sigil.Span)).ToHashSet(StringComparer.Ordinal);
+            // The user list is keyed by channel PERSONA (the in-channel identity), never the overlay Sigil.
             snapshot = _users
-                .Select(kv => new UserView(kv.Key, FormatUser(kv.Key, kv.Value), kv.Key == _selfId, directIds.Contains(kv.Key)))
+                .Select(kv => new UserView(kv.Key, FormatUser(kv.Key, kv.Value), kv.Key == _selfId, _directPersonas.Contains(kv.Key)))
                 .OrderByDescending(u => u.IsSelf)
                 .ThenBy(u => u.Display, StringComparer.OrdinalIgnoreCase)
                 .ToList();
@@ -821,7 +948,11 @@ public sealed class ChatService : IAsyncDisposable
         _cts.Dispose();
     }
 
-    private sealed record PeerSession(Sigil Sigil, byte[] SealPublicKey, ArcanumSession Session);
+    private sealed record PeerSession(Sigil Sigil, byte[] SealPublicKey, ArcanumSession Session)
+    {
+        /// <summary>The peer's channel persona (its authenticated in-channel identity), learned from its frames.</summary>
+        public string? PersonaHex { get; set; }
+    }
 
     private sealed record OutgoingTransfer(string Id, ReliquaryManifest Manifest, byte[] Content, ArcanumSession Session, string PeerId);
 
