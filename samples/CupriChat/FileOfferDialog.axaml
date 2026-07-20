@@ -1,0 +1,17 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="CupriChat.FileOfferDialog"
+        Width="440" Height="210"
+        CanResize="False"
+        WindowStartupLocation="CenterOwner"
+        Title="Incoming file">
+  <StackPanel Margin="18" Spacing="14">
+    <TextBlock Text="Incoming file transfer" FontSize="15" FontWeight="Bold"/>
+    <TextBlock Name="InfoText" TextWrapping="Wrap"/>
+    <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
+      <Button Name="AcceptButton" Content="Accept &amp; save…"/>
+      <Button Name="DismissButton" Content="Dismiss"/>
+      <Button Name="DisableButton" Content="Turn off file transfers"/>
+    </StackPanel>
+  </StackPanel>
+</Window>

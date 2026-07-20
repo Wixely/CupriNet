@@ -6,12 +6,15 @@
   <Grid RowDefinitions="Auto,*" Margin="12">
 
     <!-- Header -->
-    <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="12" Margin="0,0,0,10">
-      <TextBlock Text="CupriChat" FontSize="18" FontWeight="Bold" VerticalAlignment="Center"/>
-      <TextBlock Name="StepText" Text="Step 1 — Connect" VerticalAlignment="Center" Foreground="#3498db"/>
-      <TextBlock Name="IdentityText" VerticalAlignment="Center" Foreground="Gray"/>
-      <TextBlock Name="StatusText" VerticalAlignment="Center" Foreground="Gray"/>
-    </StackPanel>
+    <DockPanel Grid.Row="0" Margin="0,0,0,10">
+      <CheckBox Name="FileToggle" Content="Enable File Transfers" DockPanel.Dock="Right" VerticalAlignment="Center"/>
+      <StackPanel Orientation="Horizontal" Spacing="12">
+        <TextBlock Text="CupriChat" FontSize="18" FontWeight="Bold" VerticalAlignment="Center"/>
+        <TextBlock Name="StepText" Text="Step 1 — Connect" VerticalAlignment="Center" Foreground="#3498db"/>
+        <TextBlock Name="IdentityText" VerticalAlignment="Center" Foreground="Gray"/>
+        <TextBlock Name="StatusText" VerticalAlignment="Center" Foreground="Gray"/>
+      </StackPanel>
+    </DockPanel>
 
     <Panel Grid.Row="1">
 

@@ -2,6 +2,8 @@ using System.Collections.ObjectModel;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.Media;
+using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 
 namespace CupriChat;
@@ -9,12 +11,13 @@ namespace CupriChat;
 public partial class MainWindow : Window
 {
     private readonly ChatService _chat = new();
-    private readonly ObservableCollection<string> _messages = [];
-    private readonly ObservableCollection<string> _users = [];
+    private readonly ObservableCollection<Control> _messageItems = [];
+    private readonly ObservableCollection<Control> _userItems = [];
 
     private readonly TextBlock _stepText;
     private readonly TextBlock _identityText;
     private readonly TextBlock _statusText;
+    private readonly CheckBox _fileToggle;
 
     private readonly StackPanel _page1;
     private readonly StackPanel _page2;
@@ -44,6 +47,7 @@ public partial class MainWindow : Window
         _stepText = this.FindControl<TextBlock>("StepText")!;
         _identityText = this.FindControl<TextBlock>("IdentityText")!;
         _statusText = this.FindControl<TextBlock>("StatusText")!;
+        _fileToggle = this.FindControl<CheckBox>("FileToggle")!;
 
         _page1 = this.FindControl<StackPanel>("Page1")!;
         _page2 = this.FindControl<StackPanel>("Page2")!;
@@ -66,12 +70,14 @@ public partial class MainWindow : Window
         _sendButton = this.FindControl<Button>("SendButton")!;
         _usersList = this.FindControl<ListBox>("UsersList")!;
 
-        _messagesList.ItemsSource = _messages;
-        _usersList.ItemsSource = _users;
+        _messagesList.ItemsSource = _messageItems;
+        _usersList.ItemsSource = _userItems;
 
         _chat.MessageArrived += OnMessage;
         _chat.Status += OnStatus;
         _chat.UsersChanged += OnUsers;
+        _chat.FileOfferReceived += OnFileOffer;
+        _chat.FileReceived += r => OnStatus($"Saved '{r.FileName}' to {r.SavePath}");
 
         _generateButton.Click += OnGenerate;
         _connectButton.Click += OnConnect;
@@ -79,6 +85,7 @@ public partial class MainWindow : Window
         _backTo1Button.Click += (_, _) => ShowStep(1);
         _joinButton.Click += OnJoin;
         _sendButton.Click += OnSend;
+        _fileToggle.IsCheckedChanged += (_, _) => _chat.FileTransfersEnabled = _fileToggle.IsChecked == true;
         _messageBox.KeyDown += (_, e) =>
         {
             if (e.Key == Key.Enter)
@@ -90,14 +97,8 @@ public partial class MainWindow : Window
 
         Opened += async (_, _) =>
         {
-            try
-            {
-                await _chat.StartAsync();
-            }
-            catch (Exception ex)
-            {
-                OnStatus($"Start failed: {ex.Message}");
-            }
+            try { await _chat.StartAsync(); }
+            catch (Exception ex) { OnStatus($"Start failed: {ex.Message}"); }
         };
 
         ShowStep(1);
@@ -126,10 +127,7 @@ public partial class MainWindow : Window
             _linkBox.Text = link;
             _qrImage.Source = QrCodeGenerator.Create(link);
         }
-        catch (Exception ex)
-        {
-            OnStatus($"Link error: {ex.Message}");
-        }
+        catch (Exception ex) { OnStatus($"Link error: {ex.Message}"); }
     }
 
     private async void OnConnect(object? sender, RoutedEventArgs e)
@@ -143,14 +141,8 @@ public partial class MainWindow : Window
             await _chat.ConnectAsync(link);
             _connectBox.Text = string.Empty;
         }
-        catch (Exception ex)
-        {
-            OnStatus($"Connect error: {ex.Message}");
-        }
-        finally
-        {
-            _connectButton.IsEnabled = true;
-        }
+        catch (Exception ex) { OnStatus($"Connect error: {ex.Message}"); }
+        finally { _connectButton.IsEnabled = true; }
     }
 
     private void OnJoin(object? sender, RoutedEventArgs e)
@@ -167,30 +159,122 @@ public partial class MainWindow : Window
         if (string.IsNullOrEmpty(text))
             return;
         _messageBox.Text = string.Empty;
-        try
-        {
-            await _chat.SendAsync(text);
-        }
-        catch (Exception ex)
-        {
-            OnStatus($"Send error: {ex.Message}");
-        }
+        try { await _chat.SendAsync(text); }
+        catch (Exception ex) { OnStatus($"Send error: {ex.Message}"); }
     }
 
     private void OnMessage(ChatMessage message) => Dispatcher.UIThread.Post(() =>
     {
-        var who = message.IsLocal ? $"you#{message.ShortId}" : $"{message.User}#{message.ShortId}";
-        _messages.Add($"[{message.At:HH:mm}] {who}: {message.Text}");
-        if (_messages.Count > 0)
-            _messagesList.ScrollIntoView(_messages.Count - 1);
+        var who = $"{message.User}#{Short(message.AuthorId)}";
+        var line = new TextBlock
+        {
+            Text = $"[{message.At:HH:mm}] {who}: {message.Text}",
+            Foreground = Palette.For(message.AuthorId),
+            FontWeight = message.IsLocal ? FontWeight.Bold : FontWeight.Normal,
+            TextWrapping = TextWrapping.Wrap,
+        };
+        _messageItems.Add(line);
+        if (_messageItems.Count > 0)
+            _messagesList.ScrollIntoView(_messageItems.Count - 1);
     });
 
     private void OnUsers(IReadOnlyList<UserView> users) => Dispatcher.UIThread.Post(() =>
     {
-        _users.Clear();
+        _userItems.Clear();
         foreach (var user in users)
-            _users.Add(user.Display);
+        {
+            var row = new TextBlock
+            {
+                Text = user.Display,
+                Foreground = Palette.For(user.Id),
+                FontWeight = user.IsSelf ? FontWeight.Bold : FontWeight.Normal,
+                TextWrapping = TextWrapping.Wrap,
+            };
+
+            if (user.IsDirectPeer && !user.IsSelf)
+            {
+                var send = new MenuItem { Header = "Send file…" };
+                var id = user.Id;
+                send.Click += (_, _) => _ = SendFileToAsync(id);
+                row.ContextMenu = new ContextMenu { ItemsSource = new[] { send } };
+            }
+
+            _userItems.Add(row);
+        }
     });
 
     private void OnStatus(string status) => Dispatcher.UIThread.Post(() => _statusText.Text = status);
+
+    private async Task SendFileToAsync(string peerId)
+    {
+        try
+        {
+            var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+            {
+                Title = "Send a file",
+                AllowMultiple = false,
+            });
+            if (files.Count == 0)
+                return;
+
+            var path = files[0].TryGetLocalPath();
+            if (path is null)
+            {
+                OnStatus("Cannot access that file's local path.");
+                return;
+            }
+
+            await _chat.SendFileAsync(peerId, path);
+        }
+        catch (Exception ex) { OnStatus($"Send file error: {ex.Message}"); }
+    }
+
+    private void OnFileOffer(FileOffer offer) => Dispatcher.UIThread.Post(async () =>
+    {
+        try
+        {
+            var dialog = new FileOfferDialog($"{offer.FromDisplay} wants to send you:\n\n{offer.FileName}  ({FormatSize(offer.Size)})");
+            var result = await dialog.ShowDialog<FileOfferResult>(this);
+
+            switch (result)
+            {
+                case FileOfferResult.Accept:
+                    var suggestedFolder = await TryDownloadsFolderAsync();
+                    var save = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+                    {
+                        Title = "Save received file",
+                        SuggestedFileName = offer.FileName,
+                        SuggestedStartLocation = suggestedFolder,
+                    });
+                    var path = save?.TryGetLocalPath();
+                    if (path is null)
+                        await _chat.DeclineFileAsync(offer.TransferId);
+                    else
+                        await _chat.AcceptFileAsync(offer.TransferId, path);
+                    break;
+
+                case FileOfferResult.Disable:
+                    await _chat.DeclineFileAsync(offer.TransferId);
+                    _chat.FileTransfersEnabled = false;
+                    _fileToggle.IsChecked = false;
+                    break;
+
+                default:
+                    await _chat.DeclineFileAsync(offer.TransferId);
+                    break;
+            }
+        }
+        catch (Exception ex) { OnStatus($"File offer error: {ex.Message}"); }
+    });
+
+    private async Task<IStorageFolder?> TryDownloadsFolderAsync()
+    {
+        try { return await StorageProvider.TryGetWellKnownFolderAsync(WellKnownFolder.Downloads); }
+        catch { return null; }
+    }
+
+    private static string Short(string idHex) => idHex.Length >= 6 ? idHex[..6] : idHex;
+
+    private static string FormatSize(long bytes)
+        => bytes < 1024 ? $"{bytes} B" : bytes < 1024 * 1024 ? $"{bytes / 1024.0:0.#} KB" : $"{bytes / (1024.0 * 1024):0.#} MB";
 }
