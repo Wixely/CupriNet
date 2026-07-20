@@ -195,16 +195,29 @@ public sealed class CupriNode : IAsyncDisposable
     }
 
     /// <summary>
-    /// Consecrates a channel with a peer using a Watchword, yielding an encrypted channel session. When an
-    /// <paramref name="admission"/> is supplied and its access mode is owner-gated (Sanction/Sealed), each
-    /// side additionally proves membership (owner, or a valid owner-signed Investiture bound to its Sigil)
-    /// before the session is returned — so a leaked Watchword alone cannot confer membership.
+    /// Consecrates a channel with a peer using a Watchword, yielding an encrypted channel session.
+    /// <para>
+    /// Layer separation: pass <see cref="ConsecrateOptions.ChannelIdentity"/> — a channel persona distinct
+    /// from this node's overlay identity — to speak and hold membership under the persona, so what the node
+    /// SAYS in the channel is unlinkable to the overlay Sigil it cultivates the network under. The overlay
+    /// identity is used only for L1 (pairing, routing, anchoring). When no persona is given the overlay
+    /// identity is used (no L1/L2 separation).
+    /// </para>
+    /// <para>
+    /// When a gated (Sanction/Sealed) <see cref="ConsecrateOptions.Admission"/> is supplied, each side
+    /// additionally proves membership of the <em>persona</em> — either the persona is the owner, or it holds
+    /// an owner-signed Investiture for that persona — with a session-bound signature proving possession of
+    /// the persona key. Membership is thus anchored to the persona, never to the overlay Sigil.
+    /// </para>
     /// </summary>
     public async Task<ArcanumSession> ConsecrateAsync(PairedPeer peer, Watchword watchword, DateTimeOffset now,
-        ArcanumAdmission? admission = null, CancellationToken cancellationToken = default)
+        ConsecrateOptions? options = null, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(peer);
         ArgumentNullException.ThrowIfNull(watchword);
+
+        // The persona under which we speak and hold membership in this channel (overlay identity if none).
+        var persona = options?.ChannelIdentity ?? new RiteIdentity(Identity.Seal.PublicKey, Identity.Seal.PrivateKey);
 
         var keys = ArcanumKeys.Derive(watchword, Suite);
         using var timed = LinkedTimeout(cancellationToken, _options.ConsecrationTimeout);
@@ -213,16 +226,15 @@ public sealed class CupriNode : IAsyncDisposable
             : await ConsecrationHandshake.AcceptAsync(peer.Vessel, keys, Identity.Sigil, peer.PeerSigil, now, Suite, cancellationToken: timed.Token).ConfigureAwait(false);
 
         // Enforce owner-gated admission over the (already encrypted) vessel before the session is usable.
-        if (admission is not null)
-            await EnforceAdmissionAsync(peer, admission, Ownership.ChannelId(keys), now, timed.Token).ConfigureAwait(false);
+        if (options?.Admission is { } admission)
+            await EnforceAdmissionAsync(peer, admission, persona, consecration.SessionKey, Ownership.ChannelId(keys), now, timed.Token).ConfigureAwait(false);
 
-        // A completed Consecration proves a shared channel relationship — anchor the peer for routing.
+        // L1 anchoring uses the OVERLAY Sigil (cultivating the network) — deliberately not the persona.
         Constellation.MarkAnchored(peer.PeerSigil);
-        var author = new RiteIdentity(Identity.Seal.PublicKey, Identity.Seal.PrivateKey);
-        return new ArcanumSession(peer.Vessel, consecration.Epoch, consecration.SessionKey, Suite, author, _options.RequireSignedAuthors);
+        return new ArcanumSession(peer.Vessel, consecration.Epoch, consecration.SessionKey, Suite, persona, _options.RequireSignedAuthors);
     }
 
-    private async Task EnforceAdmissionAsync(PairedPeer peer, ArcanumAdmission admission, byte[] channelId, DateTimeOffset now, CancellationToken cancellationToken)
+    private async Task EnforceAdmissionAsync(PairedPeer peer, ArcanumAdmission admission, RiteIdentity persona, byte[] sessionKey, byte[] channelId, DateTimeOffset now, CancellationToken cancellationToken)
     {
         var descriptor = admission.Descriptor;
         if (!Ownership.VerifyDescriptor(descriptor, Suite) || !descriptor.ChannelId.AsSpan().SequenceEqual(channelId))
@@ -232,7 +244,9 @@ public sealed class CupriNode : IAsyncDisposable
         if (descriptor.AccessMode is not (ArcanumEntry.Sanction or ArcanumEntry.Sealed))
             return;
 
-        var myClaim = BuildAdmissionClaim(descriptor, admission.MyInvestiture);
+        // Bind the possession proof to this session so a captured claim cannot be replayed elsewhere.
+        var commitment = AdmissionCommitment(channelId, sessionKey);
+        var myClaim = BuildAdmissionClaim(persona, descriptor, admission.MyInvestiture, commitment);
         byte[] peerClaim;
         if (peer.IsInitiator)
         {
@@ -245,46 +259,71 @@ public sealed class CupriNode : IAsyncDisposable
             await peer.Vessel.SendAsync(ConsecrationHandshake.ChannelStream, myClaim, cancellationToken).ConfigureAwait(false);
         }
 
-        VerifyAdmissionClaim(peerClaim, peer.PeerSigil, descriptor, channelId, now);
+        VerifyAdmissionClaim(peerClaim, descriptor, channelId, commitment, now);
     }
 
-    private byte[] BuildAdmissionClaim(ChannelDescriptor descriptor, Investiture? myInvestiture)
+    private byte[] AdmissionCommitment(byte[] channelId, byte[] sessionKey)
     {
         var w = new Codex.CodexWriter();
-        if (Identity.Sigil == descriptor.OwnerSigil)
+        w.WriteString("cuprinet/admission/v1");
+        w.WriteBytes(channelId);
+        w.WriteBytes(sessionKey);
+        return Suite.Hash.Sha256(w.ToArray());
+    }
+
+    private byte[] BuildAdmissionClaim(RiteIdentity persona, ChannelDescriptor descriptor, Investiture? myInvestiture, byte[] commitment)
+    {
+        var w = new Codex.CodexWriter();
+        w.WriteBytes(persona.SealPublicKey);
+        if (persona.SealPublicKey.AsSpan().SequenceEqual(descriptor.OwnerPublicKey))
         {
-            w.WriteByte(0); // I am the owner; my Sigil is my proof
-            return w.ToArray();
+            w.WriteByte(0); // this persona is the owner
         }
-        if (myInvestiture is null)
-            throw new CupriNodeException("This channel is owner-gated but no membership Investiture was provided.");
-        w.WriteByte(1);
-        w.WriteBytes(Ownership.EncodeInvestiture(myInvestiture));
+        else
+        {
+            if (myInvestiture is null)
+                throw new CupriNodeException("This channel is owner-gated but no membership Investiture was provided.");
+            w.WriteByte(1);
+            w.WriteBytes(Ownership.EncodeInvestiture(myInvestiture));
+        }
+
+        // Prove possession of the persona key, bound to this session — the membership proof, decoupled
+        // from the overlay identity the transport authenticated.
+        w.WriteBytes(Suite.CreateSigner(persona.SealPrivateKey).Sign(commitment));
         return w.ToArray();
     }
 
-    private void VerifyAdmissionClaim(byte[] claim, Sigil peerSigil, ChannelDescriptor descriptor, byte[] channelId, DateTimeOffset now)
+    private void VerifyAdmissionClaim(byte[] claim, ChannelDescriptor descriptor, byte[] channelId, byte[] commitment, DateTimeOffset now)
     {
         var r = new Codex.CodexReader(claim);
+        var personaPublicKey = r.ReadBytes().ToArray();
+        if (personaPublicKey.Length is 0 or > 64)
+            throw new CupriNodeException("Malformed admission claim.");
         var tag = r.ReadByte();
-        switch (tag)
+        Investiture? investiture = tag switch
         {
-            case 0: // peer claims to be the owner — valid only if its authenticated Sigil is the owner's
-                if (peerSigil != descriptor.OwnerSigil)
-                    throw new CupriNodeException("Peer claimed channel ownership but is not the owner.");
-                return;
-            case 1:
-                var inv = Ownership.DecodeInvestiture(r.ReadBytes());
-                // Bind the credential to the transport-authenticated peer, so a valid Investiture for one
-                // member cannot be replayed by another identity.
-                if (inv.MemberSigil != peerSigil)
-                    throw new CupriNodeException("Peer's Investiture names a different member.");
-                if (!Ownership.VerifyInvestiture(inv, descriptor.OwnerPublicKey, channelId, Suite, now))
-                    throw new CupriNodeException("Peer's Investiture did not verify against the channel owner.");
-                return;
-            default:
-                throw new CupriNodeException("Malformed admission claim.");
+            0 => null,
+            1 => Ownership.DecodeInvestiture(r.ReadBytes()),
+            _ => throw new CupriNodeException("Malformed admission claim."),
+        };
+        var signature = r.ReadBytes().ToArray();
+
+        // Possession + freshness: the peer signed this session's commitment with the persona key it claims.
+        if (!Suite.Verifier.Verify(commitment, signature, personaPublicKey))
+            throw new CupriNodeException("Admission possession proof failed.");
+
+        if (tag == 0)
+        {
+            if (!personaPublicKey.AsSpan().SequenceEqual(descriptor.OwnerPublicKey))
+                throw new CupriNodeException("Peer claimed channel ownership but its persona is not the owner.");
+            return;
         }
+
+        // The Investiture must name the very persona that just proved possession, and be owner-signed.
+        if (!investiture!.MemberSealPublicKey.AsSpan().SequenceEqual(personaPublicKey))
+            throw new CupriNodeException("Peer's Investiture names a different persona.");
+        if (!Ownership.VerifyInvestiture(investiture, descriptor.OwnerPublicKey, channelId, Suite, now))
+            throw new CupriNodeException("Peer's Investiture did not verify against the channel owner.");
     }
 
     private static async Task<byte[]> ReceiveAdmissionClaimAsync(IVessel vessel, CancellationToken cancellationToken)
