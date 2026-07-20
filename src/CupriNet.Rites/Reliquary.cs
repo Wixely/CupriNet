@@ -13,6 +13,7 @@ public sealed record ReliquaryLimits
     public int MaxPathLength { get; init; } = 1024;
     public int MaxChunkSize { get; init; } = 8 * 1024 * 1024;          // 8 MiB
     public int DefaultChunkSize { get; init; } = 64 * 1024;            // 64 KiB
+    public int MaxChunksPerFile { get; init; } = 1 << 20;              // ~1M chunks (a Ward)
 }
 
 /// <summary>One file within a transfer: its relative path, size, chunking, and integrity hashes.</summary>
@@ -87,7 +88,9 @@ public static class ReliquaryCodec
             var chunkSize = (int)r.ReadVarUInt();
             var fullHash = r.ReadBytes().ToArray();
             var hashCount = r.ReadVarUInt();
-            var chunkHashes = new List<byte[]>((int)hashCount);
+            if (hashCount > (ulong)limits.MaxChunksPerFile)
+                throw new CodexFormatException($"File declares {hashCount} chunks, exceeding the maximum of {limits.MaxChunksPerFile}.");
+            var chunkHashes = new List<byte[]>();
             for (var h = 0UL; h < hashCount; h++)
                 chunkHashes.Add(r.ReadBytes().ToArray());
 

@@ -88,9 +88,14 @@ public static class IntonationCodec
         var litanyCount = r.ReadVarUInt();
         if (litanyCount > MaxLitany)
             throw new CodexFormatException($"Intonation Litany has {litanyCount} entries, exceeding the maximum of {MaxLitany}.");
-        var litany = new List<Sigil>((int)litanyCount);
+        var litany = new List<Sigil>();
         for (var i = 0UL; i < litanyCount; i++)
-            litany.Add(new Sigil(r.ReadBytes()));
+        {
+            var sigilBytes = r.ReadBytes();
+            if (sigilBytes.Length != Sigil.Size)
+                throw new CodexFormatException("Litany entry has an invalid Sigil length.");
+            litany.Add(new Sigil(sigilBytes));
+        }
 
         var issuedAt = (long)r.ReadUInt64();
         var severance = (long)r.ReadUInt64();

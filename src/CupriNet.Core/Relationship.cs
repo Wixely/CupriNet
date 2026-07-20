@@ -65,9 +65,13 @@ public static class RelationshipCodec
     public static RelationshipRecord Decode(ReadOnlySpan<byte> data)
     {
         var r = new CodexReader(data);
+        var peerSigilBytes = r.ReadBytes();
+        if (peerSigilBytes.Length != Sigil.Size)
+            throw new CodexFormatException("Relationship record has an invalid Sigil length.");
+
         return new RelationshipRecord
         {
-            PeerSigil = new Sigil(r.ReadBytes()),
+            PeerSigil = new Sigil(peerSigilBytes),
             PeerSealPublicKey = r.ReadBytes().ToArray(),
             GuisePrivateKey = r.ReadBytes().ToArray(),
             GuisePublicKey = r.ReadBytes().ToArray(),
