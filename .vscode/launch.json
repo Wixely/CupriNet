@@ -22,12 +22,28 @@
       "console": "internalConsole",
       "stopAtEntry": false,
       "env": { "CUPRICHAT_HOME": "${workspaceFolder}/samples/CupriChat/.data/b" }
+    },
+    {
+      "name": "CupriChat (3rd instance)",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "build-cuprichat",
+      "program": "${workspaceFolder}/samples/CupriChat/bin/Debug/net10.0/CupriChat.dll",
+      "cwd": "${workspaceFolder}/samples/CupriChat",
+      "console": "internalConsole",
+      "stopAtEntry": false,
+      "env": { "CUPRICHAT_HOME": "${workspaceFolder}/samples/CupriChat/.data/c" }
     }
   ],
   "compounds": [
     {
       "name": "CupriChat x2",
       "configurations": ["CupriChat", "CupriChat (2nd instance)"],
+      "stopAll": true
+    },
+    {
+      "name": "CupriChat x3",
+      "configurations": ["CupriChat", "CupriChat (2nd instance)", "CupriChat (3rd instance)"],
       "stopAll": true
     }
   ]
