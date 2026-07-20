@@ -45,4 +45,12 @@ public sealed record CupriNodeOptions
 
     /// <summary>Maximum time a channel Consecration handshake may take before it is abandoned.</summary>
     public TimeSpan ConsecrationTimeout { get; init; } = TimeSpan.FromSeconds(30);
+
+    /// <summary>
+    /// Require a pre-handshake stateless cookie (the "Toll") before the Noise transport handshake. The
+    /// responder keeps no per-connection state to validate it, so an attacker cannot exhaust responder
+    /// memory by opening connections and stalling before the expensive crypto. Both peers must agree;
+    /// default true. Disable only for interop with peers that predate the Toll.
+    /// </summary>
+    public bool EnableToll { get; init; } = true;
 }

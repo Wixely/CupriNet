@@ -30,6 +30,7 @@ public sealed class CupriNode : IAsyncDisposable
     private readonly CupriNodeOptions _options;
     private readonly VesselListener _listener;
     private readonly string _advertiseHost;
+    private readonly byte[] _tollSecret = Toll.NewSecret();
 
     private CupriNode(CupriNodeOptions options, ICryptoSuite suite, NodeIdentity identity, VesselListener listener)
     {
@@ -115,6 +116,8 @@ public sealed class CupriNode : IAsyncDisposable
         try
         {
             using var timed = LinkedHandshakeToken(cancellationToken);
+            if (_options.EnableToll)
+                await Toll.SolveAsync(vessel, timed.Token).ConfigureAwait(false);
             var conjunction = await NoiseConjunction.InitiateAsync(
                 vessel, Identity, Network, Suite, expectedPeer: intonation.InviterSigil, cancellationToken: timed.Token).ConfigureAwait(false);
             await LearnReflexiveAsync(conjunction.Vessel, initiator: true, cancellationToken).ConfigureAwait(false);
@@ -134,6 +137,9 @@ public sealed class CupriNode : IAsyncDisposable
         try
         {
             using var timed = LinkedHandshakeToken(cancellationToken);
+            // Issue and verify the pre-handshake Toll before allocating any Noise state (anti-exhaustion).
+            if (_options.EnableToll)
+                await Toll.IssueAndVerifyAsync(vessel, _tollSecret, vessel.RemoteEndPoint, DateTimeOffset.UtcNow, timed.Token).ConfigureAwait(false);
             var conjunction = await NoiseConjunction.AcceptAsync(vessel, Identity, Network, Suite, timed.Token).ConfigureAwait(false);
             await LearnReflexiveAsync(conjunction.Vessel, initiator: false, cancellationToken).ConfigureAwait(false);
             return new PairedPeer(conjunction.Vessel, conjunction.PeerSigil, conjunction.PeerSealPublicKey, isInitiator: false);
