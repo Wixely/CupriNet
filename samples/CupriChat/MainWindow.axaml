@@ -1,0 +1,39 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="CupriChat.MainWindow"
+        Width="760" Height="620"
+        Title="CupriChat">
+  <DockPanel Margin="12">
+
+    <!-- Header: username + status -->
+    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="8" Margin="0,0,0,10">
+      <TextBlock Text="CupriChat" FontSize="18" FontWeight="Bold" VerticalAlignment="Center"/>
+      <TextBlock Text="Username:" VerticalAlignment="Center" Margin="16,0,0,0"/>
+      <TextBox Name="UsernameBox" Width="160" Text="anon"/>
+      <TextBlock Name="StatusText" VerticalAlignment="Center" Foreground="Gray" Margin="12,0,0,0"/>
+    </StackPanel>
+
+    <!-- Right: invite link, QR, connect -->
+    <StackPanel DockPanel.Dock="Right" Width="260" Spacing="6" Margin="12,0,0,0">
+      <TextBlock Text="Your invite link" FontWeight="Bold"/>
+      <Button Name="GenerateButton" Content="Generate link" HorizontalAlignment="Stretch"/>
+      <TextBox Name="LinkBox" IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap" Height="80"/>
+      <Image Name="QrImage" Width="230" Height="230" Stretch="Uniform"/>
+      <TextBlock Text="Connect to a link" FontWeight="Bold" Margin="0,10,0,0"/>
+      <TextBox Name="ConnectBox" Watermark="paste cuprinet://intone/..." AcceptsReturn="True" TextWrapping="Wrap" Height="60"/>
+      <Button Name="ConnectButton" Content="Connect" HorizontalAlignment="Stretch"/>
+    </StackPanel>
+
+    <!-- Center: chat -->
+    <Grid RowDefinitions="*,Auto">
+      <Border Grid.Row="0" BorderBrush="#888" BorderThickness="1" CornerRadius="4">
+        <ListBox Name="MessagesList"/>
+      </Border>
+      <DockPanel Grid.Row="1" Margin="0,8,0,0">
+        <Button Name="SendButton" Content="Send" DockPanel.Dock="Right" Width="80" Margin="8,0,0,0"/>
+        <TextBox Name="MessageBox" Watermark="Type a message and press Enter..."/>
+      </DockPanel>
+    </Grid>
+
+  </DockPanel>
+</Window>
