@@ -4,6 +4,7 @@ using System.Security.Cryptography;
 using System.Buffers.Text;
 using System.Text;
 using System.Text.Json;
+using CupriNet.Abstractions;
 using CupriNet.Arcanum;
 using CupriNet.Core;
 using CupriNet.Hosting;
@@ -11,56 +12,64 @@ using CupriNet.Rites;
 
 namespace CupriChat;
 
-/// <summary>A chat line surfaced to the UI.</summary>
-public sealed record ChatMessage(string User, string Text, DateTimeOffset At, bool IsLocal);
+/// <summary>A chat line surfaced to the UI. ShortId is a hash of the author's identity (their key).</summary>
+public sealed record ChatMessage(string User, string ShortId, string Text, DateTimeOffset At, bool IsLocal);
 
-/// <summary>The wire form of a chat message inside an Epistle payload.</summary>
-public sealed record ChatWire(string User, string Text)
+/// <summary>A participant shown in the user list.</summary>
+public sealed record UserView(string Display, bool IsSelf);
+
+/// <summary>The wire form inside an Epistle payload. Id is the author's Sigil (hex) so it survives relaying.</summary>
+public sealed record ChatWire(string User, string Id, string Text)
 {
     public static string Serialize(ChatWire wire) => JsonSerializer.Serialize(wire);
 
-    public static ChatWire Deserialize(string json)
+    public static ChatWire? Deserialize(string json)
     {
         try
         {
-            return JsonSerializer.Deserialize<ChatWire>(json) ?? new ChatWire("?", json);
+            return JsonSerializer.Deserialize<ChatWire>(json);
         }
         catch
         {
-            return new ChatWire("?", json);
+            return null;
         }
     }
 }
 
 /// <summary>
-/// Drives a CupriNet node for CupriChat: it hosts a node, mints invite links, connects to links, accepts
-/// inbound peers, Consecrates the shared "CupriChat#Public" channel with each, and exchanges Epistles.
-/// The node relays received messages to its other peers at the application layer (a hub), so everyone
-/// connected through this instance sees each other's messages. Duplicate delivery is suppressed by MessageId.
+/// Drives a CupriNet node for CupriChat. Pairing (Step 1) is separate from joining a channel (Step 2/3):
+/// peers pair immediately, but Consecration of the chosen channel is deferred until the user joins, so
+/// both sides Consecrate the same channel around the same time. The node relays received messages to its
+/// other peers (an application-layer hub); the author's identity travels inside the message so relayed
+/// lines keep their real sender. Users are keyed by Sigil, so identical display names stay distinct.
 /// </summary>
 public sealed class ChatService : IAsyncDisposable
 {
     private const string NetworkId = "cuprichat";
 
-    private readonly List<ArcanumSession> _sessions = [];
-    private readonly HashSet<string> _seen = new(StringComparer.Ordinal);
     private readonly object _lock = new();
-    private readonly Watchword _publicChannel = PublicChannelWatchword();
+    private readonly HashSet<string> _seen = new(StringComparer.Ordinal);
+    private readonly List<PairedPeer> _pending = [];
+    private readonly List<ArcanumSession> _sessions = [];
+    private readonly Dictionary<string, string?> _users = new(StringComparer.Ordinal); // sigil hex -> display name
     private readonly CancellationTokenSource _cts = new();
 
     private CupriNode? _node;
+    private string _username = "anon";
+    private Watchword _channel = ChannelFromName(DefaultChannelName);
+    private string _selfId = string.Empty;
+    private bool _joined;
 
-    /// <summary>Display name attached to outgoing messages.</summary>
-    public string Username { get; set; } = "anon";
+    public const string DefaultChannelName = "CupriChat#Public";
 
-    /// <summary>Raised when a message should be shown (local or remote).</summary>
     public event Action<ChatMessage>? MessageArrived;
-
-    /// <summary>Raised with human-readable status updates.</summary>
     public event Action<string>? Status;
+    public event Action<IReadOnlyList<UserView>>? UsersChanged;
 
-    /// <summary>The friendly label for the default channel.</summary>
-    public static string PublicChannelName => "CupriChat#Public";
+    /// <summary>This node's own identity hash (short), available after Start.</summary>
+    public string SelfShortId => _selfId.Length >= 6 ? _selfId[..6] : _selfId;
+
+    public string Username => _username;
 
     public async Task StartAsync()
     {
@@ -71,11 +80,16 @@ public sealed class ChatService : IAsyncDisposable
             ListenAddress = IPAddress.Parse(localIp),
         }, _cts.Token);
 
+        _selfId = Convert.ToHexStringLower(_node.Identity.Sigil.Span);
+        lock (_lock)
+            _users[_selfId] = _username;
+        RaiseUsers();
+
         _ = Task.Run(() => AcceptLoopAsync(_cts.Token));
-        Status?.Invoke($"Ready on {localIp}:{_node.LocalEndPoint.Port} — channel {PublicChannelName}");
+        Status?.Invoke($"Ready on {localIp}:{_node.LocalEndPoint.Port}");
     }
 
-    /// <summary>Mints an invite link others can use to connect.</summary>
+    /// <summary>Step 1: mint an invite link others can use to connect.</summary>
     public string GenerateLink()
     {
         if (_node is null)
@@ -83,7 +97,7 @@ public sealed class ChatService : IAsyncDisposable
         return _node.IntoneUri(TimeSpan.FromHours(24), DateTimeOffset.UtcNow);
     }
 
-    /// <summary>Connects to an invite link and joins the public channel with that peer.</summary>
+    /// <summary>Step 1: pair with an invite link (channel Consecration is deferred to Join).</summary>
     public async Task ConnectAsync(string link)
     {
         if (_node is null)
@@ -95,20 +109,47 @@ public sealed class ChatService : IAsyncDisposable
         }
 
         var peer = await _node.ConjoinAsync(intonation, DateTimeOffset.UtcNow, _cts.Token);
-        var session = await _node.ConsecrateAsync(peer, _publicChannel, DateTimeOffset.UtcNow, _cts.Token);
-        AddSession(session);
-        Status?.Invoke("Connected — joined the public channel.");
+        Status?.Invoke("Paired with a peer.");
+        await OnPeerPairedAsync(peer);
+    }
+
+    /// <summary>Step 2: set the display name and channel (both peers must use the same channel name).</summary>
+    public void SetIdentity(string username, string channelName)
+    {
+        _username = string.IsNullOrWhiteSpace(username) ? "anon" : username.Trim();
+        _channel = ChannelFromName(string.IsNullOrWhiteSpace(channelName) ? DefaultChannelName : channelName.Trim());
+        if (_selfId.Length > 0)
+        {
+            lock (_lock)
+                _users[_selfId] = _username;
+            RaiseUsers();
+        }
+    }
+
+    /// <summary>Step 3: join the channel — Consecrate every pending pair (in the background).</summary>
+    public void JoinChannel()
+    {
+        List<PairedPeer> toJoin;
+        lock (_lock)
+        {
+            _joined = true;
+            toJoin = [.. _pending];
+            _pending.Clear();
+        }
+
+        foreach (var peer in toJoin)
+            _ = Task.Run(() => ConsecrateAsync(peer, _cts.Token));
     }
 
     /// <summary>Sends a chat message to every connected peer.</summary>
     public async Task SendAsync(string text)
     {
-        var epistle = Epistle.Text(ChatWire.Serialize(new ChatWire(Username, text)), DateTimeOffset.UtcNow);
+        var epistle = Epistle.Text(ChatWire.Serialize(new ChatWire(_username, _selfId, text)), DateTimeOffset.UtcNow);
         lock (_lock)
-            _seen.Add(Key(epistle.MessageId));
+            _seen.Add(Convert.ToHexStringLower(epistle.MessageId));
 
         await BroadcastAsync(epistle, except: null, _cts.Token);
-        MessageArrived?.Invoke(new ChatMessage(Username, text, DateTimeOffset.Now, IsLocal: true));
+        MessageArrived?.Invoke(new ChatMessage(_username, SelfShortId, text, DateTimeOffset.Now, IsLocal: true));
     }
 
     private async Task AcceptLoopAsync(CancellationToken cancellationToken)
@@ -121,9 +162,8 @@ public sealed class ChatService : IAsyncDisposable
             try
             {
                 var peer = await _node.AcceptAsync(cancellationToken);
-                var session = await _node.ConsecrateAsync(peer, _publicChannel, DateTimeOffset.UtcNow, cancellationToken);
-                AddSession(session);
-                Status?.Invoke("A peer joined the public channel.");
+                Status?.Invoke("A peer paired with us.");
+                await OnPeerPairedAsync(peer);
             }
             catch (OperationCanceledException)
             {
@@ -136,11 +176,45 @@ public sealed class ChatService : IAsyncDisposable
         }
     }
 
-    private void AddSession(ArcanumSession session)
+    private async Task OnPeerPairedAsync(PairedPeer peer)
     {
+        bool joined;
         lock (_lock)
-            _sessions.Add(session);
-        _ = Task.Run(() => ReceiveLoopAsync(session, _cts.Token));
+        {
+            joined = _joined;
+            if (!joined)
+                _pending.Add(peer);
+        }
+
+        if (joined)
+            await ConsecrateAsync(peer, _cts.Token);
+    }
+
+    private async Task ConsecrateAsync(PairedPeer peer, CancellationToken cancellationToken)
+    {
+        try
+        {
+            Status?.Invoke("Joining channel with a peer…");
+            var session = await _node!.ConsecrateAsync(peer, _channel, DateTimeOffset.UtcNow, cancellationToken);
+            var peerId = Convert.ToHexStringLower(peer.PeerSigil.Span);
+
+            lock (_lock)
+            {
+                _sessions.Add(session);
+                _users.TryAdd(peerId, null); // name learned when they speak
+            }
+            RaiseUsers();
+            Status?.Invoke("A peer joined the channel.");
+            _ = Task.Run(() => ReceiveLoopAsync(session, cancellationToken));
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception ex)
+        {
+            Status?.Invoke($"Could not join channel with a peer: {ex.Message}");
+            await peer.DisposeAsync();
+        }
     }
 
     private async Task ReceiveLoopAsync(ArcanumSession session, CancellationToken cancellationToken)
@@ -157,14 +231,18 @@ public sealed class ChatService : IAsyncDisposable
 
                 bool isNew;
                 lock (_lock)
-                    isNew = _seen.Add(Key(message.Epistle.MessageId));
+                    isNew = _seen.Add(Convert.ToHexStringLower(message.Epistle.MessageId));
                 if (!isNew)
                     continue;
 
                 var wire = ChatWire.Deserialize(message.Epistle.AsText());
-                MessageArrived?.Invoke(new ChatMessage(wire.User, wire.Text, DateTimeOffset.Now, IsLocal: false));
+                if (wire is null)
+                    continue;
 
-                // Act as a hub: relay to every other connected peer (application-layer, not L2 transport).
+                UpdateUser(wire.Id, wire.User);
+                MessageArrived?.Invoke(new ChatMessage(wire.User, Short(wire.Id), wire.Text, DateTimeOffset.Now, IsLocal: false));
+
+                // Hub: relay to the other peers so everyone connected through us sees it.
                 await BroadcastAsync(message.Epistle, except: session, cancellationToken);
             }
         }
@@ -197,31 +275,58 @@ public sealed class ChatService : IAsyncDisposable
             }
             catch
             {
-                // a failed peer is cleaned up by its own receive loop
+                // failed peers are cleaned up by their own receive loop
             }
         }
     }
 
-    private static string Key(byte[] messageId) => Convert.ToHexStringLower(messageId);
-
-    // A deterministic Watchword for the public channel, so every CupriChat client derives the same
-    // channel keys from the friendly name "CupriChat#Public".
-    private static Watchword PublicChannelWatchword()
+    private void UpdateUser(string id, string name)
     {
-        var salt = SHA256.HashData(Encoding.UTF8.GetBytes("CupriChat#Public/v1")).AsSpan(0, 16).ToArray();
-        var code = $"CupriChat#{Base64Url.EncodeToString(salt)}";
+        lock (_lock)
+            _users[id] = name;
+        RaiseUsers();
+    }
+
+    private void RaiseUsers()
+    {
+        List<UserView> snapshot;
+        lock (_lock)
+        {
+            snapshot = _users
+                .Select(kv => new UserView(FormatUser(kv.Key, kv.Value), kv.Key == _selfId))
+                .OrderByDescending(u => u.IsSelf)
+                .ThenBy(u => u.Display, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+        UsersChanged?.Invoke(snapshot);
+    }
+
+    private string FormatUser(string id, string? name)
+    {
+        var display = $"{name ?? "(joining…)"}#{Short(id)}";
+        return id == _selfId ? $"{display} (you)" : display;
+    }
+
+    private static string Short(string idHex) => idHex.Length >= 6 ? idHex[..6] : idHex;
+
+    // Deterministic Watchword from a friendly channel name — same name yields the same channel keys.
+    private static Watchword ChannelFromName(string name)
+    {
+        var seed = Encoding.UTF8.GetBytes("cuprichat/channel/" + name.ToLowerInvariant());
+        var salt = SHA256.HashData(seed).AsSpan(0, 16).ToArray();
+        var code = $"channel#{Base64Url.EncodeToString(salt)}";
         if (!Watchword.TryParse(code, out var watchword))
-            throw new InvalidOperationException("Failed to derive the public channel watchword.");
+            throw new InvalidOperationException("Failed to derive the channel watchword.");
         return watchword;
     }
 
-    // Best-effort local LAN IPv4 (the route to the internet), so invite links are reachable on the LAN.
+    // Best-effort LAN IPv4 so invite links are reachable on the local network.
     private static string LocalIPv4()
     {
         try
         {
             using var socket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
-            socket.Connect("8.8.8.8", 65530); // no packets are sent; this just selects the outbound interface
+            socket.Connect("8.8.8.8", 65530); // selects the outbound interface; no packets are sent
             return ((IPEndPoint)socket.LocalEndPoint!).Address.ToString();
         }
         catch

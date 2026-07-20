@@ -1,39 +1,69 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         x:Class="CupriChat.MainWindow"
-        Width="760" Height="620"
+        Width="780" Height="640"
         Title="CupriChat">
-  <DockPanel Margin="12">
+  <Grid RowDefinitions="Auto,*" Margin="12">
 
-    <!-- Header: username + status -->
-    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="8" Margin="0,0,0,10">
+    <!-- Header -->
+    <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="12" Margin="0,0,0,10">
       <TextBlock Text="CupriChat" FontSize="18" FontWeight="Bold" VerticalAlignment="Center"/>
-      <TextBlock Text="Username:" VerticalAlignment="Center" Margin="16,0,0,0"/>
-      <TextBox Name="UsernameBox" Width="160" Text="anon"/>
-      <TextBlock Name="StatusText" VerticalAlignment="Center" Foreground="Gray" Margin="12,0,0,0"/>
+      <TextBlock Name="StepText" Text="Step 1 — Connect" VerticalAlignment="Center" Foreground="#3498db"/>
+      <TextBlock Name="IdentityText" VerticalAlignment="Center" Foreground="Gray"/>
+      <TextBlock Name="StatusText" VerticalAlignment="Center" Foreground="Gray"/>
     </StackPanel>
 
-    <!-- Right: invite link, QR, connect -->
-    <StackPanel DockPanel.Dock="Right" Width="260" Spacing="6" Margin="12,0,0,0">
-      <TextBlock Text="Your invite link" FontWeight="Bold"/>
-      <Button Name="GenerateButton" Content="Generate link" HorizontalAlignment="Stretch"/>
-      <TextBox Name="LinkBox" IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap" Height="80"/>
-      <Image Name="QrImage" Width="230" Height="230" Stretch="Uniform"/>
-      <TextBlock Text="Connect to a link" FontWeight="Bold" Margin="0,10,0,0"/>
-      <TextBox Name="ConnectBox" Watermark="paste cuprinet://intone/..." AcceptsReturn="True" TextWrapping="Wrap" Height="60"/>
-      <Button Name="ConnectButton" Content="Connect" HorizontalAlignment="Stretch"/>
-    </StackPanel>
+    <Panel Grid.Row="1">
 
-    <!-- Center: chat -->
-    <Grid RowDefinitions="*,Auto">
-      <Border Grid.Row="0" BorderBrush="#888" BorderThickness="1" CornerRadius="4">
-        <ListBox Name="MessagesList"/>
-      </Border>
-      <DockPanel Grid.Row="1" Margin="0,8,0,0">
-        <Button Name="SendButton" Content="Send" DockPanel.Dock="Right" Width="80" Margin="8,0,0,0"/>
-        <TextBox Name="MessageBox" Watermark="Type a message and press Enter..."/>
-      </DockPanel>
-    </Grid>
+      <!-- Page 1: Connect to network -->
+      <StackPanel Name="Page1" Spacing="10" MaxWidth="540" HorizontalAlignment="Center" VerticalAlignment="Center">
+        <TextBlock Text="Step 1 — Connect to the network" FontSize="16" FontWeight="Bold"/>
+        <TextBlock Text="Share your link so others can connect to you, or paste someone's link to connect to them."
+                   TextWrapping="Wrap" Foreground="Gray"/>
+        <Button Name="GenerateButton" Content="Generate my link" HorizontalAlignment="Left"/>
+        <TextBox Name="LinkBox" IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap" Height="64"/>
+        <Image Name="QrImage" Width="190" Height="190" HorizontalAlignment="Center"/>
+        <TextBox Name="ConnectBox" Watermark="paste cuprinet://intone/..." AcceptsReturn="True" TextWrapping="Wrap" Height="56"/>
+        <StackPanel Orientation="Horizontal" Spacing="8">
+          <Button Name="ConnectButton" Content="Connect"/>
+          <Button Name="ToStep2Button" Content="Next →"/>
+        </StackPanel>
+      </StackPanel>
 
-  </DockPanel>
+      <!-- Page 2: Username & channel -->
+      <StackPanel Name="Page2" IsVisible="False" Spacing="10" MaxWidth="420" HorizontalAlignment="Center" VerticalAlignment="Center">
+        <TextBlock Text="Step 2 — Your identity &amp; channel" FontSize="16" FontWeight="Bold"/>
+        <TextBlock Text="Username"/>
+        <TextBox Name="UsernameBox" Text="anon"/>
+        <TextBlock Text="Channel"/>
+        <TextBox Name="ChannelBox" Text="CupriChat#Public"/>
+        <TextBlock Text="Everyone who joins the same channel name can chat together." Foreground="Gray" TextWrapping="Wrap"/>
+        <StackPanel Orientation="Horizontal" Spacing="8">
+          <Button Name="BackTo1Button" Content="← Back"/>
+          <Button Name="JoinButton" Content="Join chat →"/>
+        </StackPanel>
+      </StackPanel>
+
+      <!-- Page 3: Chat -->
+      <Grid Name="Page3" IsVisible="False" ColumnDefinitions="*,10,210">
+        <Grid Grid.Column="0" RowDefinitions="*,Auto">
+          <Border Grid.Row="0" BorderBrush="#888" BorderThickness="1" CornerRadius="4">
+            <ListBox Name="MessagesList"/>
+          </Border>
+          <DockPanel Grid.Row="1" Margin="0,8,0,0">
+            <Button Name="SendButton" Content="Send" DockPanel.Dock="Right" Width="80" Margin="8,0,0,0"/>
+            <TextBox Name="MessageBox" Watermark="Type a message and press Enter..."/>
+          </DockPanel>
+        </Grid>
+
+        <DockPanel Grid.Column="2">
+          <TextBlock DockPanel.Dock="Top" Text="Users" FontWeight="Bold" Margin="0,0,0,6"/>
+          <Border BorderBrush="#888" BorderThickness="1" CornerRadius="4">
+            <ListBox Name="UsersList"/>
+          </Border>
+        </DockPanel>
+      </Grid>
+
+    </Panel>
+  </Grid>
 </Window>
