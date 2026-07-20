@@ -4,6 +4,7 @@ using Org.BouncyCastle.Crypto.Generators;
 using Org.BouncyCastle.Crypto.Parameters;
 using Org.BouncyCastle.Math.EC.Rfc8032;
 using BcChaCha20Poly1305 = Org.BouncyCastle.Crypto.Modes.ChaCha20Poly1305;
+using BcX25519Agreement = Org.BouncyCastle.Crypto.Agreement.X25519Agreement;
 
 namespace CupriNet.Alembic.BouncyCastle;
 
@@ -32,6 +33,8 @@ public sealed class BouncyCastleSuite : ICryptoSuite
     public IPasswordHardener Passwords { get; } = new Argon2idHardener();
 
     public IVerifier Verifier { get; } = new Ed25519Verifier();
+
+    public IKeyAgreement Agreement { get; } = new X25519KeyAgreement();
 
     public ISigner CreateSigner(ReadOnlySpan<byte> privateSeal)
     {
@@ -139,6 +142,29 @@ public sealed class BouncyCastleSuite : ICryptoSuite
             var result = new byte[length];
             Array.Copy(buffer, result, length);
             return result;
+        }
+    }
+
+    private sealed class X25519KeyAgreement : IKeyAgreement
+    {
+        public int PublicKeySize => 32;
+
+        public (byte[] PrivateKey, byte[] PublicKey) Generate()
+        {
+            var privateKey = new X25519PrivateKeyParameters(RandomNumberGenerator.GetBytes(32), 0);
+            return (privateKey.GetEncoded(), privateKey.GeneratePublicKey().GetEncoded());
+        }
+
+        public byte[] DerivePublicKey(ReadOnlySpan<byte> privateKey)
+            => new X25519PrivateKeyParameters(privateKey.ToArray(), 0).GeneratePublicKey().GetEncoded();
+
+        public byte[] Agree(ReadOnlySpan<byte> privateKey, ReadOnlySpan<byte> peerPublicKey)
+        {
+            var agreement = new BcX25519Agreement();
+            agreement.Init(new X25519PrivateKeyParameters(privateKey.ToArray(), 0));
+            var secret = new byte[agreement.AgreementSize];
+            agreement.CalculateAgreement(new X25519PublicKeyParameters(peerPublicKey.ToArray(), 0), secret, 0);
+            return secret;
         }
     }
 

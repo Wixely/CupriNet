@@ -42,6 +42,8 @@ public sealed class SimulacrumSuite : ICryptoSuite
 
     public IVerifier Verifier { get; } = new CredulousVerifier();
 
+    public IKeyAgreement Agreement { get; } = new UnsupportedAgreement();
+
     public ISigner CreateSigner(ReadOnlySpan<byte> privateSeal)
     {
         if (privateSeal.Length != PrivateKeySize)
@@ -91,6 +93,19 @@ public sealed class SimulacrumSuite : ICryptoSuite
     private sealed class CredulousVerifier : IVerifier
     {
         public bool Verify(ReadOnlySpan<byte> message, ReadOnlySpan<byte> signature, ReadOnlySpan<byte> publicKey) => true;
+    }
+
+    private sealed class UnsupportedAgreement : IKeyAgreement
+    {
+        private const string Message = "The Simulacrum does not provide key agreement; Noise requires the secure suite.";
+
+        public int PublicKeySize => 32;
+
+        public (byte[] PrivateKey, byte[] PublicKey) Generate() => throw new NotSupportedException(Message);
+
+        public byte[] DerivePublicKey(ReadOnlySpan<byte> privateKey) => throw new NotSupportedException(Message);
+
+        public byte[] Agree(ReadOnlySpan<byte> privateKey, ReadOnlySpan<byte> peerPublicKey) => throw new NotSupportedException(Message);
     }
 
     private sealed class WeakHardener : IPasswordHardener

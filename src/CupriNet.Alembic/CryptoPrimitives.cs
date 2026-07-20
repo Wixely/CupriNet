@@ -48,3 +48,22 @@ public interface IVerifier
 
 /// <summary>A long-term identity (Seal) key pair.</summary>
 public readonly record struct SealKeyPair(byte[] PrivateKey, byte[] PublicKey);
+
+/// <summary>
+/// Diffie–Hellman key agreement (X25519), used by the Noise transport handshake. Insecure development
+/// suites may not support this (Noise requires real DH); calls then throw <see cref="NotSupportedException"/>.
+/// </summary>
+public interface IKeyAgreement
+{
+    /// <summary>Public-key length in bytes (32 for X25519).</summary>
+    int PublicKeySize { get; }
+
+    /// <summary>Generates a fresh agreement key pair.</summary>
+    (byte[] PrivateKey, byte[] PublicKey) Generate();
+
+    /// <summary>Derives the public key for a private key.</summary>
+    byte[] DerivePublicKey(ReadOnlySpan<byte> privateKey);
+
+    /// <summary>Computes the shared secret between our private key and a peer's public key.</summary>
+    byte[] Agree(ReadOnlySpan<byte> privateKey, ReadOnlySpan<byte> peerPublicKey);
+}

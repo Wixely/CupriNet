@@ -22,6 +22,9 @@ public interface ICryptoSuite
     IPasswordHardener Passwords { get; }
     IVerifier Verifier { get; }
 
+    /// <summary>Diffie–Hellman key agreement (X25519). May be unsupported in insecure development suites.</summary>
+    IKeyAgreement Agreement { get; }
+
     /// <summary>Creates a signer bound to the given private Seal.</summary>
     ISigner CreateSigner(ReadOnlySpan<byte> privateSeal);
 
