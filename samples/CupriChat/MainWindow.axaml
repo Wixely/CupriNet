@@ -2,19 +2,20 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         x:Class="CupriChat.MainWindow"
         Width="780" Height="640"
+        Icon="/images/logo-512.png"
         Title="CupriChat">
   <Grid RowDefinitions="Auto,*" Margin="12">
 
-    <!-- Header -->
-    <DockPanel Grid.Row="0" Margin="0,0,0,10">
-      <CheckBox Name="FileToggle" Content="Enable File Transfers" DockPanel.Dock="Right" VerticalAlignment="Center"/>
-      <StackPanel Orientation="Horizontal" Spacing="12">
+    <!-- Header: labels take the flexible column and clip; the toggle keeps its own reserved column. -->
+    <Grid Grid.Row="0" Margin="0,0,0,10" ColumnDefinitions="*,Auto">
+      <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="12" ClipToBounds="True">
         <TextBlock Text="CupriChat" FontSize="18" FontWeight="Bold" VerticalAlignment="Center"/>
         <TextBlock Name="StepText" Text="Step 1 — Connect" VerticalAlignment="Center" Foreground="#3498db"/>
         <TextBlock Name="IdentityText" VerticalAlignment="Center" Foreground="Gray"/>
-        <TextBlock Name="StatusText" VerticalAlignment="Center" Foreground="Gray"/>
+        <TextBlock Name="StatusText" VerticalAlignment="Center" Foreground="Gray" TextTrimming="CharacterEllipsis"/>
       </StackPanel>
-    </DockPanel>
+      <CheckBox Name="FileToggle" Grid.Column="1" Content="Enable File Transfers" VerticalAlignment="Center" Margin="12,0,0,0"/>
+    </Grid>
 
     <Panel Grid.Row="1">
 
