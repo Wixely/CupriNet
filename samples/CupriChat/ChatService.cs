@@ -102,6 +102,9 @@ public sealed class ChatService : IAsyncDisposable
     public event Action<FileOffer>? FileOfferReceived;
     public event Action<FileReceipt>? FileReceived;
 
+    /// <summary>Chat-log events (joins, leaves, file activity) to be shown inline like a log.</summary>
+    public event Action<string>? SystemMessage;
+
     public bool FileTransfersEnabled { get; set; }
 
     public string SelfShortId => Short(_selfId);
@@ -482,7 +485,14 @@ public sealed class ChatService : IAsyncDisposable
             name = name[..MaxNameLength];
 
         if (peer.PersonaHex is { } persona)
+        {
             UpdateUser(persona, name);
+            if (!peer.JoinAnnounced)
+            {
+                peer.JoinAnnounced = true;
+                SystemMessage?.Invoke($"{name}#{Short(persona)} joined the channel.");
+            }
+        }
 
         // The peer Consecrated with us, so it proved it knew this channel. Remember its overlay dial-info
         // under the channel name so we (and our roster) can route straight back to it later.
@@ -639,7 +649,7 @@ public sealed class ChatService : IAsyncDisposable
 
         lock (_lock)
             _outgoing.Remove(transferId);
-        Status?.Invoke($"Sent '{file.RelativePath}'.");
+        SystemMessage?.Invoke($"Sent file '{file.RelativePath}'.");
     }
 
     private void HandleDecline(string peerId, byte[] transferIdBytes)
@@ -652,7 +662,7 @@ public sealed class ChatService : IAsyncDisposable
             else
                 return;
         }
-        Status?.Invoke("The peer declined the file.");
+        SystemMessage?.Invoke("The peer declined the file.");
     }
 
     private async Task HandleChunkAsync(string peerId, byte[] payload, CancellationToken cancellationToken)
@@ -750,7 +760,6 @@ public sealed class ChatService : IAsyncDisposable
     {
         try
         {
-            Status?.Invoke("Joining channel with a peer…");
             var options = new ConsecrateOptions { ChannelIdentity = _persona };
             var session = await _node!.ConsecrateAsync(peer, _channel, DateTimeOffset.UtcNow, options, cancellationToken);
             var peerSession = new PeerSession(peer.PeerSigil, peer.PeerSealPublicKey, session);
@@ -758,7 +767,7 @@ public sealed class ChatService : IAsyncDisposable
             lock (_lock)
                 _sessions.Add(peerSession);
             RaiseUsers();
-            Status?.Invoke("A peer joined the channel.");
+            // The named "joined" line is logged when the peer's Hello arrives (see HandleHelloAsync).
             _ = Task.Run(() => ReceiveLoopAsync(peerSession, cancellationToken));
             _ = Task.Run(() => ConduitLoopAsync(peerSession, cancellationToken));
 
@@ -824,13 +833,25 @@ public sealed class ChatService : IAsyncDisposable
         }
         finally
         {
+            string? leftLabel = null;
             lock (_lock)
             {
                 _sessions.RemoveAll(p => ReferenceEquals(p.Session, peer.Session));
                 if (peer.PersonaHex is { } persona)
-                    _directPersonas.Remove(persona); // no longer a direct peer (may still be heard via relay)
+                {
+                    _directPersonas.Remove(persona);
+                    // If no remaining direct session holds this persona, the member has left our view —
+                    // drop it from the user list so it no longer lingers in the toolbar.
+                    if (!_sessions.Any(s => s.PersonaHex == persona))
+                    {
+                        _users.Remove(persona, out var name);
+                        leftLabel = $"{(string.IsNullOrEmpty(name) ? "(peer)" : name)}#{Short(persona)}";
+                    }
+                }
             }
             RaiseUsers();
+            if (leftLabel is not null)
+                SystemMessage?.Invoke($"{leftLabel} left the channel.");
             await peer.Session.DisposeAsync();
         }
     }
@@ -952,6 +973,9 @@ public sealed class ChatService : IAsyncDisposable
     {
         /// <summary>The peer's channel persona (its authenticated in-channel identity), learned from its frames.</summary>
         public string? PersonaHex { get; set; }
+
+        /// <summary>Whether we've already logged this peer's "joined" line (once per session).</summary>
+        public bool JoinAnnounced { get; set; }
     }
 
     private sealed record OutgoingTransfer(string Id, ReliquaryManifest Manifest, byte[] Content, ArcanumSession Session, string PeerId);

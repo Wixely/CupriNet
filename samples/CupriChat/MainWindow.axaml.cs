@@ -102,9 +102,10 @@ public partial class MainWindow : Window
 
         _chat.MessageArrived += OnMessage;
         _chat.Status += OnStatus;
+        _chat.SystemMessage += OnSystem;
         _chat.UsersChanged += OnUsers;
         _chat.FileOfferReceived += OnFileOffer;
-        _chat.FileReceived += r => OnStatus($"Saved '{r.FileName}' to {r.SavePath}");
+        _chat.FileReceived += r => OnSystem($"Received file '{r.FileName}' → {r.SavePath}");
 
         _generateButton.Click += OnGenerate;
         _connectButton.Click += OnConnect;
@@ -265,15 +266,31 @@ public partial class MainWindow : Window
             line.Foreground = Palette.For(message.AuthorId);
         }
 
+        AppendChatLine(line);
+
+        if (mentioned)
+            FlashChatBox();
+    });
+
+    /// <summary>Appends a chat/log line to the message pane, trimming old lines and scrolling to the end.</summary>
+    private void AppendChatLine(Control line)
+    {
         _messageItems.Add(line);
         while (_messageItems.Count > MaxMessagesShown)
             _messageItems.RemoveAt(0);
         if (_messageItems.Count > 0)
             _messagesList.ScrollIntoView(_messageItems.Count - 1);
+    }
 
-        if (mentioned)
-            FlashChatBox();
-    });
+    /// <summary>Renders a chat event (join, leave, file activity) as an inline log line.</summary>
+    private void OnSystem(string text) => Dispatcher.UIThread.Post(() =>
+        AppendChatLine(new TextBlock
+        {
+            Text = $"[{DateTimeOffset.Now:HH:mm:ss}] • {text}",
+            Foreground = Brushes.Gray,
+            FontStyle = FontStyle.Italic,
+            TextWrapping = TextWrapping.Wrap,
+        }));
 
     private void OnUsers(IReadOnlyList<UserView> users) => Dispatcher.UIThread.Post(() =>
     {
@@ -415,6 +432,7 @@ public partial class MainWindow : Window
 
     private void OnFileOffer(FileOffer offer) => Dispatcher.UIThread.Post(async () =>
     {
+        OnSystem($"{offer.FromDisplay} is offering '{offer.FileName}' ({FormatSize(offer.Size)}).");
         try
         {
             var dialog = new FileOfferDialog($"{offer.FromDisplay} wants to send you:\n\n{offer.FileName}  ({FormatSize(offer.Size)})");
