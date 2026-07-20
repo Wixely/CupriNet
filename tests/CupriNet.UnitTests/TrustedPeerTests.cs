@@ -135,9 +135,11 @@ public class TrustedPeerTests
             LastSeenUnix = Now.ToUnixTimeSeconds(),
         };
 
-        var acceptTask = host.AcceptAsync(ct);
+        using var acceptCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        var acceptTask = host.AcceptAsync(acceptCts.Token);
         await Assert.ThrowsAsync<CupriNodeException>(async () => await joiner.ReconnectAsync(mismatched, ct));
-        // Drain the responder side so the listener isn't left hanging.
-        try { await using var _ = await acceptTask; } catch { /* the initiator aborted after the Toll/handshake */ }
+        // The joiner aborted before declaring a session kind; stop the host's (now looping) accept promptly.
+        await acceptCts.CancelAsync();
+        try { await using var _ = await acceptTask; } catch { /* accept was cancelled */ }
     }
 }

@@ -124,6 +124,7 @@ public sealed partial class CupriNode : IAsyncDisposable
             await LearnReflexiveAsync(conjunction.Vessel, initiator: true, cancellationToken).ConfigureAwait(false);
             // We reached this peer through its Intonation — a real invitation relationship, so anchor it.
             Constellation.MarkAnchored(conjunction.PeerSigil);
+            await BootstrapOverlayAsync(conjunction.Vessel, initiator: true, now, cancellationToken).ConfigureAwait(false);
             return new PairedPeer(conjunction.Vessel, conjunction.PeerSigil, conjunction.PeerSealPublicKey, isInitiator: true);
         }
         catch
@@ -163,6 +164,7 @@ public sealed partial class CupriNode : IAsyncDisposable
                 await LearnReflexiveAsync(conjunction.Vessel, initiator: true, cancellationToken).ConfigureAwait(false);
                 // A trusted-peer reconnect is an anchored relationship by definition.
                 Constellation.MarkAnchored(conjunction.PeerSigil);
+                await BootstrapOverlayAsync(conjunction.Vessel, initiator: true, DateTimeOffset.UtcNow, cancellationToken).ConfigureAwait(false);
                 return new PairedPeer(conjunction.Vessel, conjunction.PeerSigil, conjunction.PeerSealPublicKey, isInitiator: true);
             }
             catch (Exception ex)
@@ -217,6 +219,7 @@ public sealed partial class CupriNode : IAsyncDisposable
             }
 
             await LearnReflexiveAsync(conjunction.Vessel, initiator: false, cancellationToken).ConfigureAwait(false);
+            await BootstrapOverlayAsync(conjunction.Vessel, initiator: false, DateTimeOffset.UtcNow, cancellationToken).ConfigureAwait(false);
             return new PairedPeer(conjunction.Vessel, conjunction.PeerSigil, conjunction.PeerSealPublicKey, isInitiator: false);
         }
     }

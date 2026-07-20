@@ -1,5 +1,6 @@
 using CupriNet.Arcanum;
 using CupriNet.Concordance;
+using CupriNet.Core;
 using CupriNet.Hosting;
 using Xunit;
 
@@ -58,6 +59,40 @@ public class OverlayDiscoveryTests
         Assert.NotEmpty(found.Endpoints);
 
         _ = servers; // kept alive by the awaits above; disposed with the nodes
+    }
+
+    [Fact]
+    public async Task JoinViaLink_BootstrapsOverlay_ThenDiscoversAChannel()
+    {
+        using var cts = new CancellationTokenSource(Timeout);
+        var ct = cts.Token;
+        var now = DateTimeOffset.UtcNow;
+
+        await using var inviter = await NewNodeAsync(ct);
+        await using var joiner = await NewNodeAsync(ct);
+
+        // First contact is a single link — no manual Constellation seeding.
+        var uri = inviter.IntoneUri(TimeSpan.FromHours(2), now);
+        Assert.True(IntonationUri.TryParse(uri, out var intonation, out _));
+        var acceptTask = inviter.AcceptAsync(ct);
+        await using (await joiner.ConjoinAsync(intonation, now, ct))
+        await using (await acceptTask)
+        {
+            // Bootstrap: pairing over the link seeded each node into the other's Constellation.
+            Assert.NotNull(joiner.Constellation.Get(inviter.Identity.Sigil));
+            Assert.NotNull(inviter.Constellation.Get(joiner.Identity.Sigil));
+        }
+
+        // Both keep serving overlay control.
+        _ = Task.Run(async () => { try { await inviter.AcceptAsync(ct); } catch { } });
+        _ = Task.Run(async () => { try { await joiner.AcceptAsync(ct); } catch { } });
+
+        // The inviter advertises a channel; the joiner — knowing only the Watchword and the one peer it
+        // met via the link — discovers it over the overlay.
+        var watchword = Watchword.Generate("SecretRoom");
+        Assert.True(await inviter.PublishChannelAsync(watchword, now, ct) >= 1);
+        var providers = await joiner.FindChannelProvidersAsync(watchword, now, ct);
+        Assert.Contains(providers, d => d.ProviderSigil == inviter.Identity.Sigil);
     }
 
     [Fact]

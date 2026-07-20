@@ -71,6 +71,46 @@ public sealed partial class CupriNode
             options: null, isAnchored: Constellation.IsAnchored, cancellationToken: cancellationToken).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// Best-effort overlay bootstrap after a channel pairing: exchange signed self-records so each side
+    /// seeds the other into its Constellation. This is what lets a node that joins via a single link then
+    /// route overlay discovery through the peer it just met.
+    /// </summary>
+    private async Task BootstrapOverlayAsync(IVessel vessel, bool initiator, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        if (!_options.EnablePeerExchange)
+            return;
+        try
+        {
+            using var timed = LinkedTimeout(cancellationToken, TimeSpan.FromSeconds(10));
+            var mine = PeerRecordCodec.Encode(SelfRecord(now));
+            // Initiator sends first, responder reads first — a deadlock-free ordering.
+            if (initiator)
+            {
+                await vessel.SendAsync(PeerExchange.DefaultStream, mine, timed.Token).ConfigureAwait(false);
+                AdmitPeer(await ReceiveRecordAsync(vessel, timed.Token).ConfigureAwait(false), now);
+            }
+            else
+            {
+                AdmitPeer(await ReceiveRecordAsync(vessel, timed.Token).ConfigureAwait(false), now);
+                await vessel.SendAsync(PeerExchange.DefaultStream, mine, timed.Token).ConfigureAwait(false);
+            }
+        }
+        catch
+        {
+            // Enrichment only — a failed bootstrap must never fail the pairing.
+        }
+    }
+
+    private static async Task<PeerRecord> ReceiveRecordAsync(IVessel vessel, CancellationToken cancellationToken)
+    {
+        var frame = await vessel.ReceiveAsync(cancellationToken).ConfigureAwait(false)
+                    ?? throw new CupriNodeException("Vessel closed during overlay bootstrap.");
+        if (frame.StreamId != PeerExchange.DefaultStream)
+            throw new CupriNodeException($"Unexpected frame on stream {frame.StreamId} during overlay bootstrap.");
+        return PeerRecordCodec.Decode(frame.Payload).Record;
+    }
+
     // ---- Session-kind marker (declared by the initiator right after the Noise handshake) --------
 
     private static ValueTask DeclareSessionKindAsync(IVessel vessel, byte kind, CancellationToken cancellationToken)

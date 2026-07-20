@@ -36,6 +36,13 @@ public sealed record CupriNodeOptions
     public bool EnableReflexiveDiscovery { get; init; } = true;
 
     /// <summary>
+    /// After a channel pairing, exchange signed self-records so each side seeds the other into its
+    /// Constellation. This bootstraps the overlay from a single link: a node that Conjoins an Intonation
+    /// then knows the inviter (and can route overlay lookups through it). Best-effort; default true.
+    /// </summary>
+    public bool EnablePeerExchange { get; init; } = true;
+
+    /// <summary>
     /// Require every channel message/frame to carry a valid author signature, and reject unsigned ones.
     /// Channel sessions always <em>sign</em> outbound content with this node's Seal; this flag controls
     /// whether inbound unsigned content is refused. Recommended <c>true</c> for multi-party channels where
