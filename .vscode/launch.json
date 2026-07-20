@@ -1,0 +1,32 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "CupriChat",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "build-cuprichat",
+      "program": "${workspaceFolder}/samples/CupriChat/bin/Debug/net10.0/CupriChat.dll",
+      "cwd": "${workspaceFolder}/samples/CupriChat",
+      "console": "internalConsole",
+      "stopAtEntry": false
+    },
+    {
+      "name": "CupriChat (2nd instance)",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "build-cuprichat",
+      "program": "${workspaceFolder}/samples/CupriChat/bin/Debug/net10.0/CupriChat.dll",
+      "cwd": "${workspaceFolder}/samples/CupriChat",
+      "console": "internalConsole",
+      "stopAtEntry": false
+    }
+  ],
+  "compounds": [
+    {
+      "name": "CupriChat x2",
+      "configurations": ["CupriChat", "CupriChat (2nd instance)"],
+      "stopAll": true
+    }
+  ]
+}

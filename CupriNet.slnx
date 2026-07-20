@@ -1,4 +1,7 @@
 <Solution>
+  <Folder Name="/samples/">
+    <Project Path="samples/CupriChat/CupriChat.csproj" />
+  </Folder>
   <Folder Name="/src/">
     <Project Path="src/CupriNet.Abstractions/CupriNet.Abstractions.csproj" />
     <Project Path="src/CupriNet.Alembic.BouncyCastle/CupriNet.Alembic.BouncyCastle.csproj" />
