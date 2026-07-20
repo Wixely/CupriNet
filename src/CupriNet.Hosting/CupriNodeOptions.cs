@@ -34,4 +34,15 @@ public sealed record CupriNodeOptions
     /// (Mapped) address. Requires both peers to support it. Default true.
     /// </summary>
     public bool EnableReflexiveDiscovery { get; init; } = true;
+
+    /// <summary>
+    /// Require every channel message/frame to carry a valid author signature, and reject unsigned ones.
+    /// Channel sessions always <em>sign</em> outbound content with this node's Seal; this flag controls
+    /// whether inbound unsigned content is refused. Recommended <c>true</c> for multi-party channels where
+    /// content is relayed peer-to-peer (so a relaying member cannot forge authorship). Default true.
+    /// </summary>
+    public bool RequireSignedAuthors { get; init; } = true;
+
+    /// <summary>Maximum time a channel Consecration handshake may take before it is abandoned.</summary>
+    public TimeSpan ConsecrationTimeout { get; init; } = TimeSpan.FromSeconds(30);
 }

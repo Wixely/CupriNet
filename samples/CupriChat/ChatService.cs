@@ -27,30 +27,14 @@ public sealed record FileOffer(string TransferId, string FromDisplay, string Fil
 public sealed record FileReceipt(string FileName, string SavePath);
 
 /// <summary>
-/// The wire form inside an Epistle payload. Carries the author's Seal public key and a signature over
-/// (Id, User, Text) so recipients can authenticate the author even when the message is relayed by the hub.
+/// The wire form inside an Epistle payload: the author's chosen display name and the message text. The
+/// author's cryptographic identity is NOT carried here — it rides the Epistle's authenticated-authorship
+/// envelope (see <c>RiteAuthor</c>), which the channel session signs on send and verifies on receive, so
+/// authorship survives peer-to-peer relay and cannot be forged by a relaying member. The display name is
+/// bound to that identity because it sits inside the signed payload.
 /// </summary>
-public sealed record ChatWire(string User, string Id, byte[] PubKey, byte[] Sig, string Text)
+public sealed record ChatWire(string User, string Text)
 {
-    private static byte[] SignedBytes(string id, string user, string text)
-        => Encoding.UTF8.GetBytes($"{id}\n{user}\n{text}");
-
-    public static ChatWire Create(string user, string id, string text, NodeIdentity identity, ICryptoSuite suite)
-    {
-        var signature = suite.CreateSigner(identity.Seal.PrivateKey).Sign(SignedBytes(id, user, text));
-        return new ChatWire(user, id, identity.Seal.PublicKey, signature, text);
-    }
-
-    /// <summary>Verifies the author identity: the Id is the Sigil of PubKey and the signature is valid.</summary>
-    public bool Verify(ICryptoSuite suite)
-    {
-        if (PubKey.Length is 0 or > 64 || Sig.Length == 0)
-            return false;
-        if (Convert.ToHexStringLower(Sigil.FromSealPublicKey(PubKey).Span) != Id)
-            return false;
-        return suite.Verifier.Verify(SignedBytes(Id, User, Text), Sig, PubKey);
-    }
-
     public static string Serialize(ChatWire wire) => JsonSerializer.Serialize(wire);
 
     public static ChatWire? Deserialize(string json)
@@ -174,7 +158,9 @@ public sealed class ChatService : IAsyncDisposable
     {
         if (_node is null)
             return;
-        var wire = ChatWire.Create(_username, _selfId, text, _node.Identity, _node.Suite);
+        // The channel session signs each Epistle with our Seal, so the author identity is authenticated
+        // by the rite envelope — we only carry the display name + text here.
+        var wire = new ChatWire(_username, text);
         var epistle = Epistle.Text(ChatWire.Serialize(wire), DateTimeOffset.UtcNow);
         lock (_lock)
             _deduper.TryMarkSeen(epistle.MessageId);
@@ -470,12 +456,22 @@ public sealed class ChatService : IAsyncDisposable
                 if (!isNew)
                     continue;
 
-                var wire = ChatWire.Deserialize(message.Epistle.AsText());
-                if (wire is null || _node is null || !wire.Verify(_node.Suite) || wire.Id == _selfId)
-                    continue; // drop unauthenticated / self-impersonating messages
+                // The channel session already verified the author envelope (RequireSignedAuthors), so the
+                // author's Seal key is present and authentic. The identity comes from that envelope — never
+                // from any self-declared field — and survives relay because we forward the Epistle verbatim.
+                var authorKey = message.Epistle.AuthorSealPublicKey;
+                if (authorKey is null)
+                    continue;
+                var authorId = Convert.ToHexStringLower(RiteAuthor.AuthorSigil(authorKey).Span);
+                if (authorId == _selfId)
+                    continue; // ignore our own relayed messages
 
-                UpdateUser(wire.Id, wire.User);
-                MessageArrived?.Invoke(new ChatMessage(wire.User, wire.Id, wire.Text, DateTimeOffset.Now, IsLocal: false));
+                var wire = ChatWire.Deserialize(message.Epistle.AsText());
+                if (wire is null)
+                    continue;
+
+                UpdateUser(authorId, wire.User);
+                MessageArrived?.Invoke(new ChatMessage(wire.User, authorId, wire.Text, DateTimeOffset.Now, IsLocal: false));
                 await BroadcastAsync(message.Epistle, except: peer.Session, cancellationToken);
             }
         }

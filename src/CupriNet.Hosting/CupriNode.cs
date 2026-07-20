@@ -7,6 +7,7 @@ using CupriNet.Concordance;
 using CupriNet.Conjunction;
 using CupriNet.Core;
 using CupriNet.Persistence;
+using CupriNet.Rites;
 using CupriNet.Traversal;
 using CupriNet.Vessel;
 using VesselSession = CupriNet.Vessel.Vessel;
@@ -151,17 +152,23 @@ public sealed class CupriNode : IAsyncDisposable
         ArgumentNullException.ThrowIfNull(watchword);
 
         var keys = ArcanumKeys.Derive(watchword, Suite);
+        using var timed = LinkedTimeout(cancellationToken, _options.ConsecrationTimeout);
         var consecration = peer.IsInitiator
-            ? await ConsecrationHandshake.InitiateAsync(peer.Vessel, keys, Identity.Sigil, peer.PeerSigil, now, Suite, cancellationToken: cancellationToken).ConfigureAwait(false)
-            : await ConsecrationHandshake.AcceptAsync(peer.Vessel, keys, Identity.Sigil, peer.PeerSigil, now, Suite, cancellationToken: cancellationToken).ConfigureAwait(false);
+            ? await ConsecrationHandshake.InitiateAsync(peer.Vessel, keys, Identity.Sigil, peer.PeerSigil, now, Suite, cancellationToken: timed.Token).ConfigureAwait(false)
+            : await ConsecrationHandshake.AcceptAsync(peer.Vessel, keys, Identity.Sigil, peer.PeerSigil, now, Suite, cancellationToken: timed.Token).ConfigureAwait(false);
 
-        return new ArcanumSession(peer.Vessel, consecration.Epoch, consecration.SessionKey, Suite);
+        var author = new RiteIdentity(Identity.Seal.PublicKey, Identity.Seal.PrivateKey);
+        return new ArcanumSession(peer.Vessel, consecration.Epoch, consecration.SessionKey, Suite, author, _options.RequireSignedAuthors);
     }
 
     private static CancellationTokenSource LinkedHandshakeToken(CancellationToken cancellationToken)
+        => LinkedTimeout(cancellationToken, HandshakeTimeout);
+
+    /// <summary>A linked token source that also cancels after <paramref name="timeout"/> — the uniform deadline seam.</summary>
+    private static CancellationTokenSource LinkedTimeout(CancellationToken cancellationToken, TimeSpan timeout)
     {
         var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        cts.CancelAfter(HandshakeTimeout);
+        cts.CancelAfter(timeout);
         return cts;
     }
 

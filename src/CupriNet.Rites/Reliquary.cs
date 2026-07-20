@@ -1,3 +1,4 @@
+using CupriNet.Alembic;
 using CupriNet.Codex;
 
 namespace CupriNet.Rites;
@@ -35,6 +36,12 @@ public sealed record ReliquaryManifest
     public required byte[] TransferId { get; init; }
     public required IReadOnlyList<ReliquaryFile> Files { get; init; }
 
+    /// <summary>The author's Seal public key, when the manifest carries an authenticated-authorship envelope.</summary>
+    public byte[]? AuthorSealPublicKey { get; init; }
+
+    /// <summary>The author's Ed25519 signature over the manifest content (see <see cref="RiteAuthor"/>).</summary>
+    public byte[]? AuthorSignature { get; init; }
+
     public long TotalBytes
     {
         get
@@ -67,7 +74,28 @@ public static class ReliquaryCodec
                 w.WriteBytes(hash);
         }
 
+        AuthorEnvelope.Write(w, manifest.AuthorSealPublicKey, manifest.AuthorSignature);
         return w.ToArray();
+    }
+
+    /// <summary>The domain tag for a Reliquary manifest's authenticated-authorship envelope.</summary>
+    public const string AuthorDomain = "reliquary";
+
+    /// <summary>Signs a manifest, returning a copy carrying the author envelope (see <see cref="RiteAuthor"/>).</summary>
+    public static ReliquaryManifest Sign(ReliquaryManifest manifest, RiteIdentity author, ICryptoSuite suite)
+    {
+        ArgumentNullException.ThrowIfNull(manifest);
+        var content = Encode(manifest with { AuthorSealPublicKey = null, AuthorSignature = null });
+        var (key, sig) = RiteAuthor.Sign(AuthorDomain, content, author, suite);
+        return manifest with { AuthorSealPublicKey = key, AuthorSignature = sig };
+    }
+
+    /// <summary>Verifies a manifest's author envelope; absent is accepted only when not required.</summary>
+    public static bool VerifyAuthor(ReliquaryManifest manifest, ICryptoSuite suite, bool requireAuthor)
+    {
+        ArgumentNullException.ThrowIfNull(manifest);
+        var content = Encode(manifest with { AuthorSealPublicKey = null, AuthorSignature = null });
+        return RiteAuthor.Verify(AuthorDomain, content, manifest.AuthorSealPublicKey, manifest.AuthorSignature, suite, requireAuthor);
     }
 
     public static ReliquaryManifest Decode(ReadOnlySpan<byte> data, ReliquaryLimits? limits = null)
@@ -128,6 +156,13 @@ public static class ReliquaryCodec
             });
         }
 
-        return new ReliquaryManifest { TransferId = transferId, Files = files };
+        var (authorKey, authorSig) = AuthorEnvelope.Read(ref r);
+        return new ReliquaryManifest
+        {
+            TransferId = transferId,
+            Files = files,
+            AuthorSealPublicKey = authorKey,
+            AuthorSignature = authorSig,
+        };
     }
 }

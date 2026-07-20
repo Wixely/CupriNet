@@ -18,6 +18,12 @@ public sealed record Epistle
     public required byte[] Payload { get; init; }
     public byte[]? InReplyTo { get; init; }
 
+    /// <summary>The author's Seal public key, when the message carries an authenticated-authorship envelope.</summary>
+    public byte[]? AuthorSealPublicKey { get; init; }
+
+    /// <summary>The author's Ed25519 signature over the message content (see <see cref="RiteAuthor"/>).</summary>
+    public byte[]? AuthorSignature { get; init; }
+
     /// <summary>Creates a UTF-8 text Epistle with a fresh MessageId.</summary>
     public static Epistle Text(string text, DateTimeOffset now, byte[]? inReplyTo = null)
     {
@@ -57,6 +63,7 @@ public static class EpistleCodec
             w.WriteByte(0);
         }
 
+        AuthorEnvelope.Write(w, epistle.AuthorSealPublicKey, epistle.AuthorSignature);
         return w.ToArray();
     }
 
@@ -74,6 +81,7 @@ public static class EpistleCodec
             1 => r.ReadBytes().ToArray(),
             _ => throw new CodexFormatException("Invalid InReplyTo presence flag."),
         };
+        var (authorKey, authorSig) = AuthorEnvelope.Read(ref r);
 
         return new Epistle
         {
@@ -82,6 +90,8 @@ public static class EpistleCodec
             ContentType = contentType,
             Payload = payload,
             InReplyTo = inReplyTo,
+            AuthorSealPublicKey = authorKey,
+            AuthorSignature = authorSig,
         };
     }
 }
