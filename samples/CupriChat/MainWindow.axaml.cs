@@ -321,11 +321,14 @@ public partial class MainWindow : Window
 
     private void OnStatus(string status) => Dispatcher.UIThread.Post(() => _statusText.Text = status);
 
-    /// <summary>True if the text contains an @-mention of our own username (whole-name match, case-insensitive).</summary>
+    /// <summary>Our unique mention handle: name#id (names alone collide — many people can be "anon").</summary>
+    private string SelfHandle => $"{_chat.Username}#{_chat.SelfShortId}";
+
+    /// <summary>True if the text contains an @-mention of our unique handle (name#id), case-insensitive.</summary>
     private bool MentionsMe(string text)
     {
-        var me = _chat.Username;
-        if (string.IsNullOrEmpty(me))
+        var me = SelfHandle;
+        if (string.IsNullOrEmpty(_chat.Username))
             return false;
 
         var i = 0;
@@ -336,15 +339,14 @@ public partial class MainWindow : Window
                 && string.Compare(text, start, me, 0, me.Length, StringComparison.OrdinalIgnoreCase) == 0)
             {
                 var after = start + me.Length;
-                if (after == text.Length || !IsNameChar(text[after]))
+                // The handle ends in a hex id, so a following alphanumeric would be a different handle.
+                if (after == text.Length || !char.IsLetterOrDigit(text[after]))
                     return true;
             }
             i++;
         }
         return false;
     }
-
-    private static bool IsNameChar(char c) => char.IsLetterOrDigit(c) || c is '_' or '-';
 
     /// <summary>Briefly flashes the message pane border red to draw attention to a mention.</summary>
     private async void FlashChatBox()
@@ -397,13 +399,14 @@ public partial class MainWindow : Window
         return true;
     }
 
+    // Completes to the unique handle (name#id), never our own, so colliding names stay distinguishable.
     private List<string> MentionCandidates(string prefix) =>
         _members
             .Where(u => !u.IsSelf && !string.IsNullOrEmpty(u.Name))
-            .Select(u => u.Name)
-            .Where(n => n.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            .Select(u => $"{u.Name}#{Short(u.Id)}")
+            .Where(h => h.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
             .Distinct(StringComparer.OrdinalIgnoreCase)
-            .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)
+            .OrderBy(h => h, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
     private async Task SendFileToAsync(string peerId)

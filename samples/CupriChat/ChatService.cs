@@ -79,6 +79,7 @@ public sealed class ChatService : IAsyncDisposable
     private readonly Dictionary<string, IncomingTransfer> _incoming = new(StringComparer.Ordinal);
     private readonly HashSet<string> _directPersonas = new(StringComparer.Ordinal); // persona ids we hold a direct session with
     private readonly HashSet<string> _connecting = new(StringComparer.Ordinal);     // overlay ids we are dialing (dedup)
+    private readonly HashSet<string> _consecrating = new(StringComparer.Ordinal);   // overlay ids mid-Consecration (one session per node)
     private readonly CancellationTokenSource _cts = new();
     private readonly string _scratchDir = Path.Combine(Path.GetTempPath(), "cuprichat", Guid.NewGuid().ToString("N"));
 
@@ -569,6 +570,12 @@ public sealed class ChatService : IAsyncDisposable
     {
         if (_node is null)
             return;
+        // To avoid a simultaneous mutual dial (both nodes dialing each other from a common introducer),
+        // only the lower-Sigil node dials; the higher-Sigil node waits to accept. This yields exactly one
+        // connection per pair, deterministically.
+        if (_node.Identity.Sigil.Span.SequenceCompareTo(known.Sigil.Span) >= 0)
+            return;
+
         var sigilHex = Convert.ToHexStringLower(known.Sigil.Span);
         lock (_lock)
         {
@@ -744,6 +751,14 @@ public sealed class ChatService : IAsyncDisposable
 
     private async Task OnPeerPairedAsync(PairedPeer peer)
     {
+        // Reject a self-pairing outright (e.g. pasting our own link) before it reaches the channel.
+        if (_node is not null && peer.PeerSigil == _node.Identity.Sigil)
+        {
+            Status?.Invoke("Ignored a connection to ourselves.");
+            await peer.DisposeAsync();
+            return;
+        }
+
         bool joined;
         lock (_lock)
         {
@@ -758,10 +773,32 @@ public sealed class ChatService : IAsyncDisposable
 
     private async Task ConsecrateAsync(PairedPeer peer, CancellationToken cancellationToken)
     {
+        if (_node is null)
+        {
+            await peer.DisposeAsync();
+            return;
+        }
+
+        // Never establish a channel with ourselves, and never hold more than one session with the same
+        // node (identified by its overlay Sigil, regardless of which of its IPs we reached).
+        var sigilHex = Convert.ToHexStringLower(peer.PeerSigil.Span);
+        bool reserved;
+        lock (_lock)
+        {
+            reserved = peer.PeerSigil != _node.Identity.Sigil
+                       && !_sessions.Any(s => s.Sigil == peer.PeerSigil)
+                       && _consecrating.Add(sigilHex);
+        }
+        if (!reserved)
+        {
+            await peer.DisposeAsync();
+            return;
+        }
+
         try
         {
             var options = new ConsecrateOptions { ChannelIdentity = _persona };
-            var session = await _node!.ConsecrateAsync(peer, _channel, DateTimeOffset.UtcNow, options, cancellationToken);
+            var session = await _node.ConsecrateAsync(peer, _channel, DateTimeOffset.UtcNow, options, cancellationToken);
             var peerSession = new PeerSession(peer.PeerSigil, peer.PeerSealPublicKey, session);
 
             lock (_lock)
@@ -784,6 +821,11 @@ public sealed class ChatService : IAsyncDisposable
         {
             Status?.Invoke($"Could not join channel with a peer: {ex.Message}");
             await peer.DisposeAsync();
+        }
+        finally
+        {
+            lock (_lock)
+                _consecrating.Remove(sigilHex);
         }
     }
 
