@@ -123,6 +123,29 @@ public sealed record CupriNodeOptions
     /// <summary>Target padding (bytes) per direction of a hot-fuzz heartbeat when cooperative padding is on.</summary>
     public int HotFuzzPaddingBytes { get; init; } = 256;
 
+    /// <summary>
+    /// Effigies: decoy <em>channel</em> sessions. Where hot fuzz shapes L1 control links, an Effigy is a full
+    /// L2-shaped session — a direct, chat-shaped connection to a cooperating partner over a throwaway coordinate
+    /// that is never published, persisted, or joinable — so a real channel session blends among decoys that
+    /// carry human-like conversation traffic. Off by default: unlike hot fuzz's cheap heartbeats, Effigies push
+    /// continuous cover traffic, so this is real bandwidth. Runs only on an <see cref="PowerProfile.Unmetered"/>
+    /// profile.
+    /// </summary>
+    public bool EnableEffigies { get; init; }
+
+    /// <summary>How many independent one-to-one Effigy sessions to hold (each with its own conversation shape).</summary>
+    public int EffigyCount { get; init; } = 2;
+
+    /// <summary>
+    /// Size of one <em>coordinated</em> Effigy cohort. A real group channel is a mesh of direct Vessels that
+    /// light up together when you post; a cohort reproduces that fan-out by bursting to all its members at once,
+    /// covering the multi-party correlation a set of independent Effigies cannot. 0 disables group cover.
+    /// </summary>
+    public int EffigyGroupSize { get; init; }
+
+    /// <summary>Upper bound (bytes) on a single Effigy cover message; sizes are drawn skewed-small below it.</summary>
+    public int EffigyMaxMessageBytes { get; init; } = 512;
+
     /// <summary>Max inbound overlay-control connections served concurrently across all peers — a Ward against connection floods.</summary>
     public int MaxConcurrentControlConnections { get; init; } = 256;
 

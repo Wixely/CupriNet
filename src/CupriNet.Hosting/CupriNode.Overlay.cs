@@ -407,6 +407,8 @@ public sealed partial class CupriNode
         try { await SaveOverlayStateAsync().ConfigureAwait(false); }
         catch { /* best-effort persistence on shutdown */ }
 
+        try { await DisposeEffigiesAsync().ConfigureAwait(false); } catch { /* best-effort */ }
+
         foreach (var conn in _controlPool.Values)
         {
             try { await conn.DisposeAsync().ConfigureAwait(false); } catch { /* best-effort */ }

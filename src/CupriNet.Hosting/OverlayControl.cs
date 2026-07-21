@@ -22,6 +22,16 @@ internal static class OverlayControl
     public const byte KindChannel = 1;
     public const byte KindControl = 2;
 
+    /// <summary>
+    /// A decoy channel session (an "Effigy"): on the wire — encrypted frames on the channel stream — it is
+    /// indistinguishable from <see cref="KindChannel"/>; the marker only tells the two honest endpoints to run
+    /// cover traffic instead of a real Consecration. It is never surfaced to the app, published, or persisted.
+    /// </summary>
+    public const byte KindEffigy = 3;
+
+    /// <summary>The stream Effigy cover traffic rides — the same as the Epistle (chat) rite, so it mimics chat.</summary>
+    public const ushort EffigyStream = 3;
+
     public const byte OpDivine = 1;
     public const byte OpPublish = 2;
     public const byte OpLookup = 3;

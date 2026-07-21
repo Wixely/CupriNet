@@ -86,6 +86,7 @@ public sealed partial class CupriNode : IAsyncDisposable
 
         node.StartGossip();
         node.StartHotFuzz();
+        node.StartEffigies();
         return node;
     }
 
@@ -250,6 +251,25 @@ public sealed partial class CupriNode : IAsyncDisposable
                             _peerBudgets.TryRemove(new KeyValuePair<Sigil, PeerControlBudget>(peerSigil, budget));
                         Interlocked.Decrement(ref _activeControlConnections);
                     }
+                }, cancellationToken);
+                continue;
+            }
+
+            if (kind == OverlayControl.KindEffigy)
+            {
+                // A decoy channel session: serve it internally with cover traffic. It is never a real channel,
+                // never surfaced to the app. Counted against the global control cap so it can't be a flood vector.
+                var served = conjunction.Vessel;
+                if (Interlocked.Increment(ref _activeControlConnections) > _options.MaxConcurrentControlConnections)
+                {
+                    Interlocked.Decrement(ref _activeControlConnections);
+                    await served.DisposeAsync().ConfigureAwait(false);
+                    continue;
+                }
+                _ = Task.Run(async () =>
+                {
+                    try { await ServeEffigyAsync(served, cancellationToken).ConfigureAwait(false); }
+                    finally { Interlocked.Decrement(ref _activeControlConnections); }
                 }, cancellationToken);
                 continue;
             }
