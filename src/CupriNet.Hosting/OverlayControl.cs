@@ -32,11 +32,18 @@ internal static class OverlayControl
     /// <summary>The stream Effigy cover traffic rides — the same as the Epistle (chat) rite, so it mimics chat.</summary>
     public const ushort EffigyStream = 3;
 
+    /// <summary>
+    /// A Pageant (fake-group) clique edge. Like <see cref="KindEffigy"/> it is a decoy channel session on the
+    /// wire; the initiator sends the Pageant id as its first frame so the far side can bind the edge to the group.
+    /// </summary>
+    public const byte KindPageant = 4;
+
     public const byte OpDivine = 1;
     public const byte OpPublish = 2;
     public const byte OpLookup = 3;
     public const byte OpSample = 4;
     public const byte OpPing = 5;
+    public const byte OpPageant = 6;
 
     public const byte StatusOk = 0;
     public const byte StatusRejected = 1;
@@ -99,6 +106,15 @@ internal static class OverlayControl
         var buf = new byte[1 + Math.Clamp(downPad, 0, MaxPingPad)];
         buf[0] = StatusOk;
         return buf;
+    }
+
+    /// <summary>An invitation to join a Pageant (fake group): the initiator sends the whole group definition.</summary>
+    public static byte[] PageantInviteRequest(Pageant pageant)
+    {
+        var w = new CodexWriter();
+        w.WriteByte(OpPageant);
+        w.WriteBytes(PageantCodec.Encode(pageant));
+        return w.ToArray();
     }
 
     public static byte[] LookupRequest(IReadOnlyList<byte[]> glyphWindow)

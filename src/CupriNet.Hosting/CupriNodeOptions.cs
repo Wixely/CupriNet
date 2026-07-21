@@ -146,6 +146,28 @@ public sealed record CupriNodeOptions
     /// <summary>Upper bound (bytes) on a single Effigy cover message; sizes are drawn skewed-small below it.</summary>
     public int EffigyMaxMessageBytes { get; init; } = 512;
 
+    /// <summary>
+    /// Pageants: negotiated <em>fake groups</em> (decoy cliques). Where an Effigy cohort is a star (you fan out to
+    /// unconnected decoys), a Pageant is a full mesh whose members run one shared conversation schedule, so it
+    /// reproduces the clique topology and turn-taking of a real group channel — the tell a star cannot. This node
+    /// initiates and maintains its own Pageants only when set; off by default (fan-out cost is quadratic in group
+    /// size). Runs only on an <see cref="PowerProfile.Unmetered"/> profile. Participating in <em>others'</em>
+    /// Pageants when invited is governed separately by <see cref="MaxPageantsAsMember"/>.
+    /// </summary>
+    public bool EnablePageants { get; init; }
+
+    /// <summary>How many Pageants this node initiates and keeps alive (self-healing to <see cref="PageantSize"/>).</summary>
+    public int PageantCount { get; init; } = 1;
+
+    /// <summary>Target member count of a Pageant this node forms (including itself). Clamped to the roster cap.</summary>
+    public int PageantSize { get; init; } = 4;
+
+    /// <summary>
+    /// Max Pageants this node will join at others' invitation (0 refuses all — it won't act as anyone's decoy
+    /// member). Bounds the bandwidth a node can be conscripted into. Only honored on an unmetered profile.
+    /// </summary>
+    public int MaxPageantsAsMember { get; init; } = 4;
+
     /// <summary>Max inbound overlay-control connections served concurrently across all peers — a Ward against connection floods.</summary>
     public int MaxConcurrentControlConnections { get; init; } = 256;
 

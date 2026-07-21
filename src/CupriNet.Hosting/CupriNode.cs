@@ -82,11 +82,15 @@ public sealed partial class CupriNode : IAsyncDisposable
         // Warm start: rehydrate the overlay from the local cache so we can reconnect to known nodes directly,
         // avoiding cold-start hops. Opt-in — a cold start (this off) keeps nothing about the overlay on disk.
         if (options.PersistOverlay)
+        {
             await node.LoadOverlayStateAsync(secretStore, cancellationToken).ConfigureAwait(false);
+            await node.LoadPageantsAsync(secretStore, cancellationToken).ConfigureAwait(false);
+        }
 
         node.StartGossip();
         node.StartHotFuzz();
         node.StartEffigies();
+        node.StartPageants();
         return node;
     }
 
@@ -269,6 +273,25 @@ public sealed partial class CupriNode : IAsyncDisposable
                 _ = Task.Run(async () =>
                 {
                     try { await ServeEffigyAsync(served, cancellationToken).ConfigureAwait(false); }
+                    finally { Interlocked.Decrement(ref _activeControlConnections); }
+                }, cancellationToken);
+                continue;
+            }
+
+            if (kind == OverlayControl.KindPageant)
+            {
+                // An inbound Pageant (fake-group) clique edge: bind it to the group it cites and drain it.
+                var served = conjunction.Vessel;
+                var peerSigil = conjunction.PeerSigil;
+                if (Interlocked.Increment(ref _activeControlConnections) > _options.MaxConcurrentControlConnections)
+                {
+                    Interlocked.Decrement(ref _activeControlConnections);
+                    await served.DisposeAsync().ConfigureAwait(false);
+                    continue;
+                }
+                _ = Task.Run(async () =>
+                {
+                    try { await BindPageantEdgeAsync(served, peerSigil, cancellationToken).ConfigureAwait(false); }
                     finally { Interlocked.Decrement(ref _activeControlConnections); }
                 }, cancellationToken);
                 continue;

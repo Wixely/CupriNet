@@ -50,8 +50,7 @@ public sealed partial class CupriNode
         ArgumentNullException.ThrowIfNull(record);
         if (!PeerRecordSigner.Verify(record, Suite))
             return false;
-        Constellation.Admit(record, PeerBucket.Wayfarers, now, "seed");
-        return true;
+        return Constellation.Admit(record, PeerBucket.Wayfarers, now, "seed") == AdmissionResult.Admitted;
     }
 
     /// <summary>
@@ -244,6 +243,19 @@ public sealed partial class CupriNode
                 }
                 catch { return OverlayControl.StatusResponse(OverlayControl.StatusRejected); }
             }
+            case OverlayControl.OpPageant:
+            {
+                // An invitation to join a fake group. Verify the roster, then join (or update an existing group).
+                try
+                {
+                    var reader = new CodexReader(body);
+                    var pageant = PageantCodec.Decode(reader.ReadBytes(), Suite);
+                    if (pageant is not null && AcceptPageantInvite(pageant))
+                        return OverlayControl.StatusResponse(OverlayControl.StatusOk);
+                }
+                catch { /* malformed */ }
+                return OverlayControl.StatusResponse(OverlayControl.StatusRejected);
+            }
             default:
                 return OverlayControl.StatusResponse(OverlayControl.StatusRejected);
         }
@@ -408,6 +420,7 @@ public sealed partial class CupriNode
         catch { /* best-effort persistence on shutdown */ }
 
         try { await DisposeEffigiesAsync().ConfigureAwait(false); } catch { /* best-effort */ }
+        try { await DisposePageantsAsync().ConfigureAwait(false); } catch { /* best-effort */ }
 
         foreach (var conn in _controlPool.Values)
         {
