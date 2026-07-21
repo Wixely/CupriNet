@@ -46,13 +46,17 @@ public sealed record CupriNodeOptions
     /// Cache the overlay view (known nodes) to the secret store and reload it on startup — a warm start that
     /// lets the node reconnect to peers it already knows directly, avoiding cold-start discovery hops.
     /// <para>
-    /// Off by default. Leaving it off is a <em>cold start</em>: nothing about the overlay is kept on disk,
-    /// which is better for plausible deniability (there is no local record of which nodes/channels you have
-    /// discovered). Turning it on trades that for faster reconnection. Expose this choice to the end user.
-    /// Requires a persistent <see cref="SecretStore"/> to have any effect.
+    /// <em>On by default</em> (a warm/"hot" start): known nodes are kept on disk so reconnection is fast and
+    /// the local network map survives restarts. Set it to <c>false</c> for a <em>cold start</em> — nothing
+    /// about the overlay is written to disk, which is better for plausible deniability (there is no local
+    /// record of which nodes/channels you have discovered). Expose this opt-out to the end user.
+    /// </para>
+    /// <para>
+    /// Only has effect with a persistent <see cref="SecretStore"/>; with the default in-memory store there is
+    /// nothing durable to write to, so leaving this on is harmless there.
     /// </para>
     /// </summary>
-    public bool PersistOverlay { get; init; }
+    public bool PersistOverlay { get; init; } = true;
 
     /// <summary>
     /// Continuously gossip with a few random known nodes to keep the local network map fresh — and, as a
