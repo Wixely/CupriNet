@@ -130,19 +130,61 @@ public sealed partial class CupriNode : IAsyncDisposable
                      ?? throw new CupriNodeException("Intonation has no dialable beacon.");
 
         var vessel = await TcpVessel.ConnectAsync(beacon.Host, beacon.Port, cancellationToken: cancellationToken).ConfigureAwait(false);
+        return await ConjoinOverVesselAsync(vessel, intonation.InviterSigil, now, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Completes an outbound channel pairing over an already-connected transport <see cref="IVessel"/> — the Toll,
+    /// the Noise handshake (pinned to <paramref name="expectedPeer"/>), reflexive learning, invitation anchoring,
+    /// and the overlay bootstrap — independent of <em>how</em> the Vessel was established (TCP, hole-punched UDP,
+    /// LAN, relay, …). Transports need only produce a connected Vessel; this is everything above them, and it is
+    /// the single seam every reachability path plugs into. On failure the Vessel is disposed.
+    /// </summary>
+    public async Task<PairedPeer> ConjoinOverVesselAsync(IVessel vessel, Sigil expectedPeer, DateTimeOffset now, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(vessel);
         try
         {
             using var timed = LinkedHandshakeToken(cancellationToken);
             if (_options.EnableToll)
                 await Toll.SolveAsync(vessel, timed.Token).ConfigureAwait(false);
             var conjunction = await NoiseConjunction.InitiateAsync(
-                vessel, Identity, Network, Suite, expectedPeer: intonation.InviterSigil, cancellationToken: timed.Token).ConfigureAwait(false);
+                vessel, Identity, Network, Suite, expectedPeer: expectedPeer, cancellationToken: timed.Token).ConfigureAwait(false);
             await DeclareSessionKindAsync(conjunction.Vessel, OverlayControl.KindChannel, timed.Token).ConfigureAwait(false);
             await LearnReflexiveAsync(conjunction.Vessel, initiator: true, cancellationToken).ConfigureAwait(false);
-            // We reached this peer through its Intonation — a real invitation relationship, so anchor it.
+            // We reached this peer through an invitation/known-peer relationship, so anchor it.
             Constellation.MarkAnchored(conjunction.PeerSigil);
             await BootstrapOverlayAsync(conjunction.Vessel, initiator: true, now, cancellationToken).ConfigureAwait(false);
             return new PairedPeer(conjunction.Vessel, conjunction.PeerSigil, conjunction.PeerSealPublicKey, isInitiator: true);
+        }
+        catch
+        {
+            await vessel.DisposeAsync().ConfigureAwait(false);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// The responder counterpart to <see cref="ConjoinOverVesselAsync"/>: completes an <em>inbound</em> channel
+    /// pairing over an already-connected transport Vessel (Toll verification, Noise accept, reflexive learning,
+    /// overlay bootstrap). Used when a Vessel was produced out-of-band — e.g. both sides of a hole-punched UDP
+    /// path — rather than accepted from the TCP listener. On failure the Vessel is disposed.
+    /// </summary>
+    public async Task<PairedPeer> AcceptChannelOverVesselAsync(IVessel vessel, DateTimeOffset now, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(vessel);
+        try
+        {
+            using var timed = LinkedHandshakeToken(cancellationToken);
+            if (_options.EnableToll)
+                await Toll.IssueAndVerifyAsync(vessel, _tollSecret, vessel.RemoteEndPoint, DateTimeOffset.UtcNow, timed.Token).ConfigureAwait(false);
+            var conjunction = await NoiseConjunction.AcceptAsync(vessel, Identity, Network, Suite, timed.Token).ConfigureAwait(false);
+            var kind = await ReadSessionKindAsync(conjunction.Vessel, timed.Token).ConfigureAwait(false);
+            if (kind != OverlayControl.KindChannel)
+                throw new CupriNodeException("Expected a channel session over this vessel.");
+            await LearnReflexiveAsync(conjunction.Vessel, initiator: false, cancellationToken).ConfigureAwait(false);
+            await BootstrapOverlayAsync(conjunction.Vessel, initiator: false, now, cancellationToken).ConfigureAwait(false);
+            return new PairedPeer(conjunction.Vessel, conjunction.PeerSigil, conjunction.PeerSealPublicKey, isInitiator: false);
         }
         catch
         {
@@ -170,25 +212,9 @@ public sealed partial class CupriNode : IAsyncDisposable
             try { vessel = await TcpVessel.ConnectAsync(beacon.Host, beacon.Port, cancellationToken: cancellationToken).ConfigureAwait(false); }
             catch (Exception ex) { last = ex; continue; }
 
-            try
-            {
-                using var timed = LinkedHandshakeToken(cancellationToken);
-                if (_options.EnableToll)
-                    await Toll.SolveAsync(vessel, timed.Token).ConfigureAwait(false);
-                var conjunction = await NoiseConjunction.InitiateAsync(
-                    vessel, Identity, Network, Suite, expectedPeer: peer.Sigil, cancellationToken: timed.Token).ConfigureAwait(false);
-                await DeclareSessionKindAsync(conjunction.Vessel, OverlayControl.KindChannel, timed.Token).ConfigureAwait(false);
-                await LearnReflexiveAsync(conjunction.Vessel, initiator: true, cancellationToken).ConfigureAwait(false);
-                // A trusted-peer reconnect is an anchored relationship by definition.
-                Constellation.MarkAnchored(conjunction.PeerSigil);
-                await BootstrapOverlayAsync(conjunction.Vessel, initiator: true, DateTimeOffset.UtcNow, cancellationToken).ConfigureAwait(false);
-                return new PairedPeer(conjunction.Vessel, conjunction.PeerSigil, conjunction.PeerSealPublicKey, isInitiator: true);
-            }
-            catch (Exception ex)
-            {
-                last = ex;
-                await vessel.DisposeAsync().ConfigureAwait(false);
-            }
+            // ConjoinOverVesselAsync disposes the vessel on failure, so we just try the next beacon.
+            try { return await ConjoinOverVesselAsync(vessel, peer.Sigil, DateTimeOffset.UtcNow, cancellationToken).ConfigureAwait(false); }
+            catch (Exception ex) { last = ex; }
         }
 
         throw new CupriNodeException($"Could not reconnect to the trusted peer: {last?.Message ?? "all beacons unreachable"}.");

@@ -5,6 +5,7 @@ using System.Text;
 using CupriNet.Abstractions;
 using CupriNet.Conjunction;
 using CupriNet.Core;
+using CupriNet.Hosting;
 using CupriNet.Traversal;
 using CupriNet.Vessel;
 using Xunit;
@@ -67,6 +68,49 @@ public class NatTraversalTests
         await using var vesselB = await taskB;
 
         await ProveNoiseSessionAsync(vesselA, vesselB, ct);
+    }
+
+    [Fact]
+    public async Task TwoNodes_PairAChannel_OverAHolePunchedUdpPath()
+    {
+        using var cts = new CancellationTokenSource(Timeout);
+        var ct = cts.Token;
+        var now = DateTimeOffset.UtcNow;
+
+        static Task<CupriNode> NodeAsync(CancellationToken ct) => CupriNode.CreateAsync(
+            new CupriNodeOptions { Concordium = "nat.test", EnableOverlayGossip = false }, ct);
+        await using var a = await NodeAsync(ct);
+        await using var b = await NodeAsync(ct);
+
+        // Both sides punch a UDP path to each other (candidates would come from a link / reflexive exchange).
+        var sessionId = RandomNumberGenerator.GetBytes(16);
+        var sockA = NatTraversal.BindSocket(Loopback0);
+        var sockB = NatTraversal.BindSocket(Loopback0);
+        var epA = (IPEndPoint)sockA.LocalEndPoint!;
+        var epB = (IPEndPoint)sockB.LocalEndPoint!;
+        var interval = TimeSpan.FromMilliseconds(50);
+        var punchTimeout = TimeSpan.FromSeconds(10);
+        var taskA = NatTraversal.PunchAndConnectAsync(sessionId, sockA, [epB], interval, punchTimeout, ct);
+        var taskB = NatTraversal.PunchAndConnectAsync(sessionId, sockB, [epA], interval, punchTimeout, ct);
+        var vesselA = await taskA;
+        var vesselB = await taskB;
+
+        // Pair at the node level over the punched Vessels — the initiator/responder seams, no TCP listener.
+        var pairAtask = a.ConjoinOverVesselAsync(vesselA, b.Identity.Sigil, now, ct);
+        var pairBtask = b.AcceptChannelOverVesselAsync(vesselB, now, ct);
+        var pairA = await pairAtask;
+        var pairB = await pairBtask;
+
+        Assert.Equal(b.Identity.Sigil, pairA.PeerSigil);
+        Assert.Equal(a.Identity.Sigil, pairB.PeerSigil);
+
+        // The paired, Noise-encrypted vessels carry channel traffic over the hole-punched path.
+        await pairA.Vessel.SendAsync(3, "genesis-over-nat"u8.ToArray(), ct);
+        var frame = await pairB.Vessel.ReceiveAsync(ct);
+        Assert.Equal("genesis-over-nat", Encoding.UTF8.GetString(frame!.Value.Payload));
+
+        await pairA.Vessel.DisposeAsync();
+        await pairB.Vessel.DisposeAsync();
     }
 
     [Fact]
