@@ -43,11 +43,12 @@ internal static class OverlayControl
         return w.ToArray();
     }
 
-    public static byte[] PublishRequest(Decree decree)
+    public static byte[] PublishRequest(byte[] decreeBytes, byte[] tributeNonce)
     {
         var w = new CodexWriter();
         w.WriteByte(OpPublish);
-        w.WriteBytes(DecreeCodec.Encode(decree));
+        w.WriteBytes(decreeBytes);   // the exact bytes are also the Tribute subject
+        w.WriteBytes(tributeNonce);
         return w.ToArray();
     }
 

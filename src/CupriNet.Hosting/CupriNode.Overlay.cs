@@ -174,8 +174,13 @@ public sealed partial class CupriNode
             {
                 try
                 {
-                    var decree = DecreeCodec.Decode(body).Decree;
-                    if (DecreeSigner.Verify(decree, Suite))
+                    var reader = new CodexReader(body);
+                    var decreeBytes = reader.ReadBytes();
+                    var nonce = reader.ReadBytes();
+                    var decree = DecreeCodec.Decode(decreeBytes).Decree;
+                    // Store only a validly-signed advert that paid enough proof-of-work (the Tribute Ward).
+                    if (DecreeSigner.Verify(decree, Suite)
+                        && Tribute.Verify(decreeBytes, nonce, _options.RequiredTributeDifficulty))
                     {
                         _decrees.Publish(decree, now);
                         return OverlayControl.StatusResponse(OverlayControl.StatusOk);
@@ -223,7 +228,10 @@ public sealed partial class CupriNode
         try
         {
             var conn = await GetControlAsync(holder, cancellationToken).ConfigureAwait(false);
-            await conn.RoundtripAsync(OverlayControl.PublishRequest(decree), cancellationToken).ConfigureAwait(false);
+            var decreeBytes = DecreeCodec.Encode(decree);
+            // Pay the Tribute over this advert so a holder that requires proof-of-work will store it.
+            var nonce = Tribute.Solve(decreeBytes, _options.TributeDifficulty, cancellationToken);
+            await conn.RoundtripAsync(OverlayControl.PublishRequest(decreeBytes, nonce), cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException) { throw; }
         catch { EvictControl(holder.Sigil); }

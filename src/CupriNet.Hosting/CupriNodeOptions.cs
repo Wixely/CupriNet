@@ -55,6 +55,19 @@ public sealed record CupriNodeOptions
     public int ControlWindowSeconds { get; init; } = 10;
 
     /// <summary>
+    /// Proof-of-work difficulty (leading zero bits) this node grinds when publishing a channel advert
+    /// (the Tribute). Clamped to <see cref="CupriNet.Concordance.Tribute.MaxDifficulty"/> — the payer's
+    /// ceiling. Low by default so it is present but cheap; raise it once calibrated for your devices.
+    /// </summary>
+    public int TributeDifficulty { get; init; } = 8;
+
+    /// <summary>
+    /// Proof-of-work difficulty this node <em>requires</em> on an inbound channel advert before storing it
+    /// (a local receiver policy — raise it to demand more work, never negotiated down by the publisher).
+    /// </summary>
+    public int RequiredTributeDifficulty { get; init; } = 8;
+
+    /// <summary>
     /// Require every channel message/frame to carry a valid author signature, and reject unsigned ones.
     /// Channel sessions always <em>sign</em> outbound content with this node's Seal; this flag controls
     /// whether inbound unsigned content is refused. Recommended <c>true</c> for multi-party channels where
