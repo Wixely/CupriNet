@@ -108,6 +108,37 @@ public class OverlayDiscoveryTests
     }
 
     [Fact]
+    public async Task Gossip_LearnsNewNodes_FromKnownOnes()
+    {
+        using var cts = new CancellationTokenSource(Timeout);
+        var ct = cts.Token;
+        var now = DateTimeOffset.UtcNow;
+
+        // Drive gossip by hand (auto loop off) so the round is deterministic.
+        static Task<CupriNode> Node(CancellationToken ct) => CupriNode.CreateAsync(
+            new CupriNodeOptions { Concordium = "overlay.test", EnableReflexiveDiscovery = false, EnableOverlayGossip = false }, ct);
+
+        await using var a = await Node(ct);
+        await using var b = await Node(ct);
+        await using var c = await Node(ct);
+
+        // A knows B; B knows C. A has never heard of C.
+        Assert.True(a.AdmitPeer(b.SelfRecord(now), now));
+        Assert.True(b.AdmitPeer(c.SelfRecord(now), now));
+        Assert.Null(a.Constellation.Get(c.Identity.Sigil));
+
+        _ = Task.Run(async () => { try { await a.AcceptAsync(ct); } catch { } });
+        _ = Task.Run(async () => { try { await b.AcceptAsync(ct); } catch { } });
+        _ = Task.Run(async () => { try { await c.AcceptAsync(ct); } catch { } });
+
+        // One round: A pulls a peer sample from B and learns C — the map grows.
+        var learned = await a.GossipOnceAsync(fanout: 4, sampleSize: 16, ct);
+
+        Assert.True(learned >= 1);
+        Assert.NotNull(a.Constellation.Get(c.Identity.Sigil));
+    }
+
+    [Fact]
     public void PeerControlBudget_CapsConnections_AndSharesTheRateAcrossThem()
     {
         var budget = new PeerControlBudget(maxRequestsPerWindow: 3, windowMs: 1000);

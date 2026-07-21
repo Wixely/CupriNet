@@ -25,6 +25,7 @@ internal static class OverlayControl
     public const byte OpDivine = 1;
     public const byte OpPublish = 2;
     public const byte OpLookup = 3;
+    public const byte OpSample = 4;
 
     public const byte StatusOk = 0;
     public const byte StatusRejected = 1;
@@ -49,6 +50,14 @@ internal static class OverlayControl
         w.WriteByte(OpPublish);
         w.WriteBytes(decreeBytes);   // the exact bytes are also the Tribute subject
         w.WriteBytes(tributeNonce);
+        return w.ToArray();
+    }
+
+    public static byte[] SampleRequest(int count)
+    {
+        var w = new CodexWriter();
+        w.WriteByte(OpSample);
+        w.WriteVarUInt((ulong)count);
         return w.ToArray();
     }
 

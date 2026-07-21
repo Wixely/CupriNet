@@ -56,11 +56,17 @@ public class VesselMuxWardTests
         var admitted = mux.Stream(20);
 
         await va.SendAsync(20, new byte[] { 1 }, ct);
-        Assert.Equal(new byte[] { 1 }, await admitted.ReceiveAsync(ct)); // admitted (and forces the pump past it)
+        Assert.Equal(new byte[] { 1 }, await admitted.ReceiveAsync(ct));
 
-        await va.SendAsync(21, new byte[] { 2 }, ct);
+        await va.SendAsync(21, new byte[] { 2 }, ct); // beyond the cap of 1 → the pump drops it
+        await va.SendAsync(20, new byte[] { 3 }, ct); // marker on the admitted stream, sent after 21
+        // Reading the marker proves the pump has processed (and dropped) frame 21 — and, crucially, that it
+        // did so before we open stream 21 below, so there is no race between the reader and the pump.
+        Assert.Equal(new byte[] { 3 }, await admitted.ReceiveAsync(ct));
+
+        // Stream 21 was dropped before it ever existed, so a fresh reader on it blocks (times out).
         using var shortCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        shortCts.CancelAfter(TimeSpan.FromMilliseconds(500));
+        shortCts.CancelAfter(TimeSpan.FromSeconds(1));
         await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await mux.Stream(21).ReceiveAsync(shortCts.Token));
     }
 }

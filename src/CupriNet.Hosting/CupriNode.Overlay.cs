@@ -207,6 +207,16 @@ public sealed partial class CupriNode
                 catch { /* malformed */ }
                 return OverlayControl.StatusResponse(OverlayControl.StatusRejected);
             }
+            case OverlayControl.OpSample:
+            {
+                try
+                {
+                    var reader = new CodexReader(body);
+                    var k = (int)Math.Min(reader.ReadVarUInt(), (ulong)OverlayControl.MaxAugury);
+                    return OverlayControl.PeerRecordsResponse(Constellation.Sample(k));
+                }
+                catch { return OverlayControl.PeerRecordsResponse([]); }
+            }
             case OverlayControl.OpLookup:
             {
                 try
@@ -305,6 +315,70 @@ public sealed partial class CupriNode
     {
         if (_controlPool.TryRemove(sigil, out var conn))
             _ = conn.DisposeAsync();
+    }
+
+    // ---- Gossip / network mapping (also the connection-fuzz cover traffic) ----------------------
+
+    internal void StartGossip()
+    {
+        if (_options.EnableOverlayGossip)
+            _ = GossipLoopAsync(_lifetime.Token);
+    }
+
+    private async Task GossipLoopAsync(CancellationToken cancellationToken)
+    {
+        var interval = TimeSpan.FromSeconds(Math.Max(1, _options.OverlayGossipIntervalSeconds));
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            // Delay first, so short-lived nodes (and tests) don't emit background traffic before teardown.
+            try { await Task.Delay(interval, cancellationToken).ConfigureAwait(false); }
+            catch { break; }
+
+            try { await GossipOnceAsync(_options.OverlayGossipFanout, _options.OverlayGossipSampleSize, cancellationToken).ConfigureAwait(false); }
+            catch (OperationCanceledException) { break; }
+            catch { /* transient — keep going */ }
+        }
+    }
+
+    /// <summary>
+    /// One gossip round: contact a few RANDOM known nodes and pull peer samples, admitting the new records.
+    /// This grows/refreshes the local network map and, because the contacts are random, fuzzes our connection
+    /// pattern so the nodes we actually care about are hidden among decoys. Returns how many new nodes it learned.
+    /// </summary>
+    public async Task<int> GossipOnceAsync(int fanout, int sampleSize, CancellationToken cancellationToken = default)
+    {
+        if (fanout <= 0)
+            return 0;
+        var pool = Constellation.Sample(Math.Max(fanout * 4, 32));
+        if (pool.Count == 0)
+            return 0;
+
+        var chosen = pool.OrderBy(_ => Random.Shared.Next()).Take(fanout).ToList();
+        var learned = await Task.WhenAll(chosen.Select(p => PullSampleAsync(p, sampleSize, cancellationToken))).ConfigureAwait(false);
+        return learned.Sum();
+    }
+
+    private async Task<int> PullSampleAsync(PeerRecord peer, int sampleSize, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var conn = await GetControlAsync(peer, cancellationToken).ConfigureAwait(false);
+            var response = await conn.RoundtripAsync(OverlayControl.SampleRequest(sampleSize), cancellationToken).ConfigureAwait(false);
+            var now = DateTimeOffset.UtcNow;
+
+            var learned = 0;
+            foreach (var record in OverlayControl.ParsePeerRecords(response, Suite))
+            {
+                if (record.Sigil == Identity.Sigil)
+                    continue; // ourselves
+                if (Constellation.Admit(record, PeerBucket.Strangers, now, "gossip") == AdmissionResult.Admitted)
+                    learned++;
+            }
+            Constellation.Reward(peer.Sigil); // a peer that answers usefully earns a little standing
+            return learned;
+        }
+        catch (OperationCanceledException) { throw; }
+        catch { EvictControl(peer.Sigil); return 0; }
     }
 
     private IReadOnlyList<Beacon> SelfBeacons()

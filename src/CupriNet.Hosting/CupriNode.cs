@@ -32,6 +32,7 @@ public sealed partial class CupriNode : IAsyncDisposable
     private readonly string _advertiseHost;
     private readonly byte[] _tollSecret = Toll.NewSecret();
     private readonly ISecretStore _secretStore;
+    private readonly CancellationTokenSource _lifetime = new();
 
     private CupriNode(CupriNodeOptions options, ICryptoSuite suite, NodeIdentity identity, VesselListener listener, ISecretStore secretStore)
     {
@@ -83,6 +84,7 @@ public sealed partial class CupriNode : IAsyncDisposable
         if (options.PersistOverlay)
             await node.LoadOverlayStateAsync(secretStore, cancellationToken).ConfigureAwait(false);
 
+        node.StartGossip();
         return node;
     }
 
@@ -428,7 +430,9 @@ public sealed partial class CupriNode : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        await _lifetime.CancelAsync().ConfigureAwait(false);
         await DisposeOverlayAsync().ConfigureAwait(false);
         await _listener.DisposeAsync().ConfigureAwait(false);
+        _lifetime.Dispose();
     }
 }

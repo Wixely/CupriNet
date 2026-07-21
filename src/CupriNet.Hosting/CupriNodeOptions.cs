@@ -54,6 +54,23 @@ public sealed record CupriNodeOptions
     /// </summary>
     public bool PersistOverlay { get; init; }
 
+    /// <summary>
+    /// Continuously gossip with a few random known nodes to keep the local network map fresh — and, as a
+    /// side effect, to <em>fuzz</em> our connection pattern: because we are always contacting random nodes,
+    /// an observer cannot pick out the connection we actually care about (e.g. a channel member) from the
+    /// decoys. On by default. Each round also discovers new nodes (from the samples we pull), growing the map.
+    /// </summary>
+    public bool EnableOverlayGossip { get; init; } = true;
+
+    /// <summary>How often (seconds) a gossip round runs.</summary>
+    public int OverlayGossipIntervalSeconds { get; init; } = 60;
+
+    /// <summary>How many random known nodes a gossip round contacts (the decoy/fanout count).</summary>
+    public int OverlayGossipFanout { get; init; } = 3;
+
+    /// <summary>How many peer records to pull from each gossiped node.</summary>
+    public int OverlayGossipSampleSize { get; init; } = 16;
+
     /// <summary>Max inbound overlay-control connections served concurrently across all peers — a Ward against connection floods.</summary>
     public int MaxConcurrentControlConnections { get; init; } = 256;
 
