@@ -129,6 +129,28 @@ internal static class OverlayControl
     }
 }
 
+/// <summary>
+/// A per-connection sliding-window rate limiter for overlay-control requests. Cheap and monotonic (fed a
+/// millisecond clock), it caps how fast one peer can drive a served connection; exceeding the cap drops it.
+/// </summary>
+internal sealed class ControlRateLimiter(int maxPerWindow, long windowMs)
+{
+    private long _windowStart;
+    private int _count;
+
+    /// <summary>Records a request at <paramref name="nowMs"/> and returns false once the window's cap is exceeded.</summary>
+    public bool Allow(long nowMs)
+    {
+        if (nowMs - _windowStart > windowMs)
+        {
+            _windowStart = nowMs;
+            _count = 0;
+        }
+        _count++;
+        return _count <= maxPerWindow;
+    }
+}
+
 /// <summary>A pooled, Noise-encrypted control connection to one overlay peer; requests are serialized over it.</summary>
 internal sealed class ControlConnection(IVessel vessel) : IAsyncDisposable
 {

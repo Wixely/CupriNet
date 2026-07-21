@@ -42,6 +42,15 @@ public sealed record CupriNodeOptions
     /// </summary>
     public bool EnablePeerExchange { get; init; } = true;
 
+    /// <summary>Max inbound overlay-control connections served concurrently — a Ward against connection floods.</summary>
+    public int MaxConcurrentControlConnections { get; init; } = 256;
+
+    /// <summary>Max overlay-control requests accepted on one connection within <see cref="ControlWindowSeconds"/> before it is dropped.</summary>
+    public int MaxControlRequestsPerWindow { get; init; } = 120;
+
+    /// <summary>The rolling window (seconds) for the per-connection overlay-control request limit.</summary>
+    public int ControlWindowSeconds { get; init; } = 10;
+
     /// <summary>
     /// Require every channel message/frame to carry a valid author signature, and reject unsigned ones.
     /// Channel sessions always <em>sign</em> outbound content with this node's Seal; this flag controls

@@ -19,6 +19,7 @@ public sealed partial class CupriNode
 {
     private readonly DecreeStore _decrees = new();
     private readonly ConcurrentDictionary<Sigil, ControlConnection> _controlPool = new();
+    private int _activeControlConnections;
 
     /// <summary>A signed, self-describing record of this node (its dialable beacons + capabilities) to seed peers with.</summary>
     public PeerRecord SelfRecord(DateTimeOffset now)
@@ -129,6 +130,7 @@ public sealed partial class CupriNode
 
     private async Task ServeControlAsync(IVessel vessel, CancellationToken cancellationToken)
     {
+        var limiter = new ControlRateLimiter(_options.MaxControlRequestsPerWindow, _options.ControlWindowSeconds * 1000L);
         try
         {
             while (!cancellationToken.IsCancellationRequested)
@@ -138,6 +140,8 @@ public sealed partial class CupriNode
                     break;
                 if (frame.Value.StreamId != OverlayControl.Stream || frame.Value.Payload.Length == 0)
                     continue;
+                if (!limiter.Allow(Environment.TickCount64))
+                    break; // request flood on this connection — drop it
                 var response = HandleControlRequest(frame.Value.Payload);
                 await vessel.SendAsync(OverlayControl.Stream, response, cancellationToken).ConfigureAwait(false);
             }

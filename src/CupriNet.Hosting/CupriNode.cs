@@ -214,7 +214,19 @@ public sealed partial class CupriNode : IAsyncDisposable
 
             if (kind == OverlayControl.KindControl)
             {
-                _ = Task.Run(() => ServeControlAsync(conjunction.Vessel, cancellationToken), cancellationToken);
+                // Ward: cap the number of control connections served at once (anti connection-flood).
+                if (Interlocked.Increment(ref _activeControlConnections) > _options.MaxConcurrentControlConnections)
+                {
+                    Interlocked.Decrement(ref _activeControlConnections);
+                    await conjunction.Vessel.DisposeAsync().ConfigureAwait(false);
+                    continue;
+                }
+                var served = conjunction.Vessel;
+                _ = Task.Run(async () =>
+                {
+                    try { await ServeControlAsync(served, cancellationToken).ConfigureAwait(false); }
+                    finally { Interlocked.Decrement(ref _activeControlConnections); }
+                }, cancellationToken);
                 continue;
             }
 

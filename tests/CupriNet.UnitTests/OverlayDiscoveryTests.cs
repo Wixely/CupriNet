@@ -96,6 +96,18 @@ public class OverlayDiscoveryTests
     }
 
     [Fact]
+    public void ControlRateLimiter_AllowsUpToTheCap_ThenDrops_UntilTheWindowResets()
+    {
+        var limiter = new ControlRateLimiter(maxPerWindow: 3, windowMs: 1000);
+        Assert.True(limiter.Allow(0));
+        Assert.True(limiter.Allow(100));
+        Assert.True(limiter.Allow(200));   // three within the window
+        Assert.False(limiter.Allow(300));  // fourth — over the cap
+        Assert.False(limiter.Allow(999));
+        Assert.True(limiter.Allow(1001));  // a new window resets the count
+    }
+
+    [Fact]
     public async Task Find_WithNoProviders_ReturnsEmpty()
     {
         using var cts = new CancellationTokenSource(Timeout);
