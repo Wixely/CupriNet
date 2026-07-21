@@ -99,6 +99,8 @@ public sealed class ReliableArq
         if (datagram.Length < Header)
             return;
         var cmd = datagram[0];
+        if (cmd is not (CmdPush or CmdAck or CmdClose))
+            return; // a foreign datagram (e.g. a hole-punch probe sharing the socket) — ignore it entirely
         var seq = BinaryPrimitives.ReadUInt32BigEndian(datagram[1..]);
         var una = BinaryPrimitives.ReadUInt32BigEndian(datagram[5..]);
         var len = BinaryPrimitives.ReadUInt16BigEndian(datagram[9..]);
