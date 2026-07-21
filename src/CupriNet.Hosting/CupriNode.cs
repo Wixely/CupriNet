@@ -126,11 +126,42 @@ public sealed partial class CupriNode : IAsyncDisposable
         if (!validation.IsValid)
             throw new CupriNodeException($"Intonation is not usable: {validation.Status}.");
 
-        var beacon = intonation.Beacons.FirstOrDefault(b => b.Kind is EndpointKind.Host or EndpointKind.Mapped or EndpointKind.Manual)
-                     ?? throw new CupriNodeException("Intonation has no dialable beacon.");
+        var candidates = DialableInPriorityOrder(intonation.Beacons);
+        if (candidates.Count == 0)
+            throw new CupriNodeException("Intonation has no dialable beacon.");
 
-        var vessel = await TcpVessel.ConnectAsync(beacon.Host, beacon.Port, cancellationToken: cancellationToken).ConfigureAwait(false);
-        return await ConjoinOverVesselAsync(vessel, intonation.InviterSigil, now, cancellationToken).ConfigureAwait(false);
+        Exception? last = null;
+        foreach (var beacon in candidates)
+        {
+            IVessel vessel;
+            try { vessel = await DialTcpAsync(beacon, cancellationToken).ConfigureAwait(false); }
+            catch (Exception ex) { last = ex; continue; } // candidate unreachable — try the next
+            try { return await ConjoinOverVesselAsync(vessel, intonation.InviterSigil, now, cancellationToken).ConfigureAwait(false); }
+            catch (Exception ex) { last = ex; } // the seam disposed the vessel; try the next candidate
+        }
+        throw new CupriNodeException($"Could not reach the inviter via any candidate: {last?.Message ?? "no reachable beacon"}.");
+    }
+
+    /// <summary>Orders a peer's beacons for dialing: LAN/host first (fastest when reachable), then external Mapped, then Manual.</summary>
+    private static IReadOnlyList<Beacon> DialableInPriorityOrder(IEnumerable<Beacon> beacons)
+    {
+        static int Rank(EndpointKind kind) => kind switch
+        {
+            EndpointKind.Host => 0,
+            EndpointKind.Mapped => 1,
+            EndpointKind.Manual => 2,
+            _ => 3,
+        };
+        return beacons.Where(b => b.Kind is EndpointKind.Host or EndpointKind.Mapped or EndpointKind.Manual)
+            .OrderBy(b => Rank(b.Kind)).ToList();
+    }
+
+    /// <summary>Dials a beacon over TCP with a bounded connect timeout, so an unreachable (e.g. off-LAN private) candidate fails fast.</summary>
+    private async Task<IVessel> DialTcpAsync(Beacon beacon, CancellationToken cancellationToken)
+    {
+        using var timed = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timed.CancelAfter(_options.CandidateConnectTimeout);
+        return await TcpVessel.ConnectAsync(beacon.Host, beacon.Port, cancellationToken: timed.Token).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -201,7 +232,7 @@ public sealed partial class CupriNode : IAsyncDisposable
     public async Task<PairedPeer> ReconnectAsync(KnownPeer peer, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(peer);
-        var dialable = peer.Beacons.Where(b => b.Kind is EndpointKind.Host or EndpointKind.Mapped or EndpointKind.Manual).ToList();
+        var dialable = DialableInPriorityOrder(peer.Beacons);
         if (dialable.Count == 0)
             throw new CupriNodeException("Known peer has no dialable beacon.");
 
@@ -209,7 +240,7 @@ public sealed partial class CupriNode : IAsyncDisposable
         foreach (var beacon in dialable)
         {
             IVessel vessel;
-            try { vessel = await TcpVessel.ConnectAsync(beacon.Host, beacon.Port, cancellationToken: cancellationToken).ConfigureAwait(false); }
+            try { vessel = await DialTcpAsync(beacon, cancellationToken).ConfigureAwait(false); }
             catch (Exception ex) { last = ex; continue; }
 
             // ConjoinOverVesselAsync disposes the vessel on failure, so we just try the next beacon.

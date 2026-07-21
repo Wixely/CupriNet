@@ -205,6 +205,12 @@ public sealed record CupriNodeOptions
     public TimeSpan ConsecrationTimeout { get; init; } = TimeSpan.FromSeconds(30);
 
     /// <summary>
+    /// Per-candidate TCP connect timeout when dialing a peer's beacons in turn, so an unreachable candidate (e.g.
+    /// a private/LAN address dialed from off-LAN, which can black-hole) is abandoned quickly and the next tried.
+    /// </summary>
+    public TimeSpan CandidateConnectTimeout { get; init; } = TimeSpan.FromSeconds(6);
+
+    /// <summary>
     /// Require a pre-handshake stateless cookie (the "Toll") before the Noise transport handshake. The
     /// responder keeps no per-connection state to validate it, so an attacker cannot exhaust responder
     /// memory by opening connections and stalling before the expensive crypto. Both peers must agree;
