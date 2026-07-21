@@ -151,6 +151,44 @@ internal sealed class ControlRateLimiter(int maxPerWindow, long windowMs)
     }
 }
 
+/// <summary>
+/// A per-peer overlay-control budget shared across all of one peer's connections (keyed by its overlay
+/// Sigil): a request rate limit plus a concurrent-connection cap, so a peer cannot escape the rate limit by
+/// opening many connections. Thread-safe — several of a peer's connections may hit it at once.
+/// </summary>
+internal sealed class PeerControlBudget(int maxRequestsPerWindow, long windowMs)
+{
+    private readonly object _gate = new();
+    private readonly ControlRateLimiter _limiter = new(maxRequestsPerWindow, windowMs);
+    private int _connections;
+
+    /// <summary>Reserves a connection slot for this peer, or returns false if it is already at its cap.</summary>
+    public bool TryOpenConnection(int maxConnections)
+    {
+        lock (_gate)
+        {
+            if (_connections >= maxConnections)
+                return false;
+            _connections++;
+            return true;
+        }
+    }
+
+    /// <summary>Releases a connection slot; returns the peer's remaining connection count.</summary>
+    public int CloseConnection()
+    {
+        lock (_gate)
+            return _connections > 0 ? --_connections : 0;
+    }
+
+    /// <summary>Records a request against the peer's shared rate limit; false once the window's cap is exceeded.</summary>
+    public bool Allow(long nowMs)
+    {
+        lock (_gate)
+            return _limiter.Allow(nowMs);
+    }
+}
+
 /// <summary>A pooled, Noise-encrypted control connection to one overlay peer; requests are serialized over it.</summary>
 internal sealed class ControlConnection(IVessel vessel) : IAsyncDisposable
 {

@@ -42,13 +42,16 @@ public sealed record CupriNodeOptions
     /// </summary>
     public bool EnablePeerExchange { get; init; } = true;
 
-    /// <summary>Max inbound overlay-control connections served concurrently — a Ward against connection floods.</summary>
+    /// <summary>Max inbound overlay-control connections served concurrently across all peers — a Ward against connection floods.</summary>
     public int MaxConcurrentControlConnections { get; init; } = 256;
 
-    /// <summary>Max overlay-control requests accepted on one connection within <see cref="ControlWindowSeconds"/> before it is dropped.</summary>
+    /// <summary>Max concurrent overlay-control connections from a single peer (Sigil), so one peer cannot multiply its budget.</summary>
+    public int MaxControlConnectionsPerPeer { get; init; } = 8;
+
+    /// <summary>Max overlay-control requests from a single peer within <see cref="ControlWindowSeconds"/>, shared across that peer's connections.</summary>
     public int MaxControlRequestsPerWindow { get; init; } = 120;
 
-    /// <summary>The rolling window (seconds) for the per-connection overlay-control request limit.</summary>
+    /// <summary>The rolling window (seconds) for the per-peer overlay-control request limit.</summary>
     public int ControlWindowSeconds { get; init; } = 10;
 
     /// <summary>

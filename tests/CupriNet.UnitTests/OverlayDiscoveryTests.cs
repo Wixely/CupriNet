@@ -108,6 +108,26 @@ public class OverlayDiscoveryTests
     }
 
     [Fact]
+    public void PeerControlBudget_CapsConnections_AndSharesTheRateAcrossThem()
+    {
+        var budget = new PeerControlBudget(maxRequestsPerWindow: 3, windowMs: 1000);
+
+        // Per-peer connection cap.
+        Assert.True(budget.TryOpenConnection(2));
+        Assert.True(budget.TryOpenConnection(2));
+        Assert.False(budget.TryOpenConnection(2)); // at cap
+        Assert.Equal(1, budget.CloseConnection());  // one released
+        Assert.True(budget.TryOpenConnection(2));    // slot free again
+
+        // The request rate is shared across the peer's connections, not per-connection.
+        Assert.True(budget.Allow(0));
+        Assert.True(budget.Allow(0));
+        Assert.True(budget.Allow(0));
+        Assert.False(budget.Allow(0));   // fourth in the window — over the shared cap
+        Assert.True(budget.Allow(1001)); // new window resets it
+    }
+
+    [Fact]
     public async Task Find_WithNoProviders_ReturnsEmpty()
     {
         using var cts = new CancellationTokenSource(Timeout);
