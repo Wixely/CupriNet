@@ -31,13 +31,15 @@ public sealed partial class CupriNode : IAsyncDisposable
     private readonly VesselListener _listener;
     private readonly string _advertiseHost;
     private readonly byte[] _tollSecret = Toll.NewSecret();
+    private readonly ISecretStore _secretStore;
 
-    private CupriNode(CupriNodeOptions options, ICryptoSuite suite, NodeIdentity identity, VesselListener listener)
+    private CupriNode(CupriNodeOptions options, ICryptoSuite suite, NodeIdentity identity, VesselListener listener, ISecretStore secretStore)
     {
         _options = options;
         Suite = suite;
         Identity = identity;
         _listener = listener;
+        _secretStore = secretStore;
         Network = new Concordium(options.Concordium);
         Constellation = new Constellation();
         _advertiseHost = options.ListenAddress.Equals(IPAddress.Any) ? "127.0.0.1" : options.ListenAddress.ToString();
@@ -74,7 +76,14 @@ public sealed partial class CupriNode : IAsyncDisposable
         var listener = new VesselListener(new IPEndPoint(options.ListenAddress, options.ListenPort));
         listener.Start();
 
-        return new CupriNode(options, suite, identity, listener);
+        var node = new CupriNode(options, suite, identity, listener, secretStore);
+
+        // Warm start: rehydrate the overlay from the local cache so we can reconnect to known nodes directly,
+        // avoiding cold-start hops. Opt-in — a cold start (this off) keeps nothing about the overlay on disk.
+        if (options.PersistOverlay)
+            await node.LoadOverlayStateAsync(secretStore, cancellationToken).ConfigureAwait(false);
+
+        return node;
     }
 
     /// <summary>Mints a fresh connection URL (Intonation) advertising this node's reachability and seed peers.</summary>

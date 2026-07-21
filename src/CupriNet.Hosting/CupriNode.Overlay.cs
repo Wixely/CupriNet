@@ -22,6 +22,24 @@ public sealed partial class CupriNode
     private readonly ConcurrentDictionary<Sigil, PeerControlBudget> _peerBudgets = new();
     private int _activeControlConnections;
 
+    /// <summary>
+    /// Persists the current overlay view (known nodes) to the local cache, so a later run can warm-start.
+    /// No-op unless <see cref="CupriNodeOptions.PersistOverlay"/> is on. Call this periodically or on shutdown.
+    /// </summary>
+    public async Task SaveOverlayStateAsync(CancellationToken cancellationToken = default)
+    {
+        if (_options.PersistOverlay)
+            await ConstellationStore.SaveAsync(_secretStore, Constellation, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>Rehydrates the Constellation from the local cache (warm start). Called by CreateAsync when persistence is on.</summary>
+    private async Task LoadOverlayStateAsync(ISecretStore store, CancellationToken cancellationToken)
+    {
+        var now = DateTimeOffset.UtcNow;
+        foreach (var record in await ConstellationStore.LoadAsync(store, Suite, cancellationToken).ConfigureAwait(false))
+            Constellation.Admit(record, PeerBucket.Wayfarers, now, "warm-start");
+    }
+
     /// <summary>A signed, self-describing record of this node (its dialable beacons + capabilities) to seed peers with.</summary>
     public PeerRecord SelfRecord(DateTimeOffset now)
         => PeerRecordSigner.Create(Identity, SelfBeacons(), (ulong)now.ToUnixTimeMilliseconds(), PeerCapabilities.ChannelProvider, Suite, now);
@@ -300,6 +318,9 @@ public sealed partial class CupriNode
 
     private async ValueTask DisposeOverlayAsync()
     {
+        try { await SaveOverlayStateAsync().ConfigureAwait(false); }
+        catch { /* best-effort persistence on shutdown */ }
+
         foreach (var conn in _controlPool.Values)
         {
             try { await conn.DisposeAsync().ConfigureAwait(false); } catch { /* best-effort */ }
