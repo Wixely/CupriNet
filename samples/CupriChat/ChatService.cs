@@ -13,6 +13,7 @@ using CupriNet.Core;
 using CupriNet.Hosting;
 using CupriNet.Persistence;
 using CupriNet.Rites;
+using CupriNet.Traversal;
 
 namespace CupriChat;
 
@@ -141,7 +142,10 @@ public sealed class ChatService : IAsyncDisposable
             Suite = suite,
             SecretStore = _store,
             PersistOverlay = true, // warm-start: remember known nodes so we reconnect directly, and gossip stays fresh
+            EnableLanDiscovery = true, // find people in your channel on the same network with no link
+            EnablePortMapping = true,  // ask the router (NAT-PMP) to forward our port so links are directly reachable
         }, _cts.Token);
+        _node.LanPeerDiscovered += OnLanPeerDiscovered;
         _kindred = await KindredBook.LoadAsync(_store, _cts.Token);
 
         _selfId = Convert.ToHexStringLower(_node.Identity.Sigil.Span);
@@ -168,7 +172,13 @@ public sealed class ChatService : IAsyncDisposable
     {
         if (_node is null)
             throw new InvalidOperationException("The node is not started yet.");
-        return _node.IntoneUri(TimeSpan.FromHours(24), DateTimeOffset.UtcNow);
+        var link = _node.IntoneUri(TimeSpan.FromHours(24), DateTimeOffset.UtcNow);
+        // Reachability hint so the user knows how well the link will work across networks.
+        var mapped = _node.PortMappedBeacon;
+        SystemMessage?.Invoke(mapped is not null
+            ? $"Directly reachable (router forwarded {mapped.Host}:{mapped.Port}) — this link works across networks."
+            : "Not confirmed directly reachable yet. On the same network it just works; across networks, share links both ways.");
+        return link;
     }
 
     public async Task ConnectAsync(string link)
@@ -655,6 +665,30 @@ public sealed class ChatService : IAsyncDisposable
     }
 
     /// <summary>Dials a rostered member we are not already connected to, so a single join fans out to the whole mesh.</summary>
+    /// <summary>
+    /// A peer on the same local network announced itself. If we're in a channel, try to pair with it directly (no
+    /// link needed) and Consecrate — only same-channel peers will complete the handshake, so this quietly finds
+    /// the people in your channel who are on your network.
+    /// </summary>
+    private void OnLanPeerDiscovered(DiscoveredNode node)
+    {
+        bool joined;
+        lock (_lock)
+            joined = _joined;
+        if (!joined)
+            return;
+
+        var known = new KnownPeer
+        {
+            Sigil = node.Sigil,
+            SealPublicKey = node.SealPublicKey,
+            Beacons = [node.ToBeacon()],
+            LastSeenUnix = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
+        };
+        SystemMessage?.Invoke($"Found a peer on your network ({Short(Convert.ToHexStringLower(node.Sigil.Span))}); trying to connect…");
+        ConsiderRosterMember(known); // reuses the lower-Sigil-dials rule, dedup, dial + Consecrate
+    }
+
     private void ConsiderRosterMember(KnownPeer known)
     {
         if (_node is null)
