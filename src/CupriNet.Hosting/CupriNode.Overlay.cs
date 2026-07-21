@@ -232,6 +232,18 @@ public sealed partial class CupriNode
                 }
                 catch { return OverlayControl.DecreesResponse([]); }
             }
+            case OverlayControl.OpPing:
+            {
+                // A hot-fuzz heartbeat: keep the connection warm and reply with the requested padding. The
+                // per-peer budget already rate-limits these; the pad is capped so it can't be an amplifier.
+                try
+                {
+                    var reader = new CodexReader(body);
+                    var downPad = (int)Math.Min(reader.ReadVarUInt(), (ulong)OverlayControl.MaxPingPad);
+                    return OverlayControl.PingResponse(downPad);
+                }
+                catch { return OverlayControl.StatusResponse(OverlayControl.StatusRejected); }
+            }
             default:
                 return OverlayControl.StatusResponse(OverlayControl.StatusRejected);
         }

@@ -26,6 +26,7 @@ internal static class OverlayControl
     public const byte OpPublish = 2;
     public const byte OpLookup = 3;
     public const byte OpSample = 4;
+    public const byte OpPing = 5;
 
     public const byte StatusOk = 0;
     public const byte StatusRejected = 1;
@@ -33,6 +34,9 @@ internal static class OverlayControl
     public const int MaxAugury = 16;
     public const int MaxLookupGlyphs = 8;
     public const int MaxLookupDecrees = 16;
+
+    /// <summary>Cap on the padding a PING may carry or request, so cover traffic can't be turned into an amplifier.</summary>
+    public const int MaxPingPad = 4096;
 
     // ---- Requests (client -> server) -----------------------------------------------------------
 
@@ -59,6 +63,32 @@ internal static class OverlayControl
         w.WriteByte(OpSample);
         w.WriteVarUInt((ulong)count);
         return w.ToArray();
+    }
+
+    /// <summary>
+    /// A hot-fuzz heartbeat: carries <paramref name="upPad"/> random bytes and asks the responder to pad its
+    /// reply to <paramref name="downPad"/> bytes. Keeps a decoy connection warm and shapes both directions so a
+    /// decoy link resembles a bidirectional chat rather than a thin request/response.
+    /// </summary>
+    public static byte[] PingRequest(int downPad, ReadOnlySpan<byte> upPad)
+    {
+        var w = new CodexWriter();
+        w.WriteByte(OpPing);
+        w.WriteVarUInt((ulong)Math.Clamp(downPad, 0, MaxPingPad));
+        w.WriteBytes(upPad);
+        return w.ToArray();
+    }
+
+    /// <summary>
+    /// The reply to a PING: an OK status byte followed by <paramref name="downPad"/> padding bytes. Built raw
+    /// (the client never parses the padding) so the reply hits the requested size exactly; it is opaque on the
+    /// wire once encrypted.
+    /// </summary>
+    public static byte[] PingResponse(int downPad)
+    {
+        var buf = new byte[1 + Math.Clamp(downPad, 0, MaxPingPad)];
+        buf[0] = StatusOk;
+        return buf;
     }
 
     public static byte[] LookupRequest(IReadOnlyList<byte[]> glyphWindow)

@@ -85,6 +85,7 @@ public sealed partial class CupriNode : IAsyncDisposable
             await node.LoadOverlayStateAsync(secretStore, cancellationToken).ConfigureAwait(false);
 
         node.StartGossip();
+        node.StartHotFuzz();
         return node;
     }
 

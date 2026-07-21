@@ -75,6 +75,54 @@ public sealed record CupriNodeOptions
     /// <summary>How many peer records to pull from each gossiped node.</summary>
     public int OverlayGossipSampleSize { get; init; } = 16;
 
+    /// <summary>
+    /// Power/connectivity profile. Gates battery- and data-costly behaviour: hot fuzz (holding long-lived
+    /// decoy connections open) is suppressed on <see cref="PowerProfile.Metered"/>. Default Unmetered.
+    /// </summary>
+    public PowerProfile Power { get; init; } = PowerProfile.Unmetered;
+
+    /// <summary>
+    /// "Hot fuzz": hold a small set of long-lived decoy control connections open to random overlay nodes,
+    /// paced with padded cover traffic, so a real channel session — also long-lived and chatty — blends into a
+    /// population of equally long-lived, equally chatty decoys. Where <see cref="EnableOverlayGossip"/> fuzzes
+    /// connection <em>events</em>, hot fuzz fuzzes connection <em>lifetime and volume</em>, closing the
+    /// traffic-analysis tell that "the enduring connection is the real one". Runs only alongside gossip and on
+    /// an <see cref="PowerProfile.Unmetered"/> profile; on by default there, off when metered.
+    /// </summary>
+    public bool EnableHotFuzz { get; init; } = true;
+
+    /// <summary>How many long-lived decoy companions hot fuzz keeps warm at once.</summary>
+    public int HotFuzzDegree { get; init; } = 4;
+
+    /// <summary>Shortest a companion is held before rotation — the low end of the ordinary TTL band.</summary>
+    public TimeSpan HotFuzzMinHold { get; init; } = TimeSpan.FromMinutes(2);
+
+    /// <summary>Upper end of the ordinary TTL band a companion is held before rotation.</summary>
+    public TimeSpan HotFuzzMaxHold { get; init; } = TimeSpan.FromMinutes(30);
+
+    /// <summary>
+    /// Probability a companion instead draws a <em>long</em> hold (up to <see cref="HotFuzzLongHold"/>). This
+    /// heavy tail is deliberate: without a few hours-long decoys, an hours-long channel session would again be
+    /// the unique connection that never rotates.
+    /// </summary>
+    public double HotFuzzLongHoldProbability { get; init; } = 0.2;
+
+    /// <summary>The upper bound of the heavy-tail hold, drawn with <see cref="HotFuzzLongHoldProbability"/>.</summary>
+    public TimeSpan HotFuzzLongHold { get; init; } = TimeSpan.FromHours(4);
+
+    /// <summary>Base interval between heartbeats (padded PINGs) on each companion; actual timing is jittered.</summary>
+    public TimeSpan HotFuzzHeartbeatInterval { get; init; } = TimeSpan.FromSeconds(20);
+
+    /// <summary>
+    /// Cooperative padding: each heartbeat carries random padding and asks the companion to pad its reply to a
+    /// target size, so both directions of a decoy link are shaped to resemble a bidirectional chat rather than
+    /// a thin request/response. On by default.
+    /// </summary>
+    public bool HotFuzzCooperativePadding { get; init; } = true;
+
+    /// <summary>Target padding (bytes) per direction of a hot-fuzz heartbeat when cooperative padding is on.</summary>
+    public int HotFuzzPaddingBytes { get; init; } = 256;
+
     /// <summary>Max inbound overlay-control connections served concurrently across all peers — a Ward against connection floods.</summary>
     public int MaxConcurrentControlConnections { get; init; } = 256;
 
@@ -118,4 +166,14 @@ public sealed record CupriNodeOptions
     /// default true. Disable only for interop with peers that predate the Toll.
     /// </summary>
     public bool EnableToll { get; init; } = true;
+}
+
+/// <summary>Power/connectivity profile, used to gate battery- and data-costly behaviour such as hot fuzz.</summary>
+public enum PowerProfile
+{
+    /// <summary>Mains/unmetered (desktop/server): the full cover-traffic set, including hot fuzz, may run.</summary>
+    Unmetered,
+
+    /// <summary>Battery/metered (mobile): hot fuzz is suppressed to save power and data.</summary>
+    Metered,
 }
