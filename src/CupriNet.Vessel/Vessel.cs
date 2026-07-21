@@ -18,23 +18,31 @@ public readonly record struct VesselFrame(ushort StreamId, byte[] Payload);
 /// </remarks>
 public sealed class Vessel : IVessel
 {
-    private readonly TcpClient _client;
     private readonly Stream _stream;
+    private readonly EndPoint? _localEndPoint;
+    private readonly EndPoint? _remoteEndPoint;
+    private readonly Func<ValueTask>? _onDispose;
     private readonly SemaphoreSlim _writeLock = new(1, 1);
     private readonly int _maxFrameSize;
 
-    internal Vessel(TcpClient client, int maxFrameSize)
+    /// <summary>
+    /// Wraps any duplex byte stream (TCP's NetworkStream, or an <see cref="ArqStream"/> over reliable UDP) as a
+    /// framed, multiplexed session. The framing is identical regardless of the underlying transport.
+    /// </summary>
+    internal Vessel(Stream stream, EndPoint? localEndPoint, EndPoint? remoteEndPoint, int maxFrameSize, Func<ValueTask>? onDispose = null)
     {
-        _client = client;
-        _stream = client.GetStream();
+        _stream = stream;
+        _localEndPoint = localEndPoint;
+        _remoteEndPoint = remoteEndPoint;
         _maxFrameSize = maxFrameSize;
+        _onDispose = onDispose;
     }
 
     /// <summary>The remote peer's endpoint, if connected.</summary>
-    public EndPoint? RemoteEndPoint => _client.Client.RemoteEndPoint;
+    public EndPoint? RemoteEndPoint => _remoteEndPoint;
 
     /// <summary>This side's local endpoint, if connected.</summary>
-    public EndPoint? LocalEndPoint => _client.Client.LocalEndPoint;
+    public EndPoint? LocalEndPoint => _localEndPoint;
 
     /// <summary>Sends a payload on a logical stream. Writes are serialized so frames never interleave.</summary>
     public async ValueTask SendAsync(ushort streamId, ReadOnlyMemory<byte> payload, CancellationToken cancellationToken = default)
@@ -79,7 +87,8 @@ public sealed class Vessel : IVessel
         }
         finally
         {
-            _client.Dispose();
+            if (_onDispose is not null)
+                await _onDispose().ConfigureAwait(false);
             _writeLock.Dispose();
         }
     }

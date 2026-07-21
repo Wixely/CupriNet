@@ -26,8 +26,12 @@ public sealed class VesselListener : IAsyncDisposable
     {
         var client = await _listener.AcceptTcpClientAsync(cancellationToken).ConfigureAwait(false);
         client.NoDelay = true;
-        return new Vessel(client, _maxFrameSize);
+        return FromTcp(client, _maxFrameSize);
     }
+
+    internal static Vessel FromTcp(TcpClient client, int maxFrameSize)
+        => new(client.GetStream(), client.Client.LocalEndPoint, client.Client.RemoteEndPoint, maxFrameSize,
+            () => { client.Dispose(); return ValueTask.CompletedTask; });
 
     public ValueTask DisposeAsync()
     {
@@ -53,6 +57,18 @@ public static class TcpVessel
             throw;
         }
 
-        return new Vessel(client, maxFrameSize);
+        return VesselListener.FromTcp(client, maxFrameSize);
+    }
+}
+
+/// <summary>Builds a Vessel over reliable UDP: a <see cref="ReliableArq"/>/<see cref="ArqStream"/> beneath the
+/// same framing the TCP path uses, so Noise and the mux run over a UDP (e.g. hole-punched) path unchanged.</summary>
+public static class UdpVessel
+{
+    public static Vessel Over(IPacketLink link, int maxFrameSize = FrameCodec.DefaultMaxFrameSize)
+    {
+        ArgumentNullException.ThrowIfNull(link);
+        var stream = new ArqStream(link); // ArqStream owns the link and disposes it
+        return new Vessel(stream, link.LocalEndPoint, link.RemoteEndPoint, maxFrameSize);
     }
 }
