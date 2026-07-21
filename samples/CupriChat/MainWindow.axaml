@@ -49,6 +49,9 @@
         <TextBlock Text="Channel"/>
         <TextBox Name="ChannelBox" Text="CupriChat#Public"/>
         <TextBlock Text="Everyone who joins the same channel name can chat together." Foreground="Gray" TextWrapping="Wrap"/>
+        <CheckBox Name="NetworkDiscoveryToggle" Content="Also search the network for this channel"/>
+        <TextBlock Text="Off by default: you find channels via peers you already trust and the mesh they share. Turning this on lets you locate a channel with no link/cached peer, but tells routing nodes you are searching (less private)."
+                   Foreground="Gray" FontSize="11" TextWrapping="Wrap"/>
         <StackPanel Orientation="Horizontal" Spacing="8">
           <Button Name="BackTo1Button" Content="← Back"/>
           <Button Name="JoinButton" Content="Join chat →"/>

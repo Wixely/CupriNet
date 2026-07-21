@@ -110,6 +110,13 @@ public sealed class ChatService : IAsyncDisposable
 
     public bool FileTransfersEnabled { get; set; }
 
+    /// <summary>
+    /// Opt-in routed network discovery. Off by default: the app finds channels via the warm cache and the
+    /// roster mesh, which never ask the network where a channel is. Turning this on lets the app locate a
+    /// channel it has no link/cached peer for, at the cost of leaking (to routing nodes) that it is searching.
+    /// </summary>
+    public bool NetworkDiscovery { get; set; }
+
     public string SelfShortId => Short(_selfId);
 
     public string Username => _username;
@@ -133,6 +140,7 @@ public sealed class ChatService : IAsyncDisposable
             ListenAddress = IPAddress.Parse(localIp),
             Suite = suite,
             SecretStore = _store,
+            PersistOverlay = true, // warm-start: remember known nodes so we reconnect directly, and gossip stays fresh
         }, _cts.Token);
         _kindred = await KindredBook.LoadAsync(_store, _cts.Token);
 
@@ -229,9 +237,17 @@ public sealed class ChatService : IAsyncDisposable
         }
     }
 
-    /// <summary>Starts the background overlay-discovery loop once (idempotent).</summary>
+    /// <summary>
+    /// Starts the OPT-IN routed network discovery loop (idempotent). Off unless <see cref="NetworkDiscovery"/>
+    /// is set: the default path relies on the warm cache (trusted-peer reconnect) plus the roster mesh, which
+    /// never send a lookup asking the network where a channel is. Routed discovery is the fallback for finding
+    /// the first member of a channel you have no link or cached peer for — at the cost of revealing (to the
+    /// nodes it routes through) that you are looking for some channel.
+    /// </summary>
     private void EnsureDiscovery()
     {
+        if (!NetworkDiscovery)
+            return;
         lock (_lock)
         {
             if (_discovering)

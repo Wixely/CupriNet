@@ -42,6 +42,7 @@ public partial class MainWindow : Window
 
     private readonly TextBox _usernameBox;
     private readonly TextBox _channelBox;
+    private readonly CheckBox _networkDiscoveryToggle;
     private readonly Button _backTo1Button;
     private readonly Button _joinButton;
 
@@ -86,6 +87,7 @@ public partial class MainWindow : Window
 
         _usernameBox = this.FindControl<TextBox>("UsernameBox")!;
         _channelBox = this.FindControl<TextBox>("ChannelBox")!;
+        _networkDiscoveryToggle = this.FindControl<CheckBox>("NetworkDiscoveryToggle")!;
         _backTo1Button = this.FindControl<Button>("BackTo1Button")!;
         _joinButton = this.FindControl<Button>("JoinButton")!;
 
@@ -114,6 +116,7 @@ public partial class MainWindow : Window
         _joinButton.Click += OnJoin;
         _sendButton.Click += OnSend;
         _fileToggle.IsCheckedChanged += (_, _) => _chat.FileTransfersEnabled = _fileToggle.IsChecked == true;
+        _networkDiscoveryToggle.IsCheckedChanged += (_, _) => _chat.NetworkDiscovery = _networkDiscoveryToggle.IsChecked == true;
         Closed += async (_, _) => await _chat.DisposeAsync();
         _messageBox.KeyDown += (_, e) =>
         {
@@ -222,6 +225,7 @@ public partial class MainWindow : Window
     private async void OnJoin(object? sender, RoutedEventArgs e)
     {
         _chat.SetIdentity(_usernameBox.Text ?? "anon", _channelBox.Text ?? ChatService.DefaultChannelName);
+        _chat.NetworkDiscovery = _networkDiscoveryToggle.IsChecked == true;
         ShowStep(3);
         await _chat.JoinChannelAsync();
         _identityText.Text = $"you: {_chat.Username}#{_chat.SelfShortId} (channel persona)";
