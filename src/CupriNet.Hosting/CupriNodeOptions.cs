@@ -217,6 +217,25 @@ public sealed record CupriNodeOptions
     /// default true. Disable only for interop with peers that predate the Toll.
     /// </summary>
     public bool EnableToll { get; init; } = true;
+
+    /// <summary>
+    /// Announce this node's presence on the local network and discover same-network peers, so two nodes on one
+    /// LAN can pair with no link and no NAT at all — the easiest genesis path. Off by default (it broadcasts);
+    /// apps opt in. Discovered peers surface via <c>LanPeerDiscovered</c> and pair via <c>ConjoinDiscoveredAsync</c>.
+    /// </summary>
+    public bool EnableLanDiscovery { get; init; }
+
+    /// <summary>UDP port for LAN presence announcements (both the bind and the broadcast target).</summary>
+    public int LanDiscoveryPort { get; init; } = 43821;
+
+    /// <summary>How often (seconds) to broadcast a LAN presence announcement.</summary>
+    public int LanAnnounceIntervalSeconds { get; init; } = 5;
+
+    /// <summary>
+    /// Explicit LAN announcement targets. Defaults to the subnet broadcast on <see cref="LanDiscoveryPort"/>;
+    /// override to point announcements at specific endpoints (e.g. for deterministic tests on loopback).
+    /// </summary>
+    public IReadOnlyList<IPEndPoint>? LanAnnounceTargets { get; init; }
 }
 
 /// <summary>Power/connectivity profile, used to gate battery- and data-costly behaviour such as hot fuzz.</summary>

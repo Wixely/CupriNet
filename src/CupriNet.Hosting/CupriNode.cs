@@ -91,6 +91,7 @@ public sealed partial class CupriNode : IAsyncDisposable
         node.StartHotFuzz();
         node.StartEffigies();
         node.StartPageants();
+        node.StartLanDiscovery();
         return node;
     }
 
@@ -532,6 +533,7 @@ public sealed partial class CupriNode : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         await _lifetime.CancelAsync().ConfigureAwait(false);
+        DisposeLan();
         await DisposeOverlayAsync().ConfigureAwait(false);
         await _listener.DisposeAsync().ConfigureAwait(false);
         _lifetime.Dispose();
