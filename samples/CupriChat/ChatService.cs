@@ -84,6 +84,8 @@ public sealed class ChatService : IAsyncDisposable
     private readonly string _scratchDir = Path.Combine(Path.GetTempPath(), "cuprichat", Guid.NewGuid().ToString("N"));
 
     private long _inFlightBytes;
+    private bool _discovering;
+    private bool _discoveryAnnounced;
     private CupriNode? _node;
     private ISecretStore? _store;
     private KindredBook? _kindred;
@@ -203,15 +205,15 @@ public sealed class ChatService : IAsyncDisposable
             _joined = true;
 
         var peers = _kindred.Peers(channelName);
-        if (peers.Count == 0)
+        if (peers.Count > 0)
         {
-            Status?.Invoke("No trusted peers cached for that channel yet.");
-            return;
+            Status?.Invoke($"Reconnecting to {peers.Count} trusted peer(s) in '{channelName}'…");
+            foreach (var known in peers)
+                _ = Task.Run(() => ReconnectPeerAsync(known, _cts.Token));
         }
 
-        Status?.Invoke($"Reconnecting to {peers.Count} trusted peer(s) in '{channelName}'…");
-        foreach (var known in peers)
-            _ = Task.Run(() => ReconnectPeerAsync(known, _cts.Token));
+        // Even with no cached peers, overlay discovery may find current members over the network.
+        EnsureDiscovery();
     }
 
     private async Task ReconnectPeerAsync(KnownPeer known, CancellationToken cancellationToken)
@@ -225,6 +227,75 @@ public sealed class ChatService : IAsyncDisposable
         {
             Status?.Invoke($"Could not reach a trusted peer ({Short(Convert.ToHexStringLower(known.Sigil.Span))}): {ex.Message}");
         }
+    }
+
+    /// <summary>Starts the background overlay-discovery loop once (idempotent).</summary>
+    private void EnsureDiscovery()
+    {
+        lock (_lock)
+        {
+            if (_discovering)
+                return;
+            _discovering = true;
+        }
+        _ = Task.Run(() => RunDiscoveryAsync(_cts.Token));
+    }
+
+    /// <summary>
+    /// Advertises us as a provider of the current channel and finds other providers over the overlay,
+    /// connecting to any we don't already have. Once we've reached one member the roster mesh fans out the
+    /// rest, so discovery only needs to find the first — but it keeps running to pick up members who join
+    /// later and to refresh our advert before it expires. Requires a bootstrapped Constellation (first
+    /// contact is still a link); until then publish/find are no-ops.
+    /// </summary>
+    private async Task RunDiscoveryAsync(CancellationToken cancellationToken)
+    {
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            try
+            {
+                if (_node is not null)
+                {
+                    var now = DateTimeOffset.UtcNow;
+                    await _node.PublishChannelAsync(_channel, now, cancellationToken);
+                    var providers = await _node.FindChannelProvidersAsync(_channel, now, cancellationToken);
+
+                    var mine = _node.Identity.Sigil;
+                    var found = 0;
+                    foreach (var decree in providers)
+                    {
+                        if (decree.ProviderSigil == mine)
+                            continue;
+                        found++;
+                        ConsiderProvider(decree, now);
+                    }
+
+                    if (found > 0 && !_discoveryAnnounced)
+                    {
+                        _discoveryAnnounced = true;
+                        SystemMessage?.Invoke($"Found this channel on the network ({found} provider(s)).");
+                    }
+                }
+            }
+            catch (OperationCanceledException) { break; }
+            catch (Exception ex) { Status?.Invoke($"Discovery: {ex.Message}"); }
+
+            try { await Task.Delay(TimeSpan.FromSeconds(20), cancellationToken); }
+            catch { break; }
+        }
+    }
+
+    /// <summary>Connects to a discovered provider (deduped and mutual-dial-safe via the roster path).</summary>
+    private void ConsiderProvider(Decree decree, DateTimeOffset now)
+    {
+        var known = new KnownPeer
+        {
+            Sigil = decree.ProviderSigil,
+            SealPublicKey = decree.ProviderSealPublicKey,
+            Beacons = decree.Endpoints,
+            LastSeenUnix = now.ToUnixTimeSeconds(),
+        };
+        ConsiderRosterMember(known);
     }
 
     public async Task JoinChannelAsync()
@@ -241,6 +312,8 @@ public sealed class ChatService : IAsyncDisposable
 
         foreach (var peer in toJoin)
             _ = Task.Run(() => ConsecrateAsync(peer, _cts.Token));
+
+        EnsureDiscovery();
     }
 
     /// <summary>
