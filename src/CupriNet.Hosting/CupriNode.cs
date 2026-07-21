@@ -92,6 +92,7 @@ public sealed partial class CupriNode : IAsyncDisposable
         node.StartEffigies();
         node.StartPageants();
         node.StartLanDiscovery();
+        node.StartPortMapping();
         return node;
     }
 
@@ -99,9 +100,10 @@ public sealed partial class CupriNode : IAsyncDisposable
     public Intonation Intone(TimeSpan lifetime, DateTimeOffset now, byte[]? petition = null)
     {
         var beacons = new List<Beacon>(_options.AdvertisedBeacons ?? [new Beacon(EndpointKind.Host, _advertiseHost, LocalEndPoint.Port)]);
-        var mapped = ReflexiveObserver.MappedBeacon();
-        if (mapped is not null && !beacons.Any(b => b.Kind == mapped.Kind && b.Host == mapped.Host && b.Port == mapped.Port))
-            beacons.Add(mapped);
+        // Include externally-reachable candidates: the reflexively-observed address and any NAT-PMP-mapped port.
+        foreach (var mapped in new[] { ReflexiveObserver.MappedBeacon(), _mappedBeacon })
+            if (mapped is not null && !beacons.Any(b => b.Kind == mapped.Kind && b.Host == mapped.Host && b.Port == mapped.Port))
+                beacons.Add(mapped);
         var litany = Constellation.Sample(IntonationCodec.MaxLitany).Select(r => r.Sigil).ToList();
 
         return IntonationMint.Intone(Identity, Suite, new IntonationOptions

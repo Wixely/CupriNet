@@ -236,6 +236,16 @@ public sealed record CupriNodeOptions
     /// override to point announcements at specific endpoints (e.g. for deterministic tests on loopback).
     /// </summary>
     public IReadOnlyList<IPEndPoint>? LanAnnounceTargets { get; init; }
+
+    /// <summary>
+    /// Ask the home gateway (NAT-PMP) to forward this node's listen port automatically, so it becomes directly
+    /// reachable with no manual port-forwarding — the mapping surfaces as a Mapped beacon in generated links.
+    /// Off by default (it talks to the gateway); apps opt in. No-op where the router doesn't support NAT-PMP.
+    /// </summary>
+    public bool EnablePortMapping { get; init; }
+
+    /// <summary>Requested lifetime (seconds) of a NAT-PMP mapping; it is renewed at half this interval.</summary>
+    public int PortMappingLifetimeSeconds { get; init; } = 3600;
 }
 
 /// <summary>Power/connectivity profile, used to gate battery- and data-costly behaviour such as hot fuzz.</summary>

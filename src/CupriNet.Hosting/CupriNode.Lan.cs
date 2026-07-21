@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Net;
 using CupriNet.Abstractions;
+using CupriNet.Core;
 using CupriNet.Traversal;
 
 namespace CupriNet.Hosting;
@@ -81,4 +82,33 @@ public sealed partial class CupriNode
     }
 
     private void DisposeLan() => _lan?.Dispose();
+
+    // ---- Automatic port mapping (NAT-PMP) ------------------------------------------------------
+
+    private volatile Beacon? _mappedBeacon;
+
+    /// <summary>The external Mapped beacon obtained via NAT-PMP, if the gateway forwarded our port; else null.</summary>
+    public Beacon? PortMappedBeacon => _mappedBeacon;
+
+    internal void StartPortMapping()
+    {
+        if (_options.EnablePortMapping)
+            _ = PortMappingLoopAsync(_lifetime.Token);
+    }
+
+    private async Task PortMappingLoopAsync(CancellationToken cancellationToken)
+    {
+        var lifetime = TimeSpan.FromSeconds(Math.Max(120, _options.PortMappingLifetimeSeconds));
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            try { _mappedBeacon = await PortMapper.TryMapTcpAsync(LocalEndPoint.Port, lifetime, TimeSpan.FromSeconds(3), cancellationToken).ConfigureAwait(false); }
+            catch (OperationCanceledException) { break; }
+            catch { _mappedBeacon = null; }
+
+            // Renew at half the mapping's lifetime; retry sooner if it isn't established yet.
+            var wait = _mappedBeacon is null ? TimeSpan.FromMinutes(1) : lifetime / 2;
+            try { await Task.Delay(wait, cancellationToken).ConfigureAwait(false); }
+            catch { break; }
+        }
+    }
 }
