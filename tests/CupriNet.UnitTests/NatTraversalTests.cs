@@ -114,6 +114,41 @@ public class NatTraversalTests
     }
 
     [Fact]
+    public async Task TwoNodes_MutualPunch_PairWithNoRendezvous()
+    {
+        using var cts = new CancellationTokenSource(Timeout);
+        var ct = cts.Token;
+        var now = DateTimeOffset.UtcNow;
+
+        static Task<CupriNode> NodeAsync(CancellationToken ct) => CupriNode.CreateAsync(
+            new CupriNodeOptions { Concordium = "nat.test", EnableOverlayGossip = false }, ct);
+        await using var a = await NodeAsync(ct);
+        await using var b = await NodeAsync(ct);
+
+        // Each binds a punch socket and (as if via each other's links) knows the other's candidate endpoint.
+        var sockA = NatTraversal.BindSocket(Loopback0);
+        var sockB = NatTraversal.BindSocket(Loopback0);
+        var epA = (IPEndPoint)sockA.LocalEndPoint!;
+        var epB = (IPEndPoint)sockB.LocalEndPoint!;
+
+        // Both start at once; they derive the same session id from their Sigils and roles are deterministic.
+        var taskA = a.ConjoinViaMutualPunchAsync(sockA, [epB], b.Identity.Sigil, now, cancellationToken: ct);
+        var taskB = b.ConjoinViaMutualPunchAsync(sockB, [epA], a.Identity.Sigil, now, cancellationToken: ct);
+        var pairA = await taskA;
+        var pairB = await taskB;
+
+        Assert.Equal(b.Identity.Sigil, pairA.PeerSigil);
+        Assert.Equal(a.Identity.Sigil, pairB.PeerSigil);
+
+        await pairA.Vessel.SendAsync(3, "mutual-punch"u8.ToArray(), ct);
+        var frame = await pairB.Vessel.ReceiveAsync(ct);
+        Assert.Equal("mutual-punch", Encoding.UTF8.GetString(frame!.Value.Payload));
+
+        await pairA.Vessel.DisposeAsync();
+        await pairB.Vessel.DisposeAsync();
+    }
+
+    [Fact]
     public async Task UdpVesselListener_AcceptsInboundSession_AndRunsNoise()
     {
         using var cts = new CancellationTokenSource(Timeout);

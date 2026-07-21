@@ -1,5 +1,7 @@
 using System.Collections.Concurrent;
 using System.Net;
+using System.Net.Sockets;
+using System.Security.Cryptography;
 using CupriNet.Abstractions;
 using CupriNet.Core;
 using CupriNet.Traversal;
@@ -82,6 +84,50 @@ public sealed partial class CupriNode
     }
 
     private void DisposeLan() => _lan?.Dispose();
+
+    // ---- Mutual-link hole punch (two-cone-NAT genesis, no rendezvous) --------------------------
+
+    /// <summary>
+    /// Pairs with a peer by hole punching, when both sides exchanged candidates out-of-band (each other's links)
+    /// and start at roughly the same time — the two-restricted-NAT genesis case that needs no online rendezvous,
+    /// because the out-of-band link exchange <em>is</em> the signaling. Both derive the same session id from the
+    /// two Sigils and punch toward each other's <paramref name="peerCandidates"/>; the lower Sigil then initiates
+    /// the Noise handshake and the higher accepts. The caller binds <paramref name="boundPunchSocket"/> and puts
+    /// its endpoint (host + reflexive) in its own link so the peer can punch back.
+    /// </summary>
+    public async Task<PairedPeer> ConjoinViaMutualPunchAsync(
+        Socket boundPunchSocket, IReadOnlyList<IPEndPoint> peerCandidates, Sigil peerSigil, DateTimeOffset now,
+        TimeSpan? window = null, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(boundPunchSocket);
+        ArgumentNullException.ThrowIfNull(peerCandidates);
+
+        var sessionId = MutualPunchSessionId(Identity.Sigil, peerSigil);
+        var timeout = window ?? TimeSpan.FromSeconds(30);
+
+        CupriNet.Vessel.Vessel vessel;
+        try
+        {
+            vessel = await NatTraversal.PunchAndConnectAsync(
+                sessionId, boundPunchSocket, peerCandidates, TimeSpan.FromMilliseconds(50), timeout, cancellationToken).ConfigureAwait(false);
+        }
+        catch { boundPunchSocket.Dispose(); throw; }
+
+        // Deterministic role from the two Sigils: lower initiates, higher accepts.
+        return SigilCompare(Identity.Sigil, peerSigil) < 0
+            ? await ConjoinOverVesselAsync(vessel, peerSigil, now, cancellationToken).ConfigureAwait(false)
+            : await AcceptChannelOverVesselAsync(vessel, now, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>An order-independent 16-byte session id both peers derive identically from their two Sigils.</summary>
+    private static byte[] MutualPunchSessionId(Sigil a, Sigil b)
+    {
+        var (lo, hi) = SigilCompare(a, b) <= 0 ? (a, b) : (b, a);
+        var buffer = new byte[lo.Span.Length + hi.Span.Length];
+        lo.Span.CopyTo(buffer);
+        hi.Span.CopyTo(buffer.AsSpan(lo.Span.Length));
+        return SHA256.HashData(buffer)[..16];
+    }
 
     // ---- Automatic port mapping (NAT-PMP) ------------------------------------------------------
 
