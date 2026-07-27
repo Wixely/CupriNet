@@ -17,6 +17,16 @@ using CupriNet.Traversal;
 
 namespace CupriChat;
 
+/// <summary>The network the user picks at startup. Each maps to a fully separate, isolated profile.</summary>
+public enum ReachabilityChoice
+{
+    /// <summary>Direct/LAN/NAT reachability. Fast, not anonymous — your IP is visible to peers.</summary>
+    Clearnet,
+
+    /// <summary>Tor only: your IP is hidden, all clearnet paths disabled. Slower to start.</summary>
+    Tor,
+}
+
 /// <summary>A chat line surfaced to the UI. AuthorId is the sender's Sigil (hex).</summary>
 public sealed record ChatMessage(string User, string AuthorId, string Text, DateTimeOffset At, bool IsLocal);
 
@@ -122,18 +132,41 @@ public sealed class ChatService : IAsyncDisposable
 
     public string Username => _username;
 
-    public async Task StartAsync()
+    /// <summary>
+    /// Supplies the Tor transport for <see cref="ReachabilityChoice.Tor"/>. Left null in builds without Tor
+    /// (keeps this sample free of the CupriTor package); an app that references CupriNet.Tor sets it to
+    /// <c>(store, ct) =&gt; CupriTorOnionTransport.CreateAsync(store, ct)</c>.
+    /// </summary>
+    public Func<ISecretStore, CancellationToken, Task<IOnionTransport>>? OnionTransportFactory { get; set; }
+
+    /// <summary>This node's mode for the current run. Chosen at startup and locked for the session.</summary>
+    public ReachabilityChoice Mode { get; private set; }
+
+    public async Task StartAsync(ReachabilityChoice mode = ReachabilityChoice.Clearnet)
     {
+        Mode = mode;
+        var tor = mode == ReachabilityChoice.Tor;
         var localIp = LocalIPv4();
 
-        // Persist identity and the trusted-peer book under a per-instance home (CUPRICHAT_HOME lets two
-        // instances on one machine keep distinct identities). The store is encrypted at rest with a key file.
-        var home = Environment.GetEnvironmentVariable("CUPRICHAT_HOME")
-                   ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "CupriChat");
+        // Per-MODE profile: clearnet and Tor get entirely separate identities + state under distinct folders, so a
+        // Tor identity can never be correlated with a clearnet one (different Sigil, cache, history, keys). CUPRICHAT_HOME
+        // still lets two instances on one machine stay distinct.
+        var baseHome = Environment.GetEnvironmentVariable("CUPRICHAT_HOME")
+                       ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "CupriChat");
+        var home = Path.Combine(baseHome, tor ? "tor" : "clearnet");
         Directory.CreateDirectory(home);
         var suite = new BouncyCastleSuite();
         var masterKey = KeyFileMasterKey.LoadOrCreate(Path.Combine(home, "master.key"));
         _store = new FileSecretStore(Path.Combine(home, "secrets"), new AeadDataProtector(suite, masterKey));
+
+        IOnionTransport? onion = null;
+        if (tor)
+        {
+            if (OnionTransportFactory is null)
+                throw new InvalidOperationException(
+                    "Tor mode isn't available in this build. Reference CupriNet.Tor and set OnionTransportFactory.");
+            onion = await OnionTransportFactory(_store, _cts.Token).ConfigureAwait(false);
+        }
 
         _node = await CupriNode.CreateAsync(new CupriNodeOptions
         {
@@ -141,21 +174,43 @@ public sealed class ChatService : IAsyncDisposable
             ListenAddress = IPAddress.Parse(localIp),
             Suite = suite,
             SecretStore = _store,
-            PersistOverlay = true, // warm-start: remember known nodes so we reconnect directly, and gossip stays fresh
-            EnableLanDiscovery = true, // find people in your channel on the same network with no link
-            EnablePortMapping = true,  // ask the router (NAT-PMP) to forward our port so links are directly reachable
+            PersistOverlay = true,            // warm-start: reconnect to known nodes directly, keep gossip fresh
+            EnableLanDiscovery = !tor,        // clearnet only (TorOnly enforces this off anyway)
+            EnablePortMapping = !tor,
+            Mode = tor ? ReachabilityMode.TorOnly : ReachabilityMode.Standard,
+            OnionTransport = onion,
         }, _cts.Token);
-        _node.LanPeerDiscovered += OnLanPeerDiscovered;
+        if (!tor)
+            _node.LanPeerDiscovered += OnLanPeerDiscovered;
         _kindred = await KindredBook.LoadAsync(_store, _cts.Token);
 
         _selfId = Convert.ToHexStringLower(_node.Identity.Sigil.Span);
-        _selfBeacons = [new Beacon(EndpointKind.Host, localIp, _node.LocalEndPoint.Port)];
+        // Clearnet advertises its host address; Tor advertises its .onion once the service is published.
+        _selfBeacons = tor ? [] : [new Beacon(EndpointKind.Host, localIp, _node.LocalEndPoint.Port)];
+        if (tor)
+            _ = Task.Run(() => TrackOnionReadyAsync(_cts.Token));
+
         lock (_lock)
             _users[_selfId] = _username;
         RaiseUsers();
 
         _ = Task.Run(() => AcceptLoopAsync(_cts.Token));
-        Status?.Invoke($"Ready on {localIp}:{_node.LocalEndPoint.Port}");
+        Status?.Invoke(tor ? "Starting Tor — this can take a moment…" : $"Ready on {localIp}:{_node.LocalEndPoint.Port}");
+    }
+
+    /// <summary>Once the onion service is published, adopt the .onion as our self-beacon and signal readiness.</summary>
+    private async Task TrackOnionReadyAsync(CancellationToken cancellationToken)
+    {
+        while (!cancellationToken.IsCancellationRequested && _node?.OnionBeacon is null)
+        {
+            try { await Task.Delay(500, cancellationToken).ConfigureAwait(false); }
+            catch { return; }
+        }
+        if (_node?.OnionBeacon is { } beacon)
+        {
+            _selfBeacons = [beacon];
+            Status?.Invoke($"Tor ready — reachable at {beacon.Host}");
+        }
     }
 
     /// <summary>Past channels we can rejoin directly, from the trusted-peer book (most recent first).</summary>
