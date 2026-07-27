@@ -246,6 +246,18 @@ public sealed record CupriNodeOptions
 
     /// <summary>Requested lifetime (seconds) of a NAT-PMP mapping; it is renewed at half this interval.</summary>
     public int PortMappingLifetimeSeconds { get; init; } = 3600;
+
+    /// <summary>
+    /// Optional onion (Tor) transport. When set, the node publishes an onion service (advertised as an
+    /// <see cref="CupriNet.Core.EndpointKind.Onion"/> beacon) and can dial peers' <c>.onion</c> addresses, all
+    /// over the ordinary pairing seams. Supplied by the app so <c>CupriNet.Hosting</c> needs no Tor dependency.
+    /// <para>
+    /// Requires a durable <see cref="SecretStore"/>: Tor's entry guards must survive restart, and reselecting
+    /// guards each run is a deanonymization risk — so Tor is deliberately incompatible with a cold start
+    /// (in-memory / no store). Enabling it without a persistent store is rejected at creation.
+    /// </para>
+    /// </summary>
+    public IOnionTransport? OnionTransport { get; init; }
 }
 
 /// <summary>Power/connectivity profile, used to gate battery- and data-costly behaviour such as hot fuzz.</summary>

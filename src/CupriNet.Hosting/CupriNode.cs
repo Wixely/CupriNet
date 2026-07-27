@@ -70,6 +70,13 @@ public sealed partial class CupriNode : IAsyncDisposable
         ArgumentNullException.ThrowIfNull(options);
         ArgumentException.ThrowIfNullOrEmpty(options.Concordium);
 
+        // Cold-start decision, baked in: Tor needs entry guards that survive restart (reselecting them each run
+        // is a deanonymization risk), so it is incompatible with a cold start (no/in-memory store).
+        if (options.OnionTransport is not null && options.SecretStore is null or InMemorySecretStore)
+            throw new CupriNodeException(
+                "Tor (OnionTransport) requires a durable SecretStore: entry guards must survive restart, and " +
+                "reselecting them each run deanonymizes you. Provide a persistent SecretStore, or disable Tor.");
+
         var suite = options.Suite ?? new BouncyCastleSuite();
         var secretStore = options.SecretStore ?? new InMemorySecretStore();
         var identity = await new IdentityStore(secretStore).LoadOrCreateAsync(suite, cancellationToken).ConfigureAwait(false);
@@ -93,6 +100,7 @@ public sealed partial class CupriNode : IAsyncDisposable
         node.StartPageants();
         node.StartLanDiscovery();
         node.StartPortMapping();
+        node.StartTor();
         return node;
     }
 
@@ -100,8 +108,8 @@ public sealed partial class CupriNode : IAsyncDisposable
     public Intonation Intone(TimeSpan lifetime, DateTimeOffset now, byte[]? petition = null)
     {
         var beacons = new List<Beacon>(_options.AdvertisedBeacons ?? [new Beacon(EndpointKind.Host, _advertiseHost, LocalEndPoint.Port)]);
-        // Include externally-reachable candidates: the reflexively-observed address and any NAT-PMP-mapped port.
-        foreach (var mapped in new[] { ReflexiveObserver.MappedBeacon(), _mappedBeacon })
+        // Include externally-reachable candidates: reflexive address, any NAT-PMP-mapped port, and our onion.
+        foreach (var mapped in new[] { ReflexiveObserver.MappedBeacon(), _mappedBeacon, _onionBeacon })
             if (mapped is not null && !beacons.Any(b => b.Kind == mapped.Kind && b.Host == mapped.Host && b.Port == mapped.Port))
                 beacons.Add(mapped);
         var litany = Constellation.Sample(IntonationCodec.MaxLitany).Select(r => r.Sigil).ToList();
@@ -536,6 +544,7 @@ public sealed partial class CupriNode : IAsyncDisposable
     {
         await _lifetime.CancelAsync().ConfigureAwait(false);
         DisposeLan();
+        await DisposeTorAsync().ConfigureAwait(false);
         await DisposeOverlayAsync().ConfigureAwait(false);
         await _listener.DisposeAsync().ConfigureAwait(false);
         _lifetime.Dispose();

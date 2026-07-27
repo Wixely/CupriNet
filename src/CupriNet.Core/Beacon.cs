@@ -14,6 +14,9 @@ public enum EndpointKind : byte
 
     /// <summary>A relay (Ferryman) candidate — L1 data / L2 coordination only.</summary>
     Relay = 3,
+
+    /// <summary>A v3 onion address (reached via a Tor transport); the Host field carries the .onion.</summary>
+    Onion = 4,
 }
 
 /// <summary>
