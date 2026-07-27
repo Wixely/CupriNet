@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <!-- A headless overlay ("keep the network alive") node. No UI, no L2 — Concordance only. -->
+    <AssemblyName>cuprinet-lodestar</AssemblyName>
+    <RootNamespace>CupriNet.Lodestar</RootNamespace>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <ServerGarbageCollection>true</ServerGarbageCollection>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="10.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.Systemd" Version="10.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Deliberately NO reference to CupriNet.Arcanum / CupriNet.Rites: a Lodestar structurally cannot
+         hold a channel (L2). It only runs the L1 Concordance overlay and routes metadata about L2. -->
+    <ProjectReference Include="..\..\src\CupriNet.Hosting\CupriNet.Hosting.csproj" />
+    <ProjectReference Include="..\..\src\CupriNet.Core\CupriNet.Core.csproj" />
+    <ProjectReference Include="..\..\src\CupriNet.Persistence\CupriNet.Persistence.csproj" />
+    <ProjectReference Include="..\..\src\CupriNet.Alembic.BouncyCastle\CupriNet.Alembic.BouncyCastle.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="appsettings.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,46 @@
+# systemd unit for a CupriNet Lodestar node on Ubuntu/Linux.
+#
+# Install:
+#   sudo cp cuprinet-lodestar /usr/local/bin/                 # the published self-contained binary
+#   sudo cp cuprinet-lodestar.service /etc/systemd/system/
+#   sudo mkdir -p /etc/cuprinet-lodestar
+#   # put your config in the [Service] Environment= lines below, or an EnvironmentFile
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now cuprinet-lodestar
+#   journalctl -u cuprinet-lodestar -f                        # follow logs (and copy the node's link)
+
+[Unit]
+Description=CupriNet Lodestar (keeps the overlay network alive)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=notify
+ExecStart=/usr/local/bin/cuprinet-lodestar
+Restart=on-failure
+RestartSec=5
+
+# The node writes its identity + known-peer hot path here. StateDirectory= creates and owns it
+# (/var/lib/cuprinet-lodestar); the app reads STATE_DIRECTORY automatically.
+StateDirectory=cuprinet-lodestar
+
+# --- Configuration (edit these) ---
+Environment=CUPRINET_LODESTAR_Concordium=example.chat
+Environment=CUPRINET_LODESTAR_ListenAddress=0.0.0.0
+Environment=CUPRINET_LODESTAR_ListenPort=43820
+# Set a reachable public address so this node's link works off-box:
+#Environment=CUPRINET_LODESTAR_PublicHost=lodestar.example.net
+#Environment=CUPRINET_LODESTAR_PublicPort=43820
+# Seed from existing nodes (semicolon- or newline-separated), or use a seeds file:
+#Environment=CUPRINET_LODESTAR_SEEDS=cuprinet://intone/AAA…;cuprinet://intone/BBB…
+#Environment=CUPRINET_LODESTAR_SeedsFile=/etc/cuprinet-lodestar/seeds.txt
+
+# --- Hardening ---
+DynamicUser=yes
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

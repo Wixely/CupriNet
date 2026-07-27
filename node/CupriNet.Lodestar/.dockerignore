@@ -1,0 +1,14 @@
+# Keep the build context small and reproducible. Paths are relative to the repo root (the build context).
+**/bin/
+**/obj/
+artifacts/
+out/
+dist/
+.git/
+.github/
+.vs/
+.idea/
+plans/
+**/*.user
+**/.DS_Store
+nuget.local.config
