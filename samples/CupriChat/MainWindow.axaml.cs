@@ -72,6 +72,10 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
 
+        // This build includes the Tor transport (references CupriNet.Tor): the "Tor" option builds an onion
+        // service and dials peers over Tor. The transport uses the same per-mode encrypted store.
+        _chat.OnionTransportFactory = async (store, ct) => await CupriNet.Tor.CupriTorOnionTransport.CreateAsync(store, ct);
+
         _page0 = this.FindControl<StackPanel>("Page0")!;
         _clearnetButton = this.FindControl<Button>("ClearnetButton")!;
         _torButton = this.FindControl<Button>("TorButton")!;

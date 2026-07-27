@@ -30,5 +30,8 @@
     <ProjectReference Include="..\..\src\CupriNet.Rites\CupriNet.Rites.csproj" />
     <ProjectReference Include="..\..\src\CupriNet.Persistence\CupriNet.Persistence.csproj" />
     <ProjectReference Include="..\..\src\CupriNet.Alembic.BouncyCastle\CupriNet.Alembic.BouncyCastle.csproj" />
+    <!-- Tor transport. Restores CupriTor from the Wixely GitHub Packages feed (see /nuget.config);
+         building this sample requires a GitHub token with the read:packages scope. -->
+    <ProjectReference Include="..\..\src\CupriNet.Tor\CupriNet.Tor.csproj" />
   </ItemGroup>
 </Project>
