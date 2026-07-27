@@ -27,8 +27,8 @@ public sealed partial class CupriNode
 
     internal void StartLanDiscovery()
     {
-        if (!_options.EnableLanDiscovery)
-            return;
+        if (!_options.EnableLanDiscovery || _options.Mode == ReachabilityMode.TorOnly)
+            return; // Tor-only: no LAN broadcast (it would announce our Sigil + local address)
 
         var targets = _options.LanAnnounceTargets ?? [new IPEndPoint(IPAddress.Broadcast, _options.LanDiscoveryPort)];
         var bind = new IPEndPoint(IPAddress.Any, _options.LanDiscoveryPort);
@@ -138,7 +138,7 @@ public sealed partial class CupriNode
 
     internal void StartPortMapping()
     {
-        if (_options.EnablePortMapping)
+        if (_options.EnablePortMapping && _options.Mode != ReachabilityMode.TorOnly) // no clearnet port to map in Tor-only
             _ = PortMappingLoopAsync(_lifetime.Token);
     }
 

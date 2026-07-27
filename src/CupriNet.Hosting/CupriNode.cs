@@ -77,11 +77,18 @@ public sealed partial class CupriNode : IAsyncDisposable
                 "Tor (OnionTransport) requires a durable SecretStore: entry guards must survive restart, and " +
                 "reselecting them each run deanonymizes you. Provide a persistent SecretStore, or disable Tor.");
 
+        // Strict Tor-only mode needs an onion transport — there is no clearnet path to fall back to.
+        if (options.Mode == ReachabilityMode.TorOnly && options.OnionTransport is null)
+            throw new CupriNodeException("ReachabilityMode.TorOnly requires an OnionTransport (there is no clearnet path in this mode).");
+
         var suite = options.Suite ?? new BouncyCastleSuite();
         var secretStore = options.SecretStore ?? new InMemorySecretStore();
         var identity = await new IdentityStore(secretStore).LoadOrCreateAsync(suite, cancellationToken).ConfigureAwait(false);
 
-        var listener = new VesselListener(new IPEndPoint(options.ListenAddress, options.ListenPort));
+        // Tor-only: bind the listener to loopback so inbound arrives ONLY via the local onion reverse-proxy —
+        // never directly on a clearnet IP (which would make the node reachable on both, correlating the identity).
+        var bindAddress = options.Mode == ReachabilityMode.TorOnly ? IPAddress.Loopback : options.ListenAddress;
+        var listener = new VesselListener(new IPEndPoint(bindAddress, options.ListenPort));
         listener.Start();
 
         var node = new CupriNode(options, suite, identity, listener, secretStore);
@@ -107,11 +114,20 @@ public sealed partial class CupriNode : IAsyncDisposable
     /// <summary>Mints a fresh connection URL (Intonation) advertising this node's reachability and seed peers.</summary>
     public Intonation Intone(TimeSpan lifetime, DateTimeOffset now, byte[]? petition = null)
     {
-        var beacons = new List<Beacon>(_options.AdvertisedBeacons ?? [new Beacon(EndpointKind.Host, _advertiseHost, LocalEndPoint.Port)]);
-        // Include externally-reachable candidates: reflexive address, any NAT-PMP-mapped port, and our onion.
-        foreach (var mapped in new[] { ReflexiveObserver.MappedBeacon(), _mappedBeacon, _onionBeacon })
-            if (mapped is not null && !beacons.Any(b => b.Kind == mapped.Kind && b.Host == mapped.Host && b.Port == mapped.Port))
-                beacons.Add(mapped);
+        List<Beacon> beacons;
+        if (_options.Mode == ReachabilityMode.TorOnly)
+        {
+            // Anonymity: advertise ONLY the onion address — never a clearnet beacon that would tie it to an IP.
+            beacons = _onionBeacon is not null ? [_onionBeacon] : [];
+        }
+        else
+        {
+            beacons = new List<Beacon>(_options.AdvertisedBeacons ?? [new Beacon(EndpointKind.Host, _advertiseHost, LocalEndPoint.Port)]);
+            // Include externally-reachable candidates: reflexive address, any NAT-PMP-mapped port, and our onion.
+            foreach (var mapped in new[] { ReflexiveObserver.MappedBeacon(), _mappedBeacon, _onionBeacon })
+                if (mapped is not null && !beacons.Any(b => b.Kind == mapped.Kind && b.Host == mapped.Host && b.Port == mapped.Port))
+                    beacons.Add(mapped);
+        }
         var litany = Constellation.Sample(IntonationCodec.MaxLitany).Select(r => r.Sigil).ToList();
 
         return IntonationMint.Intone(Identity, Suite, new IntonationOptions
@@ -137,8 +153,16 @@ public sealed partial class CupriNode : IAsyncDisposable
         if (!validation.IsValid)
             throw new CupriNodeException($"Intonation is not usable: {validation.Status}.");
 
-        var clearnet = DialableInPriorityOrder(intonation.Beacons);              // Host/Mapped/Manual
+        var torOnly = _options.Mode == ReachabilityMode.TorOnly;
+        // Tor-only never dials clearnet — a direct connection would expose this identity's IP.
+        var clearnet = torOnly ? [] : DialableInPriorityOrder(intonation.Beacons); // Host/Mapped/Manual
         var onion = intonation.Beacons.FirstOrDefault(b => b.Kind == EndpointKind.Onion);
+
+        // Refuse a clearnet-only invitation up front in Tor-only mode, with a clear reason.
+        if (torOnly && onion is null)
+            throw new CupriNodeException(
+                "You are in Tor-only mode, but this invitation is reachable only over clearnet (a direct address). " +
+                "Connecting would expose your IP, so it was refused.");
 
         Exception? last = null;
 
@@ -259,11 +283,20 @@ public sealed partial class CupriNode : IAsyncDisposable
     public async Task<PairedPeer> ReconnectAsync(KnownPeer peer, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(peer);
+        Exception? last = null;
+
+        if (_options.Mode == ReachabilityMode.TorOnly)
+        {
+            // Onion-only reconnect: dial the peer's .onion, never a clearnet beacon.
+            var onion = peer.Beacons.FirstOrDefault(b => b.Kind == EndpointKind.Onion)
+                        ?? throw new CupriNodeException("This trusted peer has no onion address; it can't be reached in Tor-only mode.");
+            return await ConjoinViaOnionAsync(onion.Host, peer.Sigil, DateTimeOffset.UtcNow, cancellationToken).ConfigureAwait(false);
+        }
+
         var dialable = DialableInPriorityOrder(peer.Beacons);
         if (dialable.Count == 0)
             throw new CupriNodeException("Known peer has no dialable beacon.");
 
-        Exception? last = null;
         foreach (var beacon in dialable)
         {
             IVessel vessel;
@@ -541,8 +574,8 @@ public sealed partial class CupriNode : IAsyncDisposable
 
     private async Task LearnReflexiveAsync(IVessel vessel, bool initiator, CancellationToken cancellationToken)
     {
-        if (!_options.EnableReflexiveDiscovery)
-            return;
+        if (!_options.EnableReflexiveDiscovery || _options.Mode == ReachabilityMode.TorOnly)
+            return; // Tor-only: no clearnet reflexive address to learn or advertise
         try
         {
             using var timed = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);

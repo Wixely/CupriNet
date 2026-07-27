@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Net;
 using System.Text;
 using CupriNet.Abstractions;
 using CupriNet.Core;
@@ -105,6 +106,67 @@ public class CupriNodeTorTests
         // Explicit in-memory store (a cold start) → also rejected.
         await Assert.ThrowsAsync<CupriNodeException>(async () => await CupriNode.CreateAsync(
             new CupriNodeOptions { Concordium = "tor.test", OnionTransport = fake, SecretStore = new InMemorySecretStore() }));
+    }
+
+    [Fact]
+    public async Task TorOnlyMode_RequiresAnOnionTransport()
+    {
+        await Assert.ThrowsAsync<CupriNodeException>(async () => await CupriNode.CreateAsync(
+            new CupriNodeOptions { Concordium = "tor.test", Mode = ReachabilityMode.TorOnly, SecretStore = new DurableStore() }));
+    }
+
+    [Fact]
+    public async Task TorOnlyMode_AdvertisesOnlyTheOnion_AndBindsLoopback()
+    {
+        using var cts = new CancellationTokenSource(Timeout);
+        var ct = cts.Token;
+        var now = DateTimeOffset.UtcNow;
+
+        var fake = new FakeOnionTransport((_, _) => throw new InvalidOperationException());
+        await using var node = await CupriNode.CreateAsync(new CupriNodeOptions
+        {
+            Concordium = "tor.test",
+            EnableOverlayGossip = false,
+            Mode = ReachabilityMode.TorOnly,
+            SecretStore = new DurableStore(),
+            OnionTransport = fake,
+            ListenAddress = IPAddress.Any, // TorOnly must override this to loopback
+        }, ct);
+
+        // Listener bound to loopback despite requesting Any — never reachable directly on clearnet.
+        Assert.Equal(IPAddress.Loopback, ((IPEndPoint)node.LocalEndPoint).Address);
+
+        while (node.OnionBeacon is null) { ct.ThrowIfCancellationRequested(); await Task.Delay(50, ct); }
+        var uri = node.IntoneUri(TimeSpan.FromHours(1), now);
+        Assert.True(IntonationUri.TryParse(uri, out var intonation, out _));
+
+        // The link carries ONLY the onion beacon — no Host/Mapped that would tie it to an IP.
+        Assert.NotEmpty(intonation!.Beacons);
+        Assert.All(intonation.Beacons, b => Assert.Equal(EndpointKind.Onion, b.Kind));
+    }
+
+    [Fact]
+    public async Task TorOnlyMode_RefusesAClearnetLink()
+    {
+        using var cts = new CancellationTokenSource(Timeout);
+        var ct = cts.Token;
+        var now = DateTimeOffset.UtcNow;
+
+        // A normal clearnet inviter (Host beacon).
+        await using var inviter = await CupriNode.CreateAsync(
+            new CupriNodeOptions { Concordium = "tor.test", EnableOverlayGossip = false }, ct);
+        var uri = inviter.IntoneUri(TimeSpan.FromHours(1), now);
+        Assert.True(IntonationUri.TryParse(uri, out var link, out _));
+
+        var fake = new FakeOnionTransport((_, _) => throw new InvalidOperationException());
+        await using var joiner = await CupriNode.CreateAsync(new CupriNodeOptions
+        {
+            Concordium = "tor.test", EnableOverlayGossip = false,
+            Mode = ReachabilityMode.TorOnly, SecretStore = new DurableStore(), OnionTransport = fake,
+        }, ct);
+
+        var ex = await Assert.ThrowsAsync<CupriNodeException>(async () => await joiner.ConjoinAsync(link!, now, ct));
+        Assert.Contains("clearnet", ex.Message);
     }
 
     [Fact]

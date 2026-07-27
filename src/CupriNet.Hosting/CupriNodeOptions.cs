@@ -258,6 +258,26 @@ public sealed record CupriNodeOptions
     /// </para>
     /// </summary>
     public IOnionTransport? OnionTransport { get; init; }
+
+    /// <summary>
+    /// How this node is reachable, and — critically — what it will and won't do to preserve anonymity.
+    /// <see cref="ReachabilityMode.Standard"/> uses clearnet transports (and Tor too if
+    /// <see cref="OnionTransport"/> is set). <see cref="ReachabilityMode.TorOnly"/> enforces anonymity: the
+    /// listener binds to loopback only, LAN discovery / port mapping / reflexive learning are off, only the onion
+    /// address is advertised, and the node dials <em>only</em> onion addresses — so a Tor identity can never leak
+    /// its IP by touching clearnet. TorOnly requires an <see cref="OnionTransport"/>.
+    /// </summary>
+    public ReachabilityMode Mode { get; init; } = ReachabilityMode.Standard;
+}
+
+/// <summary>Whether a node uses clearnet transports, or is strictly Tor-only for anonymity. See <see cref="CupriNodeOptions.Mode"/>.</summary>
+public enum ReachabilityMode
+{
+    /// <summary>Clearnet transports (LAN, direct, hole punch, NAT-PMP), plus Tor if an OnionTransport is supplied.</summary>
+    Standard,
+
+    /// <summary>Strict anonymity: onion-only reachability and dialing; all clearnet paths disabled.</summary>
+    TorOnly,
 }
 
 /// <summary>Power/connectivity profile, used to gate battery- and data-costly behaviour such as hot fuzz.</summary>
