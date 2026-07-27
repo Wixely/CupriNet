@@ -19,12 +19,27 @@
 
     <Panel Grid.Row="1">
 
+      <!-- Page 0: Choose network -->
+      <StackPanel Name="Page0" Spacing="12" MaxWidth="460" HorizontalAlignment="Center" VerticalAlignment="Center">
+        <TextBlock Text="Choose how to connect" FontSize="18" FontWeight="Bold"/>
+        <TextBlock Text="Clearnet and Tor are kept as separate identities — pick one for this session."
+                   Foreground="Gray" TextWrapping="Wrap"/>
+        <Button Name="ClearnetButton" Content="Clearnet — fast; your IP is visible to peers" HorizontalAlignment="Stretch"/>
+        <Button Name="TorButton" Content="Tor — hides your IP; slower to start" HorizontalAlignment="Stretch"/>
+        <TextBlock Text="…or join directly with a link (its type decides the mode):" Foreground="Gray" Margin="0,8,0,0"/>
+        <TextBox Name="JoinUrlBox" Watermark="paste cuprinet://intone/..." AcceptsReturn="True" TextWrapping="Wrap" Height="56"/>
+        <Button Name="JoinUrlButton" Content="Join with URL" HorizontalAlignment="Left"/>
+      </StackPanel>
+
       <!-- Page 1: Connect to network -->
-      <StackPanel Name="Page1" Spacing="10" MaxWidth="540" HorizontalAlignment="Center" VerticalAlignment="Center">
+      <StackPanel Name="Page1" IsVisible="False" Spacing="10" MaxWidth="540" HorizontalAlignment="Center" VerticalAlignment="Center">
         <TextBlock Text="Step 1 — Connect to the network" FontSize="16" FontWeight="Bold"/>
         <TextBlock Text="Share your link so others can connect to you, or paste someone's link to connect to them."
                    TextWrapping="Wrap" Foreground="Gray"/>
-        <Button Name="GenerateButton" Content="Generate my link" HorizontalAlignment="Left"/>
+        <StackPanel Orientation="Horizontal" Spacing="8">
+          <Button Name="GenerateButton" Content="Generate my link"/>
+          <Button Name="RefreshLinkButton" Content="↻ Refresh" IsVisible="False"/>
+        </StackPanel>
         <TextBox Name="LinkBox" IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap" Height="64"/>
         <Image Name="QrImage" Width="190" Height="190" HorizontalAlignment="Center"/>
         <TextBox Name="ConnectBox" Watermark="paste cuprinet://intone/..." AcceptsReturn="True" TextWrapping="Wrap" Height="56"/>

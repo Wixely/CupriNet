@@ -142,6 +142,21 @@ public sealed class ChatService : IAsyncDisposable
     /// <summary>This node's mode for the current run. Chosen at startup and locked for the session.</summary>
     public ReachabilityChoice Mode { get; private set; }
 
+    /// <summary>
+    /// Infers the mode a pasted link implies: an onion-only link means Tor, a link with any clearnet address means
+    /// Clearnet. Returns null if the string isn't a valid link. Used to lock the mode when joining by URL.
+    /// </summary>
+    public static ReachabilityChoice? DetectMode(string url)
+    {
+        if (string.IsNullOrWhiteSpace(url) || !IntonationUri.TryParse(url.Trim(), out var intonation, out _))
+            return null;
+        var hasClearnet = intonation.Beacons.Any(b => b.Kind is EndpointKind.Host or EndpointKind.Mapped or EndpointKind.Manual);
+        var hasOnion = intonation.Beacons.Any(b => b.Kind == EndpointKind.Onion);
+        if (hasOnion && !hasClearnet) return ReachabilityChoice.Tor;
+        if (hasClearnet) return ReachabilityChoice.Clearnet;
+        return null;
+    }
+
     public async Task StartAsync(ReachabilityChoice mode = ReachabilityChoice.Clearnet)
     {
         Mode = mode;

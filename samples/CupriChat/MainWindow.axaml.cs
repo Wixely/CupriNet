@@ -60,9 +60,24 @@ public partial class MainWindow : Window
     private string _mentionLast = string.Empty;
     private int _mentionIndex;
 
+    // Startup mode selector (Page 0).
+    private readonly StackPanel _page0;
+    private readonly Button _clearnetButton;
+    private readonly Button _torButton;
+    private readonly TextBox _joinUrlBox;
+    private readonly Button _joinUrlButton;
+    private readonly Button _refreshLinkButton;
+
     public MainWindow()
     {
         InitializeComponent();
+
+        _page0 = this.FindControl<StackPanel>("Page0")!;
+        _clearnetButton = this.FindControl<Button>("ClearnetButton")!;
+        _torButton = this.FindControl<Button>("TorButton")!;
+        _joinUrlBox = this.FindControl<TextBox>("JoinUrlBox")!;
+        _joinUrlButton = this.FindControl<Button>("JoinUrlButton")!;
+        _refreshLinkButton = this.FindControl<Button>("RefreshLinkButton")!;
 
         _stepText = this.FindControl<TextBlock>("StepText")!;
         _identityText = this.FindControl<TextBlock>("IdentityText")!;
@@ -109,7 +124,11 @@ public partial class MainWindow : Window
         _chat.FileOfferReceived += OnFileOffer;
         _chat.FileReceived += r => OnSystem($"Received file '{r.FileName}' → {r.SavePath}");
 
+        _clearnetButton.Click += async (_, _) => await StartModeAsync(ReachabilityChoice.Clearnet);
+        _torButton.Click += async (_, _) => await StartModeAsync(ReachabilityChoice.Tor);
+        _joinUrlButton.Click += OnJoinUrl;
         _generateButton.Click += OnGenerate;
+        _refreshLinkButton.Click += OnGenerate;
         _connectButton.Click += OnConnect;
         _toStep2Button.Click += (_, _) => ShowStep(2);
         _backTo1Button.Click += (_, _) => ShowStep(1);
@@ -131,17 +150,47 @@ public partial class MainWindow : Window
             }
         };
 
-        Opened += async (_, _) =>
-        {
-            try
-            {
-                await _chat.StartAsync();
-                RefreshHistory();
-            }
-            catch (Exception ex) { OnStatus($"Start failed: {ex.Message}"); }
-        };
+        ShowStep(0); // choose Clearnet / Tor / Join-with-URL before the node starts
+    }
 
-        ShowStep(1);
+    /// <summary>Starts the node in the chosen mode (a fresh, isolated identity per mode), then moves to Step 1.</summary>
+    private async Task StartModeAsync(ReachabilityChoice mode)
+    {
+        try
+        {
+            _clearnetButton.IsEnabled = _torButton.IsEnabled = _joinUrlButton.IsEnabled = false;
+            OnStatus(mode == ReachabilityChoice.Tor ? "Starting Tor — this can take a moment…" : "Starting…");
+            await _chat.StartAsync(mode);
+            RefreshHistory();
+            ShowStep(1);
+        }
+        catch (Exception ex)
+        {
+            OnStatus($"Start failed: {ex.Message}");
+            _clearnetButton.IsEnabled = _torButton.IsEnabled = _joinUrlButton.IsEnabled = true;
+            ShowStep(0);
+        }
+    }
+
+    /// <summary>Join by pasting a link: its type locks the mode (onion → Tor, address → Clearnet), then connect.</summary>
+    private async void OnJoinUrl(object? sender, RoutedEventArgs e)
+    {
+        var url = _joinUrlBox.Text?.Trim();
+        var mode = ChatService.DetectMode(url ?? string.Empty);
+        if (mode is null)
+        {
+            OnStatus("That doesn't look like a valid cuprinet:// link.");
+            return;
+        }
+        await StartModeAsync(mode.Value);
+        if (_chat.Mode != mode.Value) // start failed and reset to Step 0
+            return;
+        try
+        {
+            await _chat.ConnectAsync(url!);
+            ShowStep(2); // paired at L1 — go set identity + channel
+        }
+        catch (Exception ex) { OnStatus($"Connect error: {ex.Message}"); }
     }
 
     private void RefreshHistory()
@@ -183,12 +232,14 @@ public partial class MainWindow : Window
     {
         if (step == 1)
             RefreshHistory();
+        _page0.IsVisible = step == 0;
         _page1.IsVisible = step == 1;
         _page2.IsVisible = step == 2;
         _page3.IsVisible = step == 3;
         _stepText.Text = step switch
         {
-            1 => "Step 1 — Connect",
+            0 => "Choose network",
+            1 => $"Step 1 — Connect ({_chat.Mode})",
             2 => "Step 2 — Identity & channel",
             _ => "Step 3 — Chat",
         };
@@ -203,6 +254,7 @@ public partial class MainWindow : Window
             var link = _chat.GenerateLink();
             _linkBox.Text = link;
             _qrImage.Source = QrCodeGenerator.Create(link);
+            _refreshLinkButton.IsVisible = true; // reachability/beacons can change; let the user regenerate
         }
         catch (Exception ex) { OnStatus($"Link error: {ex.Message}"); }
     }
