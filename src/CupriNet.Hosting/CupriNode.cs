@@ -137,12 +137,13 @@ public sealed partial class CupriNode : IAsyncDisposable
         if (!validation.IsValid)
             throw new CupriNodeException($"Intonation is not usable: {validation.Status}.");
 
-        var candidates = DialableInPriorityOrder(intonation.Beacons);
-        if (candidates.Count == 0)
-            throw new CupriNodeException("Intonation has no dialable beacon.");
+        var clearnet = DialableInPriorityOrder(intonation.Beacons);              // Host/Mapped/Manual
+        var onion = intonation.Beacons.FirstOrDefault(b => b.Kind == EndpointKind.Onion);
 
         Exception? last = null;
-        foreach (var beacon in candidates)
+
+        // Clearnet candidates first (fast); the onion path is the slower fallback.
+        foreach (var beacon in clearnet)
         {
             IVessel vessel;
             try { vessel = await DialTcpAsync(beacon, cancellationToken).ConfigureAwait(false); }
@@ -150,6 +151,21 @@ public sealed partial class CupriNode : IAsyncDisposable
             try { return await ConjoinOverVesselAsync(vessel, intonation.InviterSigil, now, cancellationToken).ConfigureAwait(false); }
             catch (Exception ex) { last = ex; } // the seam disposed the vessel; try the next candidate
         }
+
+        // Tor path, if this node has an onion transport and the invitation offers an onion address.
+        if (onion is not null && _onion is not null)
+        {
+            try { return await ConjoinViaOnionAsync(onion.Host, intonation.InviterSigil, now, cancellationToken).ConfigureAwait(false); }
+            catch (Exception ex) { last = ex; }
+        }
+
+        // Nothing connected — explain precisely why, so the user knows what to do.
+        if (clearnet.Count == 0 && onion is not null && _onion is null)
+            throw new CupriNodeException(
+                "This invitation is reachable only over Tor (its link contains an onion address), but Tor is not " +
+                "enabled on this node. Turn on Tor to connect to this peer.");
+        if (clearnet.Count == 0 && onion is null)
+            throw new CupriNodeException("Intonation has no dialable beacon.");
         throw new CupriNodeException($"Could not reach the inviter via any candidate: {last?.Message ?? "no reachable beacon"}.");
     }
 

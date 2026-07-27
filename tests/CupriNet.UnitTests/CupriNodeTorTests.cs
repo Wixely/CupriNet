@@ -68,6 +68,32 @@ public class CupriNodeTorTests
     }
 
     [Fact]
+    public async Task ConjoinAsync_TorOnlyLink_InClearnetMode_GivesAClearError()
+    {
+        using var cts = new CancellationTokenSource(Timeout);
+        var ct = cts.Token;
+        var now = DateTimeOffset.UtcNow;
+
+        // An inviter that advertises ONLY an onion address — a Tor-only peer.
+        await using var inviter = await CupriNode.CreateAsync(new CupriNodeOptions
+        {
+            Concordium = "tor.test",
+            EnableOverlayGossip = false,
+            AdvertisedBeacons = [new Beacon(EndpointKind.Onion, new string('a', 56) + ".onion", CupriNode.OnionVirtualPort)],
+        }, ct);
+        var uri = inviter.IntoneUri(TimeSpan.FromHours(1), now);
+        Assert.True(IntonationUri.TryParse(uri, out var intonation, out _));
+
+        // A joiner with no Tor transport can't reach it — and should say exactly why.
+        await using var joiner = await CupriNode.CreateAsync(
+            new CupriNodeOptions { Concordium = "tor.test", EnableOverlayGossip = false }, ct);
+
+        var ex = await Assert.ThrowsAsync<CupriNodeException>(async () => await joiner.ConjoinAsync(intonation!, now, ct));
+        Assert.Contains("Tor", ex.Message);
+        Assert.Contains("onion", ex.Message);
+    }
+
+    [Fact]
     public async Task Tor_RequiresADurableStore_ColdStartRejected()
     {
         var fake = new FakeOnionTransport((_, _) => throw new InvalidOperationException());
