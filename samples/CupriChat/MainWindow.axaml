@@ -38,6 +38,7 @@
                    TextWrapping="Wrap" Foreground="Gray"/>
         <StackPanel Orientation="Horizontal" Spacing="8">
           <Button Name="GenerateButton" Content="Generate my link"/>
+          <Button Name="CopyLinkButton" Content="⧉ Copy" IsVisible="False"/>
           <Button Name="RefreshLinkButton" Content="↻ Refresh" IsVisible="False"/>
         </StackPanel>
         <TextBox Name="LinkBox" IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap" Height="64"/>

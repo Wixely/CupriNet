@@ -142,6 +142,13 @@ public sealed class ChatService : IAsyncDisposable
     /// <summary>This node's mode for the current run. Chosen at startup and locked for the session.</summary>
     public ReachabilityChoice Mode { get; private set; }
 
+    /// <summary>Fires when the reachability we'd put in a link changes (Tor onion published, NAT-mapped port learned),
+    /// so the UI can regenerate the link + QR in place.</summary>
+    public event Action? ReachabilityChanged;
+
+    /// <summary>True once we can produce a usable link: clearnet is ready immediately; Tor once the onion is published.</summary>
+    public bool ReachabilityReady => Mode == ReachabilityChoice.Clearnet || _node?.OnionBeacon is not null;
+
     /// <summary>
     /// Infers the mode a pasted link implies: an onion-only link means Tor, a link with any clearnet address means
     /// Clearnet. Returns null if the string isn't a valid link. Used to lock the mode when joining by URL.
@@ -203,8 +210,7 @@ public sealed class ChatService : IAsyncDisposable
         _selfId = Convert.ToHexStringLower(_node.Identity.Sigil.Span);
         // Clearnet advertises its host address; Tor advertises its .onion once the service is published.
         _selfBeacons = tor ? [] : [new Beacon(EndpointKind.Host, localIp, _node.LocalEndPoint.Port)];
-        if (tor)
-            _ = Task.Run(() => TrackOnionReadyAsync(_cts.Token));
+        _ = Task.Run(() => WatchReachabilityAsync(_cts.Token));
 
         lock (_lock)
             _users[_selfId] = _username;
@@ -214,18 +220,38 @@ public sealed class ChatService : IAsyncDisposable
         Status?.Invoke(tor ? "Starting Tor — this can take a moment…" : $"Ready on {localIp}:{_node.LocalEndPoint.Port}");
     }
 
-    /// <summary>Once the onion service is published, adopt the .onion as our self-beacon and signal readiness.</summary>
-    private async Task TrackOnionReadyAsync(CancellationToken cancellationToken)
+    /// <summary>
+    /// Watches for the reachability that goes into a link to become available or change — the Tor onion once it's
+    /// published, or the externally-reachable NAT-mapped address — and raises <see cref="ReachabilityChanged"/> so
+    /// the UI can regenerate the link + QR in place.
+    /// </summary>
+    private async Task WatchReachabilityAsync(CancellationToken cancellationToken)
     {
-        while (!cancellationToken.IsCancellationRequested && _node?.OnionBeacon is null)
+        Beacon? lastOnion = null;
+        Beacon? lastMapped = null;
+        while (!cancellationToken.IsCancellationRequested)
         {
-            try { await Task.Delay(500, cancellationToken).ConfigureAwait(false); }
+            var onion = _node?.OnionBeacon;
+            var mapped = _node?.PortMappedBeacon;
+            var changed = false;
+
+            if (onion is not null && !onion.Equals(lastOnion))
+            {
+                lastOnion = onion;
+                _selfBeacons = [onion]; // Tor: our reachable identity is the .onion
+                Status?.Invoke($"Tor ready — reachable at {onion.Host}");
+                changed = true;
+            }
+            if (mapped is not null && !mapped.Equals(lastMapped))
+            {
+                lastMapped = mapped; // the router forwarded a port — links can now reach us across networks
+                changed = true;
+            }
+
+            if (changed)
+                ReachabilityChanged?.Invoke();
+            try { await Task.Delay(1000, cancellationToken).ConfigureAwait(false); }
             catch { return; }
-        }
-        if (_node?.OnionBeacon is { } beacon)
-        {
-            _selfBeacons = [beacon];
-            Status?.Invoke($"Tor ready — reachable at {beacon.Host}");
         }
     }
 

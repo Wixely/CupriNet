@@ -67,6 +67,7 @@ public partial class MainWindow : Window
     private readonly TextBox _joinUrlBox;
     private readonly Button _joinUrlButton;
     private readonly Button _refreshLinkButton;
+    private readonly Button _copyLinkButton;
 
     public MainWindow()
     {
@@ -82,6 +83,7 @@ public partial class MainWindow : Window
         _joinUrlBox = this.FindControl<TextBox>("JoinUrlBox")!;
         _joinUrlButton = this.FindControl<Button>("JoinUrlButton")!;
         _refreshLinkButton = this.FindControl<Button>("RefreshLinkButton")!;
+        _copyLinkButton = this.FindControl<Button>("CopyLinkButton")!;
 
         _stepText = this.FindControl<TextBlock>("StepText")!;
         _identityText = this.FindControl<TextBlock>("IdentityText")!;
@@ -128,11 +130,13 @@ public partial class MainWindow : Window
         _chat.FileOfferReceived += OnFileOffer;
         _chat.FileReceived += r => OnSystem($"Received file '{r.FileName}' → {r.SavePath}");
 
-        _clearnetButton.Click += async (_, _) => await StartModeAsync(ReachabilityChoice.Clearnet);
-        _torButton.Click += async (_, _) => await StartModeAsync(ReachabilityChoice.Tor);
+        _clearnetButton.Click += async (_, _) => { await StartModeAsync(ReachabilityChoice.Clearnet); TryAutoGenerateLink(); };
+        _torButton.Click += async (_, _) => { await StartModeAsync(ReachabilityChoice.Tor); TryAutoGenerateLink(); };
         _joinUrlButton.Click += OnJoinUrl;
         _generateButton.Click += OnGenerate;
         _refreshLinkButton.Click += OnGenerate;
+        _copyLinkButton.Click += OnCopyLink;
+        _chat.ReachabilityChanged += () => Dispatcher.UIThread.Post(TryAutoGenerateLink);
         _connectButton.Click += OnConnect;
         _toStep2Button.Click += (_, _) => ShowStep(2);
         _backTo1Button.Click += (_, _) => ShowStep(1);
@@ -258,9 +262,37 @@ public partial class MainWindow : Window
             var link = _chat.GenerateLink();
             _linkBox.Text = link;
             _qrImage.Source = QrCodeGenerator.Create(link);
+            _copyLinkButton.IsVisible = true;
             _refreshLinkButton.IsVisible = true; // reachability/beacons can change; let the user regenerate
         }
         catch (Exception ex) { OnStatus($"Link error: {ex.Message}"); }
+    }
+
+    /// <summary>
+    /// When we've started our own network (not joined via a pasted link), show the connection link + QR right away —
+    /// clearnet is reachable immediately; Tor waits for the onion, so this no-ops until <see cref="ChatService.ReachabilityChanged"/>
+    /// fires with the onion published, at which point it's called again in place.
+    /// </summary>
+    private void TryAutoGenerateLink()
+    {
+        if (_page1.IsVisible && _chat.ReachabilityReady)
+            OnGenerate(this, new RoutedEventArgs());
+    }
+
+    private async void OnCopyLink(object? sender, RoutedEventArgs e)
+    {
+        var link = _linkBox.Text;
+        if (string.IsNullOrEmpty(link))
+            return;
+        var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
+        if (clipboard is null)
+            return;
+        try
+        {
+            await clipboard.SetTextAsync(link);
+            OnStatus("Link copied to clipboard.");
+        }
+        catch (Exception ex) { OnStatus($"Copy failed: {ex.Message}"); }
     }
 
     private async void OnConnect(object? sender, RoutedEventArgs e)
