@@ -11,7 +11,10 @@ namespace CupriNet.Hosting;
 /// </summary>
 public interface IOnionTransport : IAsyncDisposable
 {
-    /// <summary>Bootstraps the transport (e.g. connect to the Tor network). Slow; report progress out of band.</summary>
+    /// <summary>Human-readable progress during the (slow) bootstrap/connect, e.g. "[45%] Fetching consensus".</summary>
+    event Action<string>? Status;
+
+    /// <summary>Bootstraps the transport (e.g. connect to the Tor network). Slow; watch <see cref="Status"/> for progress.</summary>
     Task StartAsync(CancellationToken cancellationToken = default);
 
     /// <summary>Dials a peer's <c>.onion</c> at <paramref name="virtualPort"/> and returns a connected vessel.</summary>

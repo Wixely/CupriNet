@@ -181,6 +181,7 @@ public sealed class ChatService : IAsyncDisposable
                 throw new InvalidOperationException(
                     "Tor mode isn't available in this build. Reference CupriNet.Tor and set OnionTransportFactory.");
             onion = await OnionTransportFactory(_store, _cts.Token).ConfigureAwait(false);
+            onion.Status += s => Status?.Invoke($"Tor {s}"); // surface bootstrap progress, e.g. "Tor [45%] Fetching consensus"
         }
 
         _node = await CupriNode.CreateAsync(new CupriNodeOptions

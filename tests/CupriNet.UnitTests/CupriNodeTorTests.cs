@@ -30,6 +30,7 @@ public class CupriNodeTorTests
 
     private sealed class FakeOnionTransport(Func<string, int, Task<IVessel>> connect) : IOnionTransport
     {
+        public event Action<string>? Status { add { } remove { } }
         public Task StartAsync(CancellationToken ct = default) => Task.CompletedTask;
         public Task<IVessel> ConnectAsync(string onion, int virtualPort, CancellationToken ct = default) => connect(onion, virtualPort);
         public Task<string> PublishAsync(int virtualPort, int localPort, CancellationToken ct = default)

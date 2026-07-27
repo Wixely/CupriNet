@@ -19,10 +19,20 @@ public sealed class CupriTorOnionTransport : IOnionTransport
     private readonly OnionServiceKey _serviceKey;
     private IAsyncDisposable? _serviceHost;
 
+    /// <inheritdoc/>
+    public event Action<string>? Status;
+
     private CupriTorOnionTransport(TorClient tor, OnionServiceKey serviceKey)
     {
         _tor = tor;
         _serviceKey = serviceKey;
+        // Forward Tor's bootstrap/connect progress as a friendly "[nn%] message" line.
+        _tor.StatusChanged += (_, s) =>
+        {
+            var pct = (int)Math.Round(Math.Clamp(s.Progress, 0, 1) * 100);
+            var text = string.IsNullOrWhiteSpace(s.Message) ? s.Phase.ToString() : s.Message;
+            Status?.Invoke($"[{pct}%] {text}");
+        };
     }
 
     /// <summary>
