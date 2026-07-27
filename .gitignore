@@ -8,8 +8,14 @@ artifacts/
 # Scratch / design notes, not part of the library
 chat.txt
 
+# Uncommitted working notes / design docs
+plans/
+
 # CupriChat local persistence (identity + trusted-peer book)
 samples/CupriChat/.data/
 
 # Security review report — deliverable, deliberately not checked in
 SECURITY-REVIEW.md
+
+# local-only NuGet restore config (points at local CupriTor/CupriCurve nupkgs)
+nuget.local.config

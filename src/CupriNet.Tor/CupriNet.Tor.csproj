@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Optional Tor transport: a concrete IOnionTransport backed by the CupriTor package.
+    Kept a SEPARATE project (and intentionally NOT in CupriNet.slnx) so the core stays
+    dependency-free of Tor and the main build/CI needs no package feed or token.
+
+    The binding is compile-verified against CupriTor 0.1.5. To build THIS project you need:
+      • the Wixely GitHub Packages feed (see /nuget.config) + a read:packages token, and
+      • CupriTor 0.1.5 published to that feed (it currently trails the released 0.1.4).
+    Anyone who wants Tor references this project; everyone else ignores it.
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>true</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\CupriNet.Hosting\CupriNet.Hosting.csproj" />
+    <ProjectReference Include="..\CupriNet.Vessel\CupriNet.Vessel.csproj" />
+    <ProjectReference Include="..\CupriNet.Abstractions\CupriNet.Abstractions.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="CupriTor" Version="0.1.5" />
+  </ItemGroup>
+
+</Project>
