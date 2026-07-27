@@ -1,4 +1,5 @@
 using System.Net;
+using CupriNet.Abstractions;
 using CupriNet.Core;
 using CupriNet.Traversal;
 using CupriNet.Vessel;
@@ -53,24 +54,70 @@ public class ReflexiveEndpointTests
     }
 
     [Fact]
-    public void Observer_ReportsPublicEndpoint_OnceQuorumAgrees()
+    public void Observer_AdvertisesMapped_OnQuorumOfDistinctPeersAcrossSubnets()
     {
         var observer = new ReflexiveObserver();
-        Assert.Null(observer.Best(minimumAgree: 2)); // nothing yet
+        Assert.Null(observer.MappedBeacon()); // nothing yet
 
-        observer.Add(new IPEndPoint(IPAddress.Parse("198.51.100.9"), 40000));
-        Assert.Null(observer.Best(minimumAgree: 2)); // one observation is not enough
+        // One peer's report is never enough.
+        observer.Observe(Sig(1), IPAddress.Parse("198.51.100.10"), new IPEndPoint(IPAddress.Parse("192.0.2.5"), 41000));
+        Assert.Null(observer.MappedBeacon());
 
-        observer.Add(new IPEndPoint(IPAddress.Parse("198.51.100.9"), 40000));
-        observer.Add(new IPEndPoint(IPAddress.Parse("10.0.0.5"), 40000)); // a minority/odd observation
-
-        var best = observer.Best(minimumAgree: 2);
-        Assert.NotNull(best);
-        Assert.Equal(IPAddress.Parse("198.51.100.9"), best.Address); // the agreed public address wins
-
-        var beacon = observer.MappedBeacon(minimumAgree: 2);
+        // A second, distinct peer in a different /24 agreeing on the same endpoint reaches quorum.
+        observer.Observe(Sig(2), IPAddress.Parse("203.0.113.20"), new IPEndPoint(IPAddress.Parse("192.0.2.5"), 41000));
+        var beacon = observer.MappedBeacon();
         Assert.NotNull(beacon);
-        Assert.Equal(EndpointKind.Mapped, beacon.Kind);
-        Assert.Equal("198.51.100.9", beacon.Host);
+        Assert.Equal(EndpointKind.Mapped, beacon!.Kind);
+        Assert.Equal("192.0.2.5", beacon.Host);
+        Assert.Equal(41000, beacon.Port);
+    }
+
+    [Fact]
+    public void Observer_IgnoresBallotStuffingBySingleIdentity()
+    {
+        var observer = new ReflexiveObserver();
+
+        // The same Sigil reports the same fake endpoint many times over (e.g. by reconnecting).
+        for (var i = 0; i < 10; i++)
+            observer.Observe(Sig(7), IPAddress.Parse("198.51.100.10"), new IPEndPoint(IPAddress.Parse("192.0.2.99"), 6000));
+
+        Assert.Equal(1, observer.Count);        // one identity = one live vote
+        Assert.Null(observer.MappedBeacon());   // never reaches a 2-identity quorum
+    }
+
+    [Fact]
+    public void Observer_RequiresSubnetDiversity()
+    {
+        var observer = new ReflexiveObserver();
+
+        // Two DISTINCT Sigils, but both reporting from the same /24 (a Sybil cluster in one netblock).
+        observer.Observe(Sig(1), IPAddress.Parse("198.51.100.10"), new IPEndPoint(IPAddress.Parse("192.0.2.5"), 41000));
+        observer.Observe(Sig(2), IPAddress.Parse("198.51.100.11"), new IPEndPoint(IPAddress.Parse("192.0.2.5"), 41000));
+
+        Assert.Null(observer.MappedBeacon());                                   // fails the 2-subnet quorum
+        Assert.NotNull(observer.MappedBeacon(minDistinctReporters: 2, minDistinctSubnets: 1)); // relaxed: subnet check off
+    }
+
+    [Fact]
+    public void Observer_RejectsUnroutableAndSelfReports()
+    {
+        var observer = new ReflexiveObserver();
+
+        // Private / loopback observed addresses are not advertisable public endpoints.
+        observer.Observe(Sig(1), IPAddress.Parse("198.51.100.10"), new IPEndPoint(IPAddress.Parse("10.0.0.5"), 41000));
+        observer.Observe(Sig(2), IPAddress.Parse("203.0.113.20"), new IPEndPoint(IPAddress.Parse("127.0.0.1"), 41000));
+        // A peer reporting its OWN address as ours.
+        observer.Observe(Sig(3), IPAddress.Parse("203.0.113.21"), new IPEndPoint(IPAddress.Parse("203.0.113.21"), 41000));
+
+        Assert.Equal(0, observer.Count);
+        Assert.Null(observer.MappedBeacon());
+    }
+
+    /// <summary>A distinct 32-byte Sigil seeded from a single byte, for tests.</summary>
+    private static Sigil Sig(byte seed)
+    {
+        var bytes = new byte[Sigil.Size];
+        Array.Fill(bytes, seed);
+        return new Sigil(bytes);
     }
 }

@@ -1,4 +1,6 @@
 using System.Net;
+using System.Net.Sockets;
+using CupriNet.Abstractions;
 using CupriNet.Codex;
 using CupriNet.Core;
 using CupriNet.Vessel;
@@ -78,52 +80,128 @@ public static class ReflexiveExchange
 }
 
 /// <summary>
-/// Aggregates reflexive observations from multiple peers. A node believes its public endpoint once enough
-/// independent peers agree on the same address, and offers it as a Mapped beacon.
+/// Aggregates reflexive observations to decide this node's externally-observed (NAT-mapped) address, hardened
+/// against a peer that lies about it. Three defenses layer here:
+/// <list type="number">
+/// <item>Each observation is attributed to the reporting peer's <see cref="Sigil"/> and kept one-per-identity
+/// (latest wins) — a peer cannot stuff the ballot by reconnecting.</item>
+/// <item>Only endpoints reported by peers we <em>chose to dial</em> should be fed in (the caller passes those);
+/// an inbound connector's cheap, free lie never counts.</item>
+/// <item>Belief requires a quorum of <em>distinct</em> reporter Sigils spanning <em>distinct</em> reporter /24s,
+/// so a Sybil must control identities across multiple netblocks, not just multiple keys.</item>
+/// </list>
+/// A report whose observed address is not publicly routable — or that merely echoes the reporter's own address —
+/// is rejected outright. A poisoned result only costs reachability (the dial fails and self-corrects); it can
+/// never cause impersonation, because every dial re-verifies the peer's Sigil over Noise.
 /// </summary>
 public sealed class ReflexiveObserver
 {
-    /// <summary>Maximum retained observations (bounds memory and skew from a chatty peer).</summary>
-    public const int MaxObservations = 128;
+    /// <summary>Maximum distinct reporters retained (bounds memory; oldest identity is evicted first).</summary>
+    public const int MaxReporters = 128;
 
-    private readonly List<IPEndPoint> _observations = [];
+    private readonly record struct Observation(IPEndPoint Observed, string ReporterSubnet);
 
-    public int Count => _observations.Count;
+    private readonly Dictionary<Sigil, Observation> _byReporter = new();
+    private readonly LinkedList<Sigil> _order = new(); // reporter insertion order, for bounded eviction
 
-    public void Add(IPEndPoint observed)
+    /// <summary>Number of distinct reporters currently held.</summary>
+    public int Count => _byReporter.Count;
+
+    /// <summary>
+    /// Records that <paramref name="reporter"/> (whose connection we observed arriving from
+    /// <paramref name="reporterSource"/>) reported our externally-observed endpoint as <paramref name="observed"/>.
+    /// One live report is kept per reporter; sanity-failing reports are ignored.
+    /// </summary>
+    public void Observe(Sigil reporter, IPAddress reporterSource, IPEndPoint observed)
     {
+        ArgumentNullException.ThrowIfNull(reporterSource);
         ArgumentNullException.ThrowIfNull(observed);
-        if (_observations.Count >= MaxObservations)
-            _observations.RemoveAt(0); // evict oldest
-        _observations.Add(observed);
+
+        var address = Canonical(observed.Address);
+        var source = Canonical(reporterSource);
+        if (!IsPubliclyRoutable(address))
+            return;                       // an unroutable "public" address is useless and a poisoning vector
+        if (address.Equals(source))
+            return;                       // a peer reporting its own address as ours — reject
+
+        var observation = new Observation(new IPEndPoint(address, observed.Port), SubnetKey(source));
+        if (!_byReporter.ContainsKey(reporter))
+        {
+            if (_byReporter.Count >= MaxReporters)
+            {
+                var oldest = _order.First!.Value;
+                _order.RemoveFirst();
+                _byReporter.Remove(oldest);
+            }
+            _order.AddLast(reporter);
+        }
+        _byReporter[reporter] = observation; // latest wins — still one vote for this identity
     }
 
-    /// <summary>The public endpoint the most peers agree on, or null until <paramref name="minimumAgree"/> concur.</summary>
-    public IPEndPoint? Best(int minimumAgree = 2)
+    /// <summary>
+    /// The externally-observed endpoint as a Mapped beacon, or null until a quorum agrees: at least
+    /// <paramref name="minDistinctReporters"/> distinct reporter Sigils, spanning at least
+    /// <paramref name="minDistinctSubnets"/> distinct reporter /24s, must report the same address:port.
+    /// </summary>
+    public Beacon? MappedBeacon(int minDistinctReporters = 2, int minDistinctSubnets = 2)
     {
-        if (_observations.Count == 0)
+        if (_byReporter.Count == 0)
             return null;
 
-        var byAddress = _observations
-            .GroupBy(e => e.Address)
-            .OrderByDescending(g => g.Count())
-            .First();
+        var qualifying = _byReporter.Values
+            .GroupBy(o => o.Observed)
+            .Select(g => new
+            {
+                Endpoint = g.Key,
+                Reporters = g.Count(), // already one observation per Sigil
+                Subnets = g.Select(o => o.ReporterSubnet).Distinct().Count(),
+            })
+            .Where(g => g.Reporters >= minDistinctReporters && g.Subnets >= minDistinctSubnets)
+            .OrderByDescending(g => g.Reporters)
+            .ThenByDescending(g => g.Subnets)
+            .FirstOrDefault();
 
-        if (byAddress.Count() < minimumAgree)
-            return null;
-
-        var port = byAddress
-            .GroupBy(e => e.Port)
-            .OrderByDescending(g => g.Count())
-            .First().Key;
-
-        return new IPEndPoint(byAddress.Key, port);
+        return qualifying is null
+            ? null
+            : new Beacon(EndpointKind.Mapped, qualifying.Endpoint.Address.ToString(), qualifying.Endpoint.Port);
     }
 
-    /// <summary>The agreed public endpoint as a Mapped beacon, or null if not yet confident.</summary>
-    public Beacon? MappedBeacon(int minimumAgree = 2)
+    /// <summary>Normalises an IPv4-mapped-IPv6 address to IPv4 so v4 and v6 forms of one address compare equal.</summary>
+    private static IPAddress Canonical(IPAddress address)
+        => address.IsIPv4MappedToIPv6 ? address.MapToIPv4() : address;
+
+    /// <summary>A grouping key for a reporter's netblock: the /24 for IPv4, the /48 for IPv6.</summary>
+    private static string SubnetKey(IPAddress address)
     {
-        var best = Best(minimumAgree);
-        return best is null ? null : new Beacon(EndpointKind.Mapped, best.Address.ToString(), best.Port);
+        var bytes = address.GetAddressBytes();
+        var take = bytes.Length == 4 ? 3 : 6; // IPv4 /24, IPv6 /48
+        return Convert.ToHexString(bytes, 0, take);
+    }
+
+    /// <summary>True only for addresses that could plausibly be a real, dialable public endpoint.</summary>
+    private static bool IsPubliclyRoutable(IPAddress address)
+    {
+        if (IPAddress.IsLoopback(address))
+            return false;
+
+        if (address.AddressFamily == AddressFamily.InterNetwork)
+        {
+            var b = address.GetAddressBytes();
+            if (b[0] == 0 || b[0] == 10 || b[0] >= 224) return false;          // 0/8, 10/8, multicast/reserved 224+
+            if (b[0] == 127) return false;                                     // loopback
+            if (b[0] == 169 && b[1] == 254) return false;                      // link-local 169.254/16
+            if (b[0] == 172 && b[1] >= 16 && b[1] <= 31) return false;         // 172.16/12
+            if (b[0] == 192 && b[1] == 168) return false;                      // 192.168/16
+            if (b[0] == 100 && b[1] >= 64 && b[1] <= 127) return false;        // CGNAT 100.64/10
+            if (b[0] == 255) return false;                                     // broadcast
+            return true;
+        }
+
+        // IPv6: reject unspecified, link-local (fe80::/10), unique-local (fc00::/7), and multicast (ff00::/8).
+        if (address.IsIPv6LinkLocal || address.IsIPv6Multicast || address.Equals(IPAddress.IPv6Any))
+            return false;
+        var v6 = address.GetAddressBytes();
+        if ((v6[0] & 0xFE) == 0xFC) return false;                             // fc00::/7 unique-local
+        return true;
     }
 }

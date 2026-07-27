@@ -233,7 +233,7 @@ public sealed partial class CupriNode : IAsyncDisposable
             var conjunction = await NoiseConjunction.InitiateAsync(
                 vessel, Identity, Network, Suite, expectedPeer: expectedPeer, cancellationToken: timed.Token).ConfigureAwait(false);
             await DeclareSessionKindAsync(conjunction.Vessel, OverlayControl.KindChannel, timed.Token).ConfigureAwait(false);
-            await LearnReflexiveAsync(conjunction.Vessel, initiator: true, cancellationToken).ConfigureAwait(false);
+            await LearnReflexiveAsync(conjunction.Vessel, conjunction.PeerSigil, initiator: true, cancellationToken).ConfigureAwait(false);
             // We reached this peer through an invitation/known-peer relationship, so anchor it.
             Constellation.MarkAnchored(conjunction.PeerSigil);
             await BootstrapOverlayAsync(conjunction.Vessel, initiator: true, now, cancellationToken).ConfigureAwait(false);
@@ -264,7 +264,7 @@ public sealed partial class CupriNode : IAsyncDisposable
             var kind = await ReadSessionKindAsync(conjunction.Vessel, timed.Token).ConfigureAwait(false);
             if (kind != OverlayControl.KindChannel)
                 throw new CupriNodeException("Expected a channel session over this vessel.");
-            await LearnReflexiveAsync(conjunction.Vessel, initiator: false, cancellationToken).ConfigureAwait(false);
+            await LearnReflexiveAsync(conjunction.Vessel, conjunction.PeerSigil, initiator: false, cancellationToken).ConfigureAwait(false);
             await BootstrapOverlayAsync(conjunction.Vessel, initiator: false, now, cancellationToken).ConfigureAwait(false);
             return new PairedPeer(conjunction.Vessel, conjunction.PeerSigil, conjunction.PeerSealPublicKey, isInitiator: false);
         }
@@ -414,7 +414,7 @@ public sealed partial class CupriNode : IAsyncDisposable
                 continue;
             }
 
-            await LearnReflexiveAsync(conjunction.Vessel, initiator: false, cancellationToken).ConfigureAwait(false);
+            await LearnReflexiveAsync(conjunction.Vessel, conjunction.PeerSigil, initiator: false, cancellationToken).ConfigureAwait(false);
             await BootstrapOverlayAsync(conjunction.Vessel, initiator: false, DateTimeOffset.UtcNow, cancellationToken).ConfigureAwait(false);
             return new PairedPeer(conjunction.Vessel, conjunction.PeerSigil, conjunction.PeerSealPublicKey, isInitiator: false);
         }
@@ -572,7 +572,7 @@ public sealed partial class CupriNode : IAsyncDisposable
         return cts;
     }
 
-    private async Task LearnReflexiveAsync(IVessel vessel, bool initiator, CancellationToken cancellationToken)
+    private async Task LearnReflexiveAsync(IVessel vessel, Sigil peerSigil, bool initiator, CancellationToken cancellationToken)
     {
         if (!_options.EnableReflexiveDiscovery || _options.Mode == ReachabilityMode.TorOnly)
             return; // Tor-only: no clearnet reflexive address to learn or advertise
@@ -580,8 +580,12 @@ public sealed partial class CupriNode : IAsyncDisposable
         {
             using var timed = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             timed.CancelAfter(TimeSpan.FromSeconds(5));
+            // Always run the exchange so the peer can learn ITS reflexive address from us. But only trust the
+            // report about US when WE initiated — i.e. from a peer we chose to dial. An inbound connector's
+            // report is free to forge, so it is deliberately not counted (anti-Sybil, Layer 2).
             var observed = await ReflexiveExchange.ExchangeAsync(vessel, initiator, cancellationToken: timed.Token).ConfigureAwait(false);
-            ReflexiveObserver.Add(observed);
+            if (initiator && vessel.RemoteEndPoint is System.Net.IPEndPoint reporter)
+                ReflexiveObserver.Observe(peerSigil, reporter.Address, observed);
         }
         catch
         {
