@@ -190,6 +190,18 @@ jobs:
           -p:DebugType=none
           -o out/lodestar
 
+      - name: Bundle deploy helpers (per-OS)
+        shell: bash
+        run: |
+          cp node/CupriNet.Lodestar/README.md out/lodestar/ 2>/dev/null || true
+          if [ "${{ matrix.rid }}" = "win-x64" ]; then
+            cp node/CupriNet.Lodestar/deploy/install-service.ps1   out/lodestar/
+            cp node/CupriNet.Lodestar/deploy/uninstall-service.ps1 out/lodestar/
+          else
+            cp node/CupriNet.Lodestar/deploy/cuprinet-lodestar.service out/lodestar/
+          fi
+          ls -la out/lodestar
+
       - name: Upload Lodestar app
         uses: actions/upload-artifact@v4
         with:

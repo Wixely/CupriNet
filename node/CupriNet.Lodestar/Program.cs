@@ -9,7 +9,13 @@ using Microsoft.Extensions.Logging;
 //   • a Windows Service (UseWindowsService),
 //   • a Linux systemd daemon (UseSystemd),
 //   • a Docker container (runs in the foreground; logs to stdout).
-var builder = Host.CreateApplicationBuilder(args);
+var builder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings
+{
+    Args = args,
+    // A Windows service starts with its working directory in System32, so pin the content root to the exe's folder
+    // — where appsettings.json lives — so the service, a console run, and systemd all read the same config file.
+    ContentRootPath = AppContext.BaseDirectory,
+});
 
 // Environment overrides: CUPRINET_LODESTAR_Concordium, CUPRINET_LODESTAR_ListenPort, CUPRINET_LODESTAR_SeedLinks__0, …
 // The prefix is stripped, so these land at the configuration root (bound below alongside the appsettings section).

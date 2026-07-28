@@ -68,14 +68,18 @@ It logs `standing up a NEW network (genesis)` and prints the link others should 
 
 ### Windows Service
 
+The Windows build (`lodestar-win-x64`) ships `install-service.ps1` / `uninstall-service.ps1`. From the extracted
+folder, in an **elevated** PowerShell:
+
 ```powershell
-# publish a self-contained exe first (see below), then:
-sc.exe create "CupriNet Lodestar" binPath= "C:\cuprinet\cuprinet-lodestar.exe" start= auto
-# configure via machine environment variables (CUPRINET_LODESTAR_*) or an appsettings.json beside the exe
-sc.exe start  "CupriNet Lodestar"
+.\install-service.ps1 -Concordium example.chat     # registers + starts the "CupriNetLodestar" service
+# ...set any other CUPRINET_LODESTAR_* machine env vars, e.g. PublicHost, then restart the service
+.\uninstall-service.ps1                            # stop + remove (keeps the data directory)
 ```
 
-The app auto‑detects the service host (`AddWindowsService`), so lifetime and logging integrate with Windows.
+The app auto‑detects the service host (`AddWindowsService`), so lifetime and logging integrate with Windows
+(logs go to the Application event log). Configure via machine `CUPRINET_LODESTAR_*` env vars or the
+`appsettings.json` beside the exe; the node's link is written to `C:\ProgramData\CupriNet.Lodestar\lodestar.link`.
 
 ### systemd (Ubuntu)
 
