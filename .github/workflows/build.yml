@@ -34,8 +34,10 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
+      - name: Use nuget.org only (disable the private CupriTor feed)
+        run: dotnet nuget disable source GitHub-Wixely-Packages --configfile nuget.config
       - name: Test (core library + full suite)
-        run: dotnet test tests/CupriNet.UnitTests/CupriNet.UnitTests.csproj -c Release --source https://api.nuget.org/v3/index.json
+        run: dotnet test tests/CupriNet.UnitTests/CupriNet.UnitTests.csproj -c Release
 
   # ---------------------------------------------------------------------------
   # NuGet packages for the core library (all src/ projects, one shared version)
@@ -49,6 +51,8 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
+      - name: Use nuget.org only (disable the private CupriTor feed)
+        run: dotnet nuget disable source GitHub-Wixely-Packages --configfile nuget.config
       - name: Determine version
         id: ver
         shell: bash
@@ -63,10 +67,10 @@ jobs:
         run: |
           for proj in src/*/*.csproj; do
             case "$proj" in */CupriNet.Tor.csproj) echo "skipping $proj (needs CupriTor feed)"; continue;; esac
-            dotnet pack "$proj" -c Release --source https://api.nuget.org/v3/index.json -p:Version=${{ steps.ver.outputs.version }} -o artifacts/nuget
+            dotnet pack "$proj" -c Release -p:Version=${{ steps.ver.outputs.version }} -o artifacts/nuget
           done
       - name: Publish managed library binaries
-        run: dotnet publish src/CupriNet.Hosting/CupriNet.Hosting.csproj -c Release --source https://api.nuget.org/v3/index.json -p:Version=${{ steps.ver.outputs.version }} -o artifacts/lib
+        run: dotnet publish src/CupriNet.Hosting/CupriNet.Hosting.csproj -c Release -p:Version=${{ steps.ver.outputs.version }} -o artifacts/lib
       - uses: actions/upload-artifact@v4
         with:
           name: nuget-packages
@@ -171,11 +175,14 @@ jobs:
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
 
+      - name: Use nuget.org only (disable the private CupriTor feed)
+        shell: bash
+        run: dotnet nuget disable source GitHub-Wixely-Packages --configfile nuget.config
+
       - name: Publish Lodestar (self-contained single file)
         shell: bash
         run: >
           dotnet publish node/CupriNet.Lodestar/CupriNet.Lodestar.csproj -c Release -r ${{ matrix.rid }}
-          --source https://api.nuget.org/v3/index.json
           --self-contained true
           -p:PublishSingleFile=true
           -p:IncludeNativeLibrariesForSelfExtract=true
