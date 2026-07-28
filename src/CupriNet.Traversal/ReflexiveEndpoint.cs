@@ -89,6 +89,9 @@ public static class ReflexiveExchange
 /// an inbound connector's cheap, free lie never counts.</item>
 /// <item>Belief requires a quorum of <em>distinct</em> reporter Sigils spanning <em>distinct</em> reporter /24s,
 /// so a Sybil must control identities across multiple netblocks, not just multiple keys.</item>
+/// <item>Each vote is <em>weighted by the reporter's standing</em> (supplied by the caller): a brand-new peer
+/// counts for little, an established one for more, and a tainted/quarantined one (weight ≤ 0) not at all — so
+/// fresh Sybil identities carry less influence than peers the node has a good history with.</item>
 /// </list>
 /// A report whose observed address is not publicly routable — or that merely echoes the reporter's own address —
 /// is rejected outright. A poisoned result only costs reachability (the dial fails and self-corrects); it can
@@ -99,7 +102,10 @@ public sealed class ReflexiveObserver
     /// <summary>Maximum distinct reporters retained (bounds memory; oldest identity is evicted first).</summary>
     public const int MaxReporters = 128;
 
-    private readonly record struct Observation(IPEndPoint Observed, string ReporterSubnet);
+    /// <summary>Ceiling on a single reporter's standing weight, so no one peer can dominate the quorum weight.</summary>
+    public const int MaxReporterWeight = 8;
+
+    private readonly record struct Observation(IPEndPoint Observed, string ReporterSubnet, int Weight);
 
     private readonly Dictionary<Sigil, Observation> _byReporter = new();
     private readonly LinkedList<Sigil> _order = new(); // reporter insertion order, for bounded eviction
@@ -109,13 +115,17 @@ public sealed class ReflexiveObserver
 
     /// <summary>
     /// Records that <paramref name="reporter"/> (whose connection we observed arriving from
-    /// <paramref name="reporterSource"/>) reported our externally-observed endpoint as <paramref name="observed"/>.
-    /// One live report is kept per reporter; sanity-failing reports are ignored.
+    /// <paramref name="reporterSource"/>) reported our externally-observed endpoint as <paramref name="observed"/>,
+    /// carrying <paramref name="weight"/> — the reporter's standing-derived trust. One live report is kept per
+    /// reporter; sanity-failing reports, and reports with non-positive weight (unknown-bad / tainted), are ignored.
     /// </summary>
-    public void Observe(Sigil reporter, IPAddress reporterSource, IPEndPoint observed)
+    public void Observe(Sigil reporter, IPAddress reporterSource, IPEndPoint observed, int weight = 1)
     {
         ArgumentNullException.ThrowIfNull(reporterSource);
         ArgumentNullException.ThrowIfNull(observed);
+
+        if (weight <= 0)
+            return;                       // tainted / quarantined reporter — no vote at all
 
         var address = Canonical(observed.Address);
         var source = Canonical(reporterSource);
@@ -124,7 +134,7 @@ public sealed class ReflexiveObserver
         if (address.Equals(source))
             return;                       // a peer reporting its own address as ours — reject
 
-        var observation = new Observation(new IPEndPoint(address, observed.Port), SubnetKey(source));
+        var observation = new Observation(new IPEndPoint(address, observed.Port), SubnetKey(source), Math.Min(weight, MaxReporterWeight));
         if (!_byReporter.ContainsKey(reporter))
         {
             if (_byReporter.Count >= MaxReporters)
@@ -139,11 +149,12 @@ public sealed class ReflexiveObserver
     }
 
     /// <summary>
-    /// The externally-observed endpoint as a Mapped beacon, or null until a quorum agrees: at least
-    /// <paramref name="minDistinctReporters"/> distinct reporter Sigils, spanning at least
-    /// <paramref name="minDistinctSubnets"/> distinct reporter /24s, must report the same address:port.
+    /// The externally-observed endpoint as a Mapped beacon, or null until a quorum agrees on the same address:port:
+    /// at least <paramref name="minDistinctReporters"/> distinct reporter Sigils, spanning at least
+    /// <paramref name="minDistinctSubnets"/> distinct reporter /24s, whose <em>combined standing weight</em> is at
+    /// least <paramref name="minWeight"/>.
     /// </summary>
-    public Beacon? MappedBeacon(int minDistinctReporters = 2, int minDistinctSubnets = 2)
+    public Beacon? MappedBeacon(int minDistinctReporters = 2, int minDistinctSubnets = 2, int minWeight = 2)
     {
         if (_byReporter.Count == 0)
             return null;
@@ -155,10 +166,11 @@ public sealed class ReflexiveObserver
                 Endpoint = g.Key,
                 Reporters = g.Count(), // already one observation per Sigil
                 Subnets = g.Select(o => o.ReporterSubnet).Distinct().Count(),
+                Weight = g.Sum(o => o.Weight),
             })
-            .Where(g => g.Reporters >= minDistinctReporters && g.Subnets >= minDistinctSubnets)
-            .OrderByDescending(g => g.Reporters)
-            .ThenByDescending(g => g.Subnets)
+            .Where(g => g.Reporters >= minDistinctReporters && g.Subnets >= minDistinctSubnets && g.Weight >= minWeight)
+            .OrderByDescending(g => g.Weight)
+            .ThenByDescending(g => g.Reporters)
             .FirstOrDefault();
 
         return qualifying is null

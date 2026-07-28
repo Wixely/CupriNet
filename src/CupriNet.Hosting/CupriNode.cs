@@ -585,12 +585,28 @@ public sealed partial class CupriNode : IAsyncDisposable
             // report is free to forge, so it is deliberately not counted (anti-Sybil, Layer 2).
             var observed = await ReflexiveExchange.ExchangeAsync(vessel, initiator, cancellationToken: timed.Token).ConfigureAwait(false);
             if (initiator && vessel.RemoteEndPoint is System.Net.IPEndPoint reporter)
-                ReflexiveObserver.Observe(peerSigil, reporter.Address, observed);
+                ReflexiveObserver.Observe(peerSigil, reporter.Address, observed, ReflexiveWeight(peerSigil));
         }
         catch
         {
             // best-effort: pairing succeeds even when reflexive discovery is unavailable
         }
+    }
+
+    /// <summary>
+    /// How much a reporter's reflexive vote counts (Layer 4 anti-Sybil): a peer we dialled but don't yet track
+    /// counts minimally; one that has earned <see cref="ConstellationEntry.Standing"/> counts more; a quarantined
+    /// (Excommunicate) or heavily <see cref="ConstellationEntry.Taint"/>ed one counts for nothing. So a burst of
+    /// fresh Sybil identities carries far less weight than peers the node has a good history with.
+    /// </summary>
+    private int ReflexiveWeight(Sigil reporter)
+    {
+        var entry = Constellation.Get(reporter);
+        if (entry is null)
+            return 1; // dialled but untracked — minimal, non-zero trust
+        if (entry.Bucket == PeerBucket.Excommunicate)
+            return 0; // quarantined for misbehaviour — no vote
+        return Math.Clamp(1 + entry.Standing - entry.Taint, 0, ReflexiveObserver.MaxReporterWeight);
     }
 
     public async ValueTask DisposeAsync()

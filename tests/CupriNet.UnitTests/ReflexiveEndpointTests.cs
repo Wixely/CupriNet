@@ -113,6 +113,30 @@ public class ReflexiveEndpointTests
         Assert.Null(observer.MappedBeacon());
     }
 
+    [Fact]
+    public void Observer_WeighsStandingAndDropsTaintedVotes()
+    {
+        var observer = new ReflexiveObserver();
+        var observed = new IPEndPoint(IPAddress.Parse("192.0.2.5"), 41000);
+
+        // Two fresh peers (weight 1 each) across two subnets agree — enough at the default minWeight (2)...
+        observer.Observe(Sig(1), IPAddress.Parse("198.51.100.10"), observed, weight: 1);
+        observer.Observe(Sig(2), IPAddress.Parse("203.0.113.20"), observed, weight: 1);
+        Assert.NotNull(observer.MappedBeacon());
+
+        // ...but demanding more combined standing, two fresh votes no longer suffice.
+        Assert.Null(observer.MappedBeacon(minWeight: 3));
+
+        // A higher-standing (established) peer tips the combined weight over the higher bar.
+        observer.Observe(Sig(3), IPAddress.Parse("192.0.2.30"), observed, weight: 4);
+        Assert.NotNull(observer.MappedBeacon(minWeight: 3)); // 1 + 1 + 4 = 6
+
+        // A tainted / quarantined reporter (weight <= 0) is dropped entirely — it cannot help reach quorum.
+        var before = observer.Count;
+        observer.Observe(Sig(9), IPAddress.Parse("198.51.100.99"), observed, weight: 0);
+        Assert.Equal(before, observer.Count);
+    }
+
     /// <summary>A distinct 32-byte Sigil seeded from a single byte, for tests.</summary>
     private static Sigil Sig(byte seed)
     {
