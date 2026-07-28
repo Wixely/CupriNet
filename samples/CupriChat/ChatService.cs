@@ -202,6 +202,12 @@ public sealed class ChatService : IAsyncDisposable
             EnablePortMapping = !tor,
             Mode = tor ? ReachabilityMode.TorOnly : ReachabilityMode.Standard,
             OnionTransport = onion,
+            // CupriChat opts into cover traffic over Tor: run the connection-fuzz (hot fuzz) and L2-shaped decoy
+            // sessions (effigies) over the onion overlay in Tor mode. This is a deliberate app choice on top of the
+            // library default (which keeps cover traffic off on Tor to save relay bandwidth); it routes over onion
+            // and never touches clearnet.
+            AllowCoverTrafficOverTor = tor,
+            EnableEffigies = tor,
         }, _cts.Token);
         if (!tor)
             _node.LanPeerDiscovered += OnLanPeerDiscovered;

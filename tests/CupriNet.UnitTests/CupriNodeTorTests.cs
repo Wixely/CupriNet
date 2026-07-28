@@ -244,6 +244,40 @@ public class CupriNodeTorTests
     }
 
     [Fact]
+    public async Task TorOnly_CoverTraffic_DialsOverOnion_NeverClearnet()
+    {
+        using var cts = new CancellationTokenSource(Timeout);
+        var ct = cts.Token;
+        var now = DateTimeOffset.UtcNow;
+
+        string? dialed = null;
+        var fake = new FakeOnionTransport((address, _) =>
+        {
+            dialed = address;
+            throw new InvalidOperationException("recorded");
+        });
+        await using var tor = await CupriNode.CreateAsync(new CupriNodeOptions
+        {
+            Concordium = "tor.test", EnableOverlayGossip = false,
+            Mode = ReachabilityMode.TorOnly, SecretStore = new DurableStore(), OnionTransport = fake,
+            EnableEffigies = false, EffigyCount = 1,   // drive EffigyOnceAsync by hand
+            AllowCoverTrafficOverTor = true,           // app opts into cover traffic over Tor
+        }, ct);
+        await using var subject = await CupriNode.CreateAsync(new CupriNodeOptions { Concordium = "tor.test", EnableOverlayGossip = false }, ct);
+
+        // A dual-stack partner: a clearnet Host beacon AND an onion beacon. Cover traffic must use ONLY the onion.
+        var host = new Beacon(EndpointKind.Host, "203.0.113.5", 40000);
+        var onionAddress = new string('e', 56) + ".onion";
+        var onion = new Beacon(EndpointKind.Onion, onionAddress, CupriNode.OnionVirtualPort);
+        var dual = PeerRecordSigner.Create(subject.Identity, [host, onion], 1, PeerCapabilities.ChannelProvider, tor.Suite, now);
+        Assert.True(tor.AdmitPeer(dual, now));
+
+        try { await tor.EffigyOnceAsync(ct); } catch { /* the fake aborts the dial after recording the address */ }
+
+        Assert.Equal(onionAddress, dialed); // an effigy dialled the .onion over the onion transport, never the host
+    }
+
+    [Fact]
     public async Task SecretStoreBlobStore_RoundTrips()
     {
         var kv = new SecretStoreBlobStore(new DurableStore());

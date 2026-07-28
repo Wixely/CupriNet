@@ -284,6 +284,15 @@ public sealed record CupriNodeOptions
     /// its IP by touching clearnet. TorOnly requires an <see cref="OnionTransport"/>.
     /// </summary>
     public ReachabilityMode Mode { get; init; } = ReachabilityMode.Standard;
+
+    /// <summary>
+    /// Run cover traffic (hot fuzz / effigies / pageants) in <see cref="ReachabilityMode.TorOnly"/> mode. Off by
+    /// default: over Tor the per-connection tell that cover traffic hides is already obscured by the onion
+    /// transport, and the extra traffic costs scarce relay bandwidth — so the library keeps it off. An application
+    /// that wants it anyway can opt in; when enabled, the cover traffic routes over the onion overlay like all
+    /// other Tor-only traffic (it never touches clearnet). No effect outside TorOnly mode.
+    /// </summary>
+    public bool AllowCoverTrafficOverTor { get; init; }
 }
 
 /// <summary>Whether a node uses clearnet transports, or is strictly Tor-only for anonymity. See <see cref="CupriNodeOptions.Mode"/>.</summary>

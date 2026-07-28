@@ -37,10 +37,11 @@ public sealed partial class CupriNode
 
     internal void StartPageants()
     {
-        // Not run in Tor-only mode: fake-group cover traffic over Tor is high-bandwidth for little gain (see StartHotFuzz).
+        // Off in Tor-only mode unless the app opts in (AllowCoverTrafficOverTor): fake-group cover over Tor is
+        // high-bandwidth for little gain (see StartHotFuzz).
         if (_options.Power == PowerProfile.Unmetered
             && (_options.EnablePageants || _options.MaxPageantsAsMember > 0)
-            && _options.Mode != ReachabilityMode.TorOnly)
+            && (_options.Mode != ReachabilityMode.TorOnly || _options.AllowCoverTrafficOverTor))
             _ = PageantLoopAsync(_lifetime.Token);
     }
 
@@ -239,10 +240,8 @@ public sealed partial class CupriNode
 
     private async Task<IVessel> DialPageantEdgeAsync(PeerRecord peer, byte[] pageantId, CancellationToken cancellationToken)
     {
-        var beacon = peer.Endpoints.FirstOrDefault(b => b.Kind is EndpointKind.Host or EndpointKind.Mapped or EndpointKind.Manual)
-                     ?? throw new CupriNodeException("Peer has no dialable beacon.");
-
-        var vessel = await TcpVessel.ConnectAsync(beacon.Host, beacon.Port, cancellationToken: cancellationToken).ConfigureAwait(false);
+        // Route over the lane matching our mode (onion in Tor-only), so pageant edges work — and stay off clearnet — over Tor.
+        var vessel = await DialControlVesselAsync(peer, cancellationToken).ConfigureAwait(false);
         try
         {
             using var timed = LinkedHandshakeToken(cancellationToken);

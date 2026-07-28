@@ -38,10 +38,11 @@ public sealed partial class CupriNode
     /// </summary>
     internal void StartEffigies()
     {
-        // Not run in Tor-only mode: L2-shaped cover traffic over Tor is high-bandwidth for little gain (see StartHotFuzz).
+        // Off in Tor-only mode unless the app opts in (AllowCoverTrafficOverTor): L2-shaped cover over Tor is
+        // high-bandwidth for little gain (see StartHotFuzz).
         if (_options is { EnableEffigies: true, Power: PowerProfile.Unmetered }
             && (_options.EffigyCount > 0 || _options.EffigyGroupSize > 0)
-            && _options.Mode != ReachabilityMode.TorOnly)
+            && (_options.Mode != ReachabilityMode.TorOnly || _options.AllowCoverTrafficOverTor))
             _ = EffigyLoopAsync(_lifetime.Token);
     }
 
@@ -109,10 +110,8 @@ public sealed partial class CupriNode
     /// <summary>Dials a partner and opens an Effigy session — identical on the wire to dialing a channel peer.</summary>
     private async Task<IVessel> DialEffigyAsync(PeerRecord peer, CancellationToken cancellationToken)
     {
-        var beacon = peer.Endpoints.FirstOrDefault(b => b.Kind is EndpointKind.Host or EndpointKind.Mapped or EndpointKind.Manual)
-                     ?? throw new CupriNodeException("Peer has no dialable beacon.");
-
-        var vessel = await TcpVessel.ConnectAsync(beacon.Host, beacon.Port, cancellationToken: cancellationToken).ConfigureAwait(false);
+        // Route over the lane matching our mode (onion in Tor-only), so effigies work — and stay off clearnet — over Tor.
+        var vessel = await DialControlVesselAsync(peer, cancellationToken).ConfigureAwait(false);
         try
         {
             using var timed = LinkedHandshakeToken(cancellationToken);
