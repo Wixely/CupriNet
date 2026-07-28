@@ -74,4 +74,39 @@ public class NatPmpTests
         await cts.CancelAsync();
         try { await pump; } catch { }
     }
+
+    [Fact]
+    public async Task PortMapper_RejectsNonPublicExternalAddress()
+    {
+        using var cts = new CancellationTokenSource(Timeout);
+        var ct = cts.Token;
+
+        // A malicious/misconfigured gateway claims a private external address — it must not become a Mapped beacon.
+        using var gateway = new UdpClient(new IPEndPoint(IPAddress.Loopback, 0));
+        var gatewayEp = (IPEndPoint)gateway.Client.LocalEndPoint!;
+        var pump = Task.Run(async () =>
+        {
+            while (!ct.IsCancellationRequested)
+            {
+                UdpReceiveResult req;
+                try { req = await gateway.ReceiveAsync(ct); } catch { break; }
+                var buf = req.Buffer;
+                byte[] resp;
+                if (buf[1] == 0)
+                    resp = NatPmp.ExternalAddressResponse(IPAddress.Parse("192.168.1.50")); // private — bogus
+                else
+                {
+                    var internalPort = (buf[4] << 8) | buf[5];
+                    resp = NatPmp.MapResponse(udp: false, internalPort, internalPort + 5000, TimeSpan.FromMinutes(30));
+                }
+                await gateway.SendAsync(resp, req.RemoteEndPoint, ct);
+            }
+        }, ct);
+
+        var beacon = await PortMapper.TryMapTcpAsync(43820, TimeSpan.FromMinutes(30), Timeout, ct, gatewayEp);
+        Assert.Null(beacon); // a private "external" address is refused, not advertised
+
+        await cts.CancelAsync();
+        try { await pump; } catch { }
+    }
 }

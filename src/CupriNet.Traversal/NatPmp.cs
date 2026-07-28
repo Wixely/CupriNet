@@ -143,6 +143,12 @@ public static class PortMapper
         if (external is null)
             return null;
 
+        // NAT-PMP is unauthenticated: a malicious or misconfigured gateway (or an on-LAN spoofed reply) can claim
+        // any external address. A genuine mapping's external address is public — reject anything else rather than
+        // advertise a bogus Mapped beacon that would redirect dialers or leak a private/CGNAT address.
+        if (!NetworkReachability.IsPubliclyRoutable(external))
+            return null;
+
         return new Beacon(EndpointKind.Mapped, external.ToString(), mapping.ExternalPort);
     }
 }

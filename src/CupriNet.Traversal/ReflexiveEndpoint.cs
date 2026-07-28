@@ -1,5 +1,4 @@
 using System.Net;
-using System.Net.Sockets;
 using CupriNet.Abstractions;
 using CupriNet.Codex;
 using CupriNet.Core;
@@ -129,7 +128,7 @@ public sealed class ReflexiveObserver
 
         var address = Canonical(observed.Address);
         var source = Canonical(reporterSource);
-        if (!IsPubliclyRoutable(address))
+        if (!NetworkReachability.IsPubliclyRoutable(address))
             return;                       // an unroutable "public" address is useless and a poisoning vector
         if (address.Equals(source))
             return;                       // a peer reporting its own address as ours — reject
@@ -190,30 +189,4 @@ public sealed class ReflexiveObserver
         return Convert.ToHexString(bytes, 0, take);
     }
 
-    /// <summary>True only for addresses that could plausibly be a real, dialable public endpoint.</summary>
-    private static bool IsPubliclyRoutable(IPAddress address)
-    {
-        if (IPAddress.IsLoopback(address))
-            return false;
-
-        if (address.AddressFamily == AddressFamily.InterNetwork)
-        {
-            var b = address.GetAddressBytes();
-            if (b[0] == 0 || b[0] == 10 || b[0] >= 224) return false;          // 0/8, 10/8, multicast/reserved 224+
-            if (b[0] == 127) return false;                                     // loopback
-            if (b[0] == 169 && b[1] == 254) return false;                      // link-local 169.254/16
-            if (b[0] == 172 && b[1] >= 16 && b[1] <= 31) return false;         // 172.16/12
-            if (b[0] == 192 && b[1] == 168) return false;                      // 192.168/16
-            if (b[0] == 100 && b[1] >= 64 && b[1] <= 127) return false;        // CGNAT 100.64/10
-            if (b[0] == 255) return false;                                     // broadcast
-            return true;
-        }
-
-        // IPv6: reject unspecified, link-local (fe80::/10), unique-local (fc00::/7), and multicast (ff00::/8).
-        if (address.IsIPv6LinkLocal || address.IsIPv6Multicast || address.Equals(IPAddress.IPv6Any))
-            return false;
-        var v6 = address.GetAddressBytes();
-        if ((v6[0] & 0xFE) == 0xFC) return false;                             // fc00::/7 unique-local
-        return true;
-    }
 }
