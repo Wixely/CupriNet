@@ -165,8 +165,15 @@ public sealed record CupriNodeOptions
     /// <summary>
     /// Max Pageants this node will join at others' invitation (0 refuses all — it won't act as anyone's decoy
     /// member). Bounds the bandwidth a node can be conscripted into. Only honored on an unmetered profile.
+    /// <para>
+    /// <em>Off (0) by default</em>: accepting an invite makes this node dial the invite's other roster members,
+    /// whose addresses the inviter supplies — a crafted invite could otherwise direct connections at
+    /// attacker-chosen hosts. Like <see cref="EnablePageants"/> (initiating), participating in others' Pageants
+    /// is opt-in. When enabled, inbound Pageant edges are held under the per-peer control budget and dead members
+    /// are re-negotiated out, bounding the exposure.
+    /// </para>
     /// </summary>
-    public int MaxPageantsAsMember { get; init; } = 4;
+    public int MaxPageantsAsMember { get; init; }
 
     /// <summary>Max inbound overlay-control connections served concurrently across all peers — a Ward against connection floods.</summary>
     public int MaxConcurrentControlConnections { get; init; } = 256;

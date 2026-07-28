@@ -388,66 +388,52 @@ public sealed partial class CupriNode : IAsyncDisposable
         {
             var served = conjunction.Vessel;
             var peerSigil = conjunction.PeerSigil;
-            var budget = _peerBudgets.GetOrAdd(peerSigil, _ =>
-                new PeerControlBudget(_options.MaxControlRequestsPerWindow, _options.ControlWindowSeconds * 1000L));
-
-            // Ward: global cap, then per-peer connection cap — one peer cannot flood or multiply its budget.
-            if (Interlocked.Increment(ref _activeControlConnections) > _options.MaxConcurrentControlConnections
-                || !budget.TryOpenConnection(_options.MaxControlConnectionsPerPeer))
+            if (!TryReserveControlSlot(peerSigil, out var budget))
             {
-                Interlocked.Decrement(ref _activeControlConnections);
                 await served.DisposeAsync().ConfigureAwait(false);
                 return;
             }
-
             _ = Task.Run(async () =>
             {
                 try { await ServeControlAsync(served, budget, cancellationToken).ConfigureAwait(false); }
-                finally
-                {
-                    // Release the peer's slot; drop its budget once it has no more connections (bounds memory).
-                    if (budget.CloseConnection() == 0)
-                        _peerBudgets.TryRemove(new KeyValuePair<Sigil, PeerControlBudget>(peerSigil, budget));
-                    Interlocked.Decrement(ref _activeControlConnections);
-                }
+                finally { ReleaseControlSlot(peerSigil, budget); }
             }, cancellationToken);
             return;
         }
 
         if (kind == OverlayControl.KindEffigy)
         {
-            // A decoy channel session: serve it internally with cover traffic. It is never a real channel,
-            // never surfaced to the app. Counted against the global control cap so it can't be a flood vector.
+            // A decoy channel session, served internally with cover traffic — never a real channel. Held under
+            // the global cap AND the per-peer budget so one Sigil cannot monopolize the global control budget.
             var served = conjunction.Vessel;
-            if (Interlocked.Increment(ref _activeControlConnections) > _options.MaxConcurrentControlConnections)
+            var peerSigil = conjunction.PeerSigil;
+            if (!TryReserveControlSlot(peerSigil, out var budget))
             {
-                Interlocked.Decrement(ref _activeControlConnections);
                 await served.DisposeAsync().ConfigureAwait(false);
                 return;
             }
             _ = Task.Run(async () =>
             {
                 try { await ServeEffigyAsync(served, cancellationToken).ConfigureAwait(false); }
-                finally { Interlocked.Decrement(ref _activeControlConnections); }
+                finally { ReleaseControlSlot(peerSigil, budget); }
             }, cancellationToken);
             return;
         }
 
         if (kind == OverlayControl.KindPageant)
         {
-            // An inbound Pageant (fake-group) clique edge: bind it to the group it cites and drain it.
+            // An inbound Pageant (fake-group) clique edge — same Wards as a control connection.
             var served = conjunction.Vessel;
             var peerSigil = conjunction.PeerSigil;
-            if (Interlocked.Increment(ref _activeControlConnections) > _options.MaxConcurrentControlConnections)
+            if (!TryReserveControlSlot(peerSigil, out var budget))
             {
-                Interlocked.Decrement(ref _activeControlConnections);
                 await served.DisposeAsync().ConfigureAwait(false);
                 return;
             }
             _ = Task.Run(async () =>
             {
                 try { await BindPageantEdgeAsync(served, peerSigil, cancellationToken).ConfigureAwait(false); }
-                finally { Interlocked.Decrement(ref _activeControlConnections); }
+                finally { ReleaseControlSlot(peerSigil, budget); }
             }, cancellationToken);
             return;
         }
@@ -457,6 +443,32 @@ public sealed partial class CupriNode : IAsyncDisposable
         var peer = new PairedPeer(conjunction.Vessel, conjunction.PeerSigil, conjunction.PeerSealPublicKey, isInitiator: false);
         if (!_accepted.Writer.TryWrite(peer))
             await peer.DisposeAsync().ConfigureAwait(false); // no one is accepting channels (or the backlog is full) — drop it
+    }
+
+    /// <summary>
+    /// Reserves an inbound serving slot for a peer: the global control-connection cap plus the per-peer connection
+    /// cap (a Ward so one Sigil cannot monopolize the global budget), applied uniformly to control, effigy, and
+    /// pageant sessions. Returns false if either cap is hit; on success the caller must <see cref="ReleaseControlSlot"/>.
+    /// </summary>
+    private bool TryReserveControlSlot(Sigil peerSigil, out PeerControlBudget budget)
+    {
+        budget = _peerBudgets.GetOrAdd(peerSigil, _ =>
+            new PeerControlBudget(_options.MaxControlRequestsPerWindow, _options.ControlWindowSeconds * 1000L));
+        if (Interlocked.Increment(ref _activeControlConnections) > _options.MaxConcurrentControlConnections
+            || !budget.TryOpenConnection(_options.MaxControlConnectionsPerPeer))
+        {
+            Interlocked.Decrement(ref _activeControlConnections);
+            return false;
+        }
+        return true;
+    }
+
+    private void ReleaseControlSlot(Sigil peerSigil, PeerControlBudget budget)
+    {
+        // Drop the peer's budget once it has no more connections (bounds memory).
+        if (budget.CloseConnection() == 0)
+            _peerBudgets.TryRemove(new KeyValuePair<Sigil, PeerControlBudget>(peerSigil, budget));
+        Interlocked.Decrement(ref _activeControlConnections);
     }
 
     /// <summary>
