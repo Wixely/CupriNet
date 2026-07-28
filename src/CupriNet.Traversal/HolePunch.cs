@@ -28,7 +28,7 @@ public sealed class HolePunch : IDisposable
     private const byte Probe = 0xF1;
     private const byte Ack = 0xF2;
     private const int SessionIdSize = 16;
-    private const int NonceSize = 8;
+    private const int NonceSize = 16;
     private const int MessageSize = 1 + SessionIdSize + NonceSize;
 
     private readonly byte[] _sessionId;
@@ -88,7 +88,13 @@ public sealed class HolePunch : IDisposable
         var myNonce = RandomNumberGenerator.GetBytes(NonceSize);
         var tcs = new TaskCompletionSource<HolePunchResult>(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        var receiver = ReceiveLoopAsync(myNonce, tcs, cts.Token);
+        // Only ever interact with an endpoint the peer actually advertised out-of-band. A forged probe or ack from
+        // any other source — an off-path or on-path observer that learned the (public) session id — is ignored, so
+        // it cannot redirect the confirmed path (and thus the data socket) to an attacker-chosen address. The punch
+        // itself stays unauthenticated by design; the subsequent Noise handshake authenticates the peer.
+        var allowedAddresses = peerCandidates.Select(c => c.Address).ToHashSet();
+
+        var receiver = ReceiveLoopAsync(myNonce, allowedAddresses, tcs, cts.Token);
         var sender = SendLoopAsync(peerCandidates, myNonce, interval, sendCts.Token);
 
         try
@@ -108,7 +114,7 @@ public sealed class HolePunch : IDisposable
         }
     }
 
-    private async Task ReceiveLoopAsync(byte[] myNonce, TaskCompletionSource<HolePunchResult> tcs, CancellationToken cancellationToken)
+    private async Task ReceiveLoopAsync(byte[] myNonce, IReadOnlySet<IPAddress> allowedAddresses, TaskCompletionSource<HolePunchResult> tcs, CancellationToken cancellationToken)
     {
         var sawPeerProbe = false;
         var ourProbeAcked = false;
@@ -135,6 +141,9 @@ public sealed class HolePunch : IDisposable
                     continue;
 
                 var remote = (IPEndPoint)received.RemoteEndPoint;
+                if (!allowedAddresses.Contains(remote.Address))
+                    continue; // not one of the peer's advertised addresses — a forged/misdirected packet; ignore it
+
                 var nonce = buffer.AsSpan(1 + SessionIdSize, NonceSize).ToArray();
                 switch (buffer[0])
                 {
