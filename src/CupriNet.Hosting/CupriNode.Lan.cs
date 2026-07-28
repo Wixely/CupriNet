@@ -108,6 +108,14 @@ public sealed partial class CupriNode
         ArgumentNullException.ThrowIfNull(boundPunchSocket);
         ArgumentNullException.ThrowIfNull(peerCandidates);
 
+        // Subnet fence: only punch toward candidate addresses the policy permits.
+        var candidates = peerCandidates.Where(c => IsAddressAllowed(c.Address)).ToList();
+        if (candidates.Count == 0)
+        {
+            boundPunchSocket.Dispose();
+            throw new CupriNodeException("No hole-punch candidate is permitted by this node's subnet policy.");
+        }
+
         var sessionId = MutualPunchSessionId(Identity.Sigil, peerSigil);
         var timeout = window ?? TimeSpan.FromSeconds(30);
 
@@ -115,7 +123,7 @@ public sealed partial class CupriNode
         try
         {
             vessel = await NatTraversal.PunchAndConnectAsync(
-                sessionId, boundPunchSocket, peerCandidates, TimeSpan.FromMilliseconds(50), timeout, cancellationToken).ConfigureAwait(false);
+                sessionId, boundPunchSocket, candidates, TimeSpan.FromMilliseconds(50), timeout, cancellationToken).ConfigureAwait(false);
         }
         catch { boundPunchSocket.Dispose(); throw; }
 

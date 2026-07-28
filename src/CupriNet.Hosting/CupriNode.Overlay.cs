@@ -359,7 +359,7 @@ public sealed partial class CupriNode
             return await _onion.ConnectAsync(onion.Host, onion.Port, cancellationToken).ConfigureAwait(false);
         }
 
-        var beacon = peer.Endpoints.FirstOrDefault(b => b.Kind is EndpointKind.Host or EndpointKind.Mapped or EndpointKind.Manual);
+        var beacon = peer.Endpoints.FirstOrDefault(b => b.Kind is EndpointKind.Host or EndpointKind.Mapped or EndpointKind.Manual && IsBeaconAllowed(b));
         if (beacon is not null)
             return await TcpVessel.ConnectAsync(beacon.Host, beacon.Port, cancellationToken: cancellationToken).ConfigureAwait(false);
 
@@ -473,12 +473,14 @@ public sealed partial class CupriNode
         return subject;
     }
 
-    /// <summary>Whether THIS node can actually dial a beacon given its transport/mode — the anti-cross-network rule.</summary>
+    /// <summary>Whether THIS node can actually dial a beacon given its transport/mode (the anti-cross-network rule)
+    /// and its subnet allow/deny policy.</summary>
     private bool CanDial(Beacon beacon)
-        => _options.Mode == ReachabilityMode.TorOnly
-            ? beacon.Kind == EndpointKind.Onion // Tor-only: onion transport only, never a clearnet address
-            : beacon.Kind is EndpointKind.Host or EndpointKind.Mapped or EndpointKind.Manual
-              || (beacon.Kind == EndpointKind.Onion && _onion is not null);
+        => IsBeaconAllowed(beacon)
+           && (_options.Mode == ReachabilityMode.TorOnly
+                ? beacon.Kind == EndpointKind.Onion // Tor-only: onion transport only, never a clearnet address
+                : beacon.Kind is EndpointKind.Host or EndpointKind.Mapped or EndpointKind.Manual
+                  || (beacon.Kind == EndpointKind.Onion && _onion is not null));
 
     /// <summary>True only if we can reach the peer on our own transport; used to drop cross-network records at intake.</summary>
     private bool CanReach(PeerRecord record) => record.Endpoints.Any(CanDial);

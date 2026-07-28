@@ -86,6 +86,35 @@ public class CupriNodeReachabilityTests
         Assert.Contains(local.Intone(TimeSpan.FromHours(1), Now).Beacons, b => b.Host == "192.168.0.15");
     }
 
+    [Fact]
+    public async Task SubnetPolicy_BlocksDisallowedPeer_ButWhitelistBeatsBlacklist()
+    {
+        using var cts = new CancellationTokenSource(Timeout);
+        var ct = cts.Token;
+
+        await using var host = await CupriNode.CreateAsync(new CupriNodeOptions { Concordium = "example.chat", EnableOverlayGossip = false }, ct);
+        var uri = host.IntoneUri(TimeSpan.FromHours(1), Now); // a loopback (127.0.0.1) beacon
+        Assert.True(CupriNet.Core.IntonationUri.TryParse(uri, out var link, out _));
+
+        // Deny everything: the loopback inviter is not dialable -> no candidate.
+        await using var blocked = await CupriNode.CreateAsync(new CupriNodeOptions
+        {
+            Concordium = "example.chat", EnableOverlayGossip = false, DeniedSubnets = ["0.0.0.0/0"],
+        }, ct);
+        await Assert.ThrowsAsync<CupriNodeException>(async () => await blocked.ConjoinAsync(link!, Now, ct));
+
+        // Whitelist loopback (which beats the deny-all): pairing succeeds.
+        var acceptTask = host.AcceptAsync(ct);
+        await using var allowed = await CupriNode.CreateAsync(new CupriNodeOptions
+        {
+            Concordium = "example.chat", EnableOverlayGossip = false,
+            AllowedSubnets = ["127.0.0.0/8"], DeniedSubnets = ["0.0.0.0/0"],
+        }, ct);
+        await using var pairedFromJoiner = await allowed.ConjoinAsync(link!, Now, ct);
+        await using var pairedFromHost = await acceptTask;
+        Assert.Equal(allowed.Identity.Sigil, pairedFromHost.PeerSigil);
+    }
+
     private static Sigil Sig(byte seed)
     {
         var bytes = new byte[Sigil.Size];

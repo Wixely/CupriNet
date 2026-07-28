@@ -41,6 +41,9 @@ public sealed partial class CupriNode : IAsyncDisposable
     private readonly Channel<PairedPeer> _accepted =
         Channel.CreateBounded<PairedPeer>(new BoundedChannelOptions(128) { FullMode = BoundedChannelFullMode.Wait });
 
+    // Allow/deny subnet fencing (private CupriNet / LAN-only). Not applied in Tor-only mode (onion peers have no IP).
+    private readonly AddressPolicy _addressPolicy;
+
     private CupriNode(CupriNodeOptions options, ICryptoSuite suite, NodeIdentity identity, VesselListener listener, ISecretStore secretStore)
     {
         _options = options;
@@ -51,6 +54,7 @@ public sealed partial class CupriNode : IAsyncDisposable
         Network = new Concordium(options.Concordium);
         Constellation = new Constellation();
         _handshakeSlots = new SemaphoreSlim(Math.Max(1, options.MaxConcurrentHandshakes));
+        _addressPolicy = AddressPolicy.Parse(options.AllowedSubnets, options.DeniedSubnets);
         _advertiseHost = options.ListenAddress.Equals(IPAddress.Any) ? "127.0.0.1" : options.ListenAddress.ToString();
     }
 
@@ -170,6 +174,20 @@ public sealed partial class CupriNode : IAsyncDisposable
             || NetworkReachability.IsPubliclyRoutable(ip)).ToList();
     }
 
+    /// <summary>Whether the subnet policy permits connecting to / accepting from this address. Always true in
+    /// Tor-only mode (onion peers have no IP) and when no subnets are configured.</summary>
+    private bool IsAddressAllowed(IPAddress address)
+        => _options.Mode == ReachabilityMode.TorOnly || _addressPolicy.IsEmpty || _addressPolicy.IsAllowed(address);
+
+    /// <summary>Whether the subnet policy permits dialing this beacon. Onion and (unresolved) hostname beacons are
+    /// not IP-filtered.</summary>
+    private bool IsBeaconAllowed(Beacon beacon)
+        => _options.Mode == ReachabilityMode.TorOnly
+           || _addressPolicy.IsEmpty
+           || beacon.Kind == EndpointKind.Onion
+           || !IPAddress.TryParse(beacon.Host, out var ip)
+           || _addressPolicy.IsAllowed(ip);
+
     /// <summary>Validates an Intonation, dials one of its beacons, and completes the Conjunction pairing.</summary>
     public async Task<PairedPeer> ConjoinAsync(Intonation intonation, DateTimeOffset now, CancellationToken cancellationToken = default)
     {
@@ -180,8 +198,9 @@ public sealed partial class CupriNode : IAsyncDisposable
             throw new CupriNodeException($"Intonation is not usable: {validation.Status}.");
 
         var torOnly = _options.Mode == ReachabilityMode.TorOnly;
-        // Tor-only never dials clearnet — a direct connection would expose this identity's IP.
-        var clearnet = torOnly ? [] : DialableInPriorityOrder(intonation.Beacons); // Host/Mapped/Manual
+        // Tor-only never dials clearnet — a direct connection would expose this identity's IP. Otherwise, keep only
+        // the beacons the subnet policy permits.
+        var clearnet = torOnly ? [] : DialableInPriorityOrder(intonation.Beacons).Where(IsBeaconAllowed).ToList(); // Host/Mapped/Manual
         var onion = intonation.Beacons.FirstOrDefault(b => b.Kind == EndpointKind.Onion);
 
         // Refuse a clearnet-only invitation up front in Tor-only mode, with a clear reason.
@@ -236,6 +255,8 @@ public sealed partial class CupriNode : IAsyncDisposable
     /// <summary>Dials a beacon over TCP with a bounded connect timeout, so an unreachable (e.g. off-LAN private) candidate fails fast.</summary>
     private async Task<IVessel> DialTcpAsync(Beacon beacon, CancellationToken cancellationToken)
     {
+        if (!IsBeaconAllowed(beacon))
+            throw new CupriNodeException($"Address {beacon.Host} is not permitted by this node's subnet policy.");
         using var timed = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timed.CancelAfter(_options.CandidateConnectTimeout);
         return await TcpVessel.ConnectAsync(beacon.Host, beacon.Port, cancellationToken: timed.Token).ConfigureAwait(false);
@@ -383,6 +404,13 @@ public sealed partial class CupriNode : IAsyncDisposable
     /// </summary>
     private async Task HandleInboundAsync(VesselSession vessel, CancellationToken cancellationToken)
     {
+        // Subnet fence: drop an inbound connection from a disallowed address before doing any handshake work.
+        if (vessel.RemoteEndPoint is System.Net.IPEndPoint remote && !IsAddressAllowed(remote.Address))
+        {
+            await vessel.DisposeAsync().ConfigureAwait(false);
+            return;
+        }
+
         NoiseConjunctionResult conjunction;
         byte kind;
         try

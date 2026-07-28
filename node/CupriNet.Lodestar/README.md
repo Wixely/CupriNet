@@ -34,9 +34,23 @@ Settings bind from `appsettings.json` (the `Lodestar` section), then environment
 | `DataDirectory` | `CUPRINET_LODESTAR_DataDirectory` | per‑OS | Hot path: identity, master key, known peers. |
 | `SeedLinks` | `CUPRINET_LODESTAR_SeedLinks__0`, … | `[]` | Seed links (array). |
 | `SeedsFile` | `CUPRINET_LODESTAR_SeedsFile` | *(none)* | File of seed links, one per line (`#` comments ok). |
+| `AllowedSubnets` | `CUPRINET_LODESTAR_AllowedSubnets__0`, … | `[]` | CIDR/netmask/IP ranges this node may connect to and accept from. An allow match beats a deny. |
+| `DeniedSubnets` | `CUPRINET_LODESTAR_DeniedSubnets__0`, … | `[]` | Ranges to refuse (unless also allowed). |
 | `EnablePortMapping` | `CUPRINET_LODESTAR_EnablePortMapping` | `false` | Ask the gateway (NAT‑PMP) to forward the port. |
 | `EnableLanDiscovery` | `CUPRINET_LODESTAR_EnableLanDiscovery` | `false` | Announce/discover peers on the LAN. |
 | `EnableCoverTraffic` | `CUPRINET_LODESTAR_EnableCoverTraffic` | `false` | Run anonymity cover traffic (extra bandwidth). |
+
+**Private / LAN-only network.** Deny everything, then allow only your subnets (an allow-list match always wins).
+For example, a LAN-only node:
+
+```bash
+-e CUPRINET_LODESTAR_DeniedSubnets__0="0.0.0.0/0" \
+-e CUPRINET_LODESTAR_DeniedSubnets__1="::/0" \
+-e CUPRINET_LODESTAR_AllowedSubnets__0="192.168.0.0/16" \
+-e CUPRINET_LODESTAR_AllowedSubnets__1="10.0.0.0/8"
+```
+
+The node then only connects to and accepts from those ranges (the fence does not apply over Tor).
 
 **Seed links** are additionally accepted from the `CUPRINET_LODESTAR_SEEDS` env var (`;`/`,`/newline separated)
 and from repeated `--seed <link>` / `--seed=<link>` command‑line arguments.

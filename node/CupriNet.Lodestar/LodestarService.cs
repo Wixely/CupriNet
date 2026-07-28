@@ -116,6 +116,8 @@ public sealed class LodestarService : BackgroundService
             OverlayGossipFanout = _options.GossipFanout,
             EnableLanDiscovery = _options.EnableLanDiscovery,
             EnablePortMapping = _options.EnablePortMapping,
+            AllowedSubnets = _options.AllowedSubnets.Count > 0 ? _options.AllowedSubnets : null,
+            DeniedSubnets = _options.DeniedSubnets.Count > 0 ? _options.DeniedSubnets : null,
             EnableHotFuzz = _options.EnableCoverTraffic,   // cover traffic is opt-in for an infra node
             EnableEffigies = false,
             EnablePageants = false,

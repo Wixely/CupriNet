@@ -44,6 +44,17 @@ public sealed class LodestarOptions
     /// <summary>Optional path to a file of seed links, one per line (blank lines and <c>#</c> comments ignored).</summary>
     public string? SeedsFile { get; set; }
 
+    /// <summary>
+    /// Subnets this node may connect to and accept from — CIDR (<c>10.0.0.0/8</c>), a netmask (<c>10.0.0.0/255.0.0.0</c>),
+    /// or a bare IP. An allow-list match always beats the deny-list. Empty = LAN + WAN (no fence). For a private
+    /// CupriNet or LAN-only node, set <see cref="DeniedSubnets"/> to <c>0.0.0.0/0</c> and list your subnets here.
+    /// Not applied over Tor.
+    /// </summary>
+    public List<string> AllowedSubnets { get; set; } = new();
+
+    /// <summary>Subnets this node refuses (unless also in <see cref="AllowedSubnets"/>, which wins).</summary>
+    public List<string> DeniedSubnets { get; set; } = new();
+
     /// <summary>Ask the home gateway (NAT-PMP) to forward the listen port. Off by default — servers usually have a public IP.</summary>
     public bool EnablePortMapping { get; set; }
 

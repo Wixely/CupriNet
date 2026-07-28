@@ -40,6 +40,21 @@ public sealed record CupriNodeOptions
     public bool AdvertiseLocalAddresses { get; init; }
 
     /// <summary>
+    /// Subnets this node is allowed to connect to and accept from — CIDR (<c>10.0.0.0/8</c>), a dotted netmask
+    /// (<c>10.0.0.0/255.0.0.0</c>), or a bare IP. Fences a node to a private CupriNet or LAN-only, etc.
+    /// <b>An allow-list match always wins over the deny-list.</b> Empty = allow everything (LAN + WAN).
+    /// IP-based, so it does not apply to Tor (onion) peers.
+    /// </summary>
+    public IReadOnlyList<string>? AllowedSubnets { get; init; }
+
+    /// <summary>
+    /// Subnets this node will refuse to connect to or accept from (unless also matched by
+    /// <see cref="AllowedSubnets"/>, which wins). To make a private/LAN-only network, deny <c>0.0.0.0/0</c>
+    /// (and <c>::/0</c>) and allow only your subnets. IP-based, so it does not apply to Tor (onion) peers.
+    /// </summary>
+    public IReadOnlyList<string>? DeniedSubnets { get; init; }
+
+    /// <summary>
     /// Run a reflexive-endpoint exchange during pairing so the node learns its externally-observed
     /// (Mapped) address. Requires both peers to support it. Default true.
     /// </summary>
