@@ -1,9 +1,12 @@
 using System.Collections.ObjectModel;
+using System.Net;
+using System.Net.Http;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Documents;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
@@ -68,6 +71,12 @@ public partial class MainWindow : Window
     private readonly Button _joinUrlButton;
     private readonly Button _refreshLinkButton;
     private readonly Button _copyLinkButton;
+    private readonly TextBox _advertiseBox;
+    private readonly Button _detectIpButton;
+    private readonly Button _bootstrapInfoButton;
+
+    // Well-known CupriNet port; a sensible default to suggest when detecting an external IP for bootstrapping.
+    private const int DefaultBootstrapPort = 43820;
 
     public MainWindow()
     {
@@ -84,6 +93,9 @@ public partial class MainWindow : Window
         _joinUrlButton = this.FindControl<Button>("JoinUrlButton")!;
         _refreshLinkButton = this.FindControl<Button>("RefreshLinkButton")!;
         _copyLinkButton = this.FindControl<Button>("CopyLinkButton")!;
+        _advertiseBox = this.FindControl<TextBox>("AdvertiseBox")!;
+        _detectIpButton = this.FindControl<Button>("DetectIpButton")!;
+        _bootstrapInfoButton = this.FindControl<Button>("BootstrapInfoButton")!;
 
         _stepText = this.FindControl<TextBlock>("StepText")!;
         _identityText = this.FindControl<TextBlock>("IdentityText")!;
@@ -130,8 +142,10 @@ public partial class MainWindow : Window
         _chat.FileOfferReceived += OnFileOffer;
         _chat.FileReceived += r => OnSystem($"Received file '{r.FileName}' → {r.SavePath}");
 
-        _clearnetButton.Click += async (_, _) => { await StartModeAsync(ReachabilityChoice.Clearnet); TryAutoGenerateLink(); };
+        _clearnetButton.Click += async (_, _) => { await StartModeAsync(ReachabilityChoice.Clearnet, _advertiseBox.Text?.Trim()); TryAutoGenerateLink(); };
         _torButton.Click += async (_, _) => { await StartModeAsync(ReachabilityChoice.Tor); TryAutoGenerateLink(); };
+        _detectIpButton.Click += OnDetectExternalIp;
+        _bootstrapInfoButton.Click += OnBootstrapInfo;
         _joinUrlButton.Click += OnJoinUrl;
         _generateButton.Click += OnGenerate;
         _refreshLinkButton.Click += OnGenerate;
@@ -162,13 +176,13 @@ public partial class MainWindow : Window
     }
 
     /// <summary>Starts the node in the chosen mode (a fresh, isolated identity per mode), then moves to Step 1.</summary>
-    private async Task StartModeAsync(ReachabilityChoice mode)
+    private async Task StartModeAsync(ReachabilityChoice mode, string? advertiseAddress = null)
     {
         try
         {
             _clearnetButton.IsEnabled = _torButton.IsEnabled = _joinUrlButton.IsEnabled = false;
             OnStatus(mode == ReachabilityChoice.Tor ? "Starting Tor — this can take a moment…" : "Starting…");
-            await _chat.StartAsync(mode);
+            await _chat.StartAsync(mode, advertiseAddress);
             RefreshHistory();
             ShowStep(1);
         }
@@ -180,6 +194,137 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>
+    /// Discovers this machine's public IP by asking Amazon's checkip service — but only after an explicit
+    /// confirmation, because it is an outbound request to a third party that reveals your public IP to them.
+    /// </summary>
+    private async void OnDetectExternalIp(object? sender, RoutedEventArgs e)
+    {
+        var proceed = await ConfirmAsync(
+            "Detect your external IP?",
+            "This makes an outbound HTTPS request to https://checkip.amazonaws.com — a public Amazon (AWS) service " +
+            "that simply echoes back the public IP address your connection appears to come from.\n\n" +
+            "What this means for you:\n" +
+            "• Amazon (and any network between you and them) sees a plain web request from your public IP.\n" +
+            "• Nothing about CupriChat, your identity, or your peers is sent — it's an ordinary HTTPS GET.\n" +
+            "• The result is only filled into the address box; nothing is published until you start Clearnet.\n\n" +
+            "Continue?",
+            ok: "Contact AWS", cancel: "Cancel");
+        if (!proceed)
+            return;
+
+        try
+        {
+            _detectIpButton.IsEnabled = false;
+            OnStatus("Contacting checkip.amazonaws.com…");
+            using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+            var body = (await http.GetStringAsync("https://checkip.amazonaws.com")).Trim();
+            if (!IPAddress.TryParse(body, out var ip))
+            {
+                OnStatus($"Unexpected response from checkip: '{body}'");
+                return;
+            }
+            _advertiseBox.Text = $"{ip}:{DefaultBootstrapPort}";
+            OnStatus($"External IP {ip} detected — ensure port {DefaultBootstrapPort} is forwarded to this machine, then start Clearnet.");
+        }
+        catch (Exception ex)
+        {
+            OnStatus($"Couldn't detect external IP: {ex.Message}");
+        }
+        finally
+        {
+            _detectIpButton.IsEnabled = true;
+        }
+    }
+
+    /// <summary>Explains what bootstrapping is and when the advertise-address field is useful.</summary>
+    private async void OnBootstrapInfo(object? sender, RoutedEventArgs e) => await InfoAsync(
+        "What is bootstrapping?",
+        "CupriNet has no central servers. To connect, a node needs at least one reachable address of another node, " +
+        "and that address travels inside the cuprinet:// link you share.\n\n" +
+        "Two situations leave a link with no address anyone else can reach:\n" +
+        "• You're starting a brand-new network — there are no other nodes yet.\n" +
+        "• You're behind a home router, so your link would only carry a private LAN address (192.168.x / 10.x) " +
+        "that no one outside your network can dial.\n\n" +
+        "Advertising a specific address fixes both: you put a reachable public address of THIS machine into your " +
+        "link, and peers who receive it dial that address directly to reach you — seeding the network.\n\n" +
+        "Use it when:\n" +
+        "• You run a server / VPS with a fixed public IP that should be the first node others connect to.\n" +
+        "• You're behind a router and have set up a port-forward, so you know your public IP and port.\n\n" +
+        "It only advertises YOUR OWN reachability. If the address is wrong, only you are unreachable — no one else " +
+        "is affected, and there's nothing to abuse. The address must genuinely route to this machine: a public IP, " +
+        "or a port forwarded on your router to this PC's LAN address and the same port. The '🌐 Detect my external " +
+        "IP' button can discover your public IP for you (it asks a third-party service, with a confirmation first).");
+
+    /// <summary>A simple modal yes/no dialog (Avalonia has no built-in message box).</summary>
+    private async Task<bool> ConfirmAsync(string title, string message, string ok, string cancel)
+    {
+        var result = false;
+        var dialog = new Window
+        {
+            Title = title,
+            Width = 500,
+            SizeToContent = SizeToContent.Height,
+            CanResize = false,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+        };
+        var okButton = new Button { Content = ok, IsDefault = true, MinWidth = 96 };
+        var cancelButton = new Button { Content = cancel, IsCancel = true, MinWidth = 96 };
+        okButton.Click += (_, _) => { result = true; dialog.Close(); };
+        cancelButton.Click += (_, _) => { result = false; dialog.Close(); };
+        dialog.Content = new StackPanel
+        {
+            Margin = new Thickness(18),
+            Spacing = 16,
+            Children =
+            {
+                new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap },
+                new StackPanel
+                {
+                    Orientation = Orientation.Horizontal,
+                    Spacing = 8,
+                    HorizontalAlignment = HorizontalAlignment.Right,
+                    Children = { cancelButton, okButton },
+                },
+            },
+        };
+        await dialog.ShowDialog(this);
+        return result;
+    }
+
+    /// <summary>A simple modal information dialog with a single Close button.</summary>
+    private async Task InfoAsync(string title, string message)
+    {
+        var dialog = new Window
+        {
+            Title = title,
+            Width = 540,
+            MaxHeight = 580,
+            SizeToContent = SizeToContent.Height,
+            CanResize = false,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+        };
+        var close = new Button
+        {
+            Content = "Close",
+            IsDefault = true,
+            IsCancel = true,
+            MinWidth = 96,
+            HorizontalAlignment = HorizontalAlignment.Right,
+        };
+        close.Click += (_, _) => dialog.Close();
+        dialog.Content = new ScrollViewer
+        {
+            Content = new StackPanel
+            {
+                Margin = new Thickness(18),
+                Spacing = 16,
+                Children = { new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap }, close },
+            },
+        };
+        await dialog.ShowDialog(this);
+    }
+
     /// <summary>Join by pasting a link: its type locks the mode (onion → Tor, address → Clearnet), then connect.</summary>
     private async void OnJoinUrl(object? sender, RoutedEventArgs e)
     {
@@ -187,7 +332,8 @@ public partial class MainWindow : Window
         var mode = ChatService.DetectMode(url ?? string.Empty);
         if (mode is null)
         {
-            OnStatus("That doesn't look like a valid cuprinet:// link.");
+            OnStatus(ChatService.ExplainUnusable(url ?? string.Empty)
+                     ?? "That doesn't look like a valid cuprinet:// link.");
             return;
         }
         await StartModeAsync(mode.Value);

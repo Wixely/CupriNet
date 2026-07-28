@@ -164,11 +164,51 @@ public sealed class ChatService : IAsyncDisposable
         return null;
     }
 
-    public async Task StartAsync(ReachabilityChoice mode = ReachabilityChoice.Clearnet)
+    /// <summary>
+    /// A human-readable reason a pasted link can't be joined, or <c>null</c> if it is usable. Distinguishes a
+    /// genuinely malformed link from one that is validly signed but carries no reachable address (e.g. a LAN-only
+    /// sender whose private address was stripped and who has no public/NAT-mapped route) — the latter used to be
+    /// reported, misleadingly, as "not a valid link".
+    /// </summary>
+    public static string? ExplainUnusable(string url)
+    {
+        if (string.IsNullOrWhiteSpace(url))
+            return "Paste a cuprinet:// link to join.";
+        if (!IntonationUri.TryParse(url.Trim(), out var intonation, out _))
+            return "That doesn't look like a valid cuprinet:// link.";
+        var reachable = intonation.Beacons.Any(b =>
+            b.Kind is EndpointKind.Host or EndpointKind.Mapped or EndpointKind.Manual or EndpointKind.Onion);
+        if (!reachable)
+            return "That link is valid but carries no reachable address — the sender is likely on a LAN with no " +
+                   "public route (or a NAT that blocks port mapping). Ask them to regenerate it, or connect over Tor.";
+        return null;
+    }
+
+    /// <summary>
+    /// Starts the node in the chosen mode. <paramref name="advertiseAddress"/> (clearnet only) is an optional
+    /// <c>host:port</c> — a reachable public address of THIS machine — to put into the link so peers on other
+    /// networks can connect. Used to bootstrap/seed a network from a box with a fixed public IP (or a port
+    /// forward). Ignored in Tor mode (the .onion is the reachable address there).
+    /// </summary>
+    public async Task StartAsync(ReachabilityChoice mode = ReachabilityChoice.Clearnet, string? advertiseAddress = null)
     {
         Mode = mode;
         var tor = mode == ReachabilityChoice.Tor;
         var localIp = LocalIPv4();
+
+        // Optional operator-supplied public address to advertise (bootstrapping). Binding the same port locally means
+        // a 1:1 public IP or a matching port-forward lines up; we advertise both it and the LAN host so peers on
+        // either side of the NAT can pick a beacon that works for them.
+        Beacon[]? advertised = null;
+        var listenPort = 0; // 0 = OS-assigned ephemeral (the normal case)
+        if (!tor && !string.IsNullOrWhiteSpace(advertiseAddress))
+        {
+            if (!TryParseHostPort(advertiseAddress!, out var advHost, out var advPort))
+                throw new FormatException(
+                    $"'{advertiseAddress}' isn't a valid address to advertise. Use host:port, e.g. 203.0.113.5:43820 or seed.example.net:43820.");
+            listenPort = advPort;
+            advertised = [new Beacon(EndpointKind.Manual, advHost, advPort), new Beacon(EndpointKind.Host, localIp, advPort)];
+        }
 
         // Per-MODE profile: clearnet and Tor get entirely separate identities + state under distinct folders, so a
         // Tor identity can never be correlated with a clearnet one (different Sigil, cache, history, keys). CUPRICHAT_HOME
@@ -195,11 +235,18 @@ public sealed class ChatService : IAsyncDisposable
         {
             Concordium = NetworkId,
             ListenAddress = IPAddress.Parse(localIp),
+            ListenPort = listenPort,          // fixed only when advertising a manual address, else ephemeral
+            AdvertisedBeacons = advertised,   // null = auto-detect the bind address (the normal path)
             Suite = suite,
             SecretStore = _store,
             PersistOverlay = true,            // warm-start: reconnect to known nodes directly, keep gossip fresh
             EnableLanDiscovery = !tor,        // clearnet only (TorOnly enforces this off anyway)
             EnablePortMapping = !tor,
+            // A clearnet CupriChat link is handed directly to the one person you want to reach — not gossiped to
+            // the overlay — so it must carry this node's local address, otherwise a LAN-only node (no NAT-PMP /
+            // public route) produces a beaconless, unusable link. This is a deliberate app opt-in on top of the
+            // library default (which strips private/LAN addresses so the overlay never learns your internal IP).
+            AdvertiseLocalAddresses = !tor,
             Mode = tor ? ReachabilityMode.TorOnly : ReachabilityMode.Standard,
             OnionTransport = onion,
             // CupriChat opts into cover traffic over Tor: run the connection-fuzz (hot fuzz) and L2-shaped decoy
@@ -214,8 +261,9 @@ public sealed class ChatService : IAsyncDisposable
         _kindred = await KindredBook.LoadAsync(_store, _cts.Token);
 
         _selfId = Convert.ToHexStringLower(_node.Identity.Sigil.Span);
-        // Clearnet advertises its host address; Tor advertises its .onion once the service is published.
-        _selfBeacons = tor ? [] : [new Beacon(EndpointKind.Host, localIp, _node.LocalEndPoint.Port)];
+        // Clearnet advertises its host address (plus any operator-supplied public address); Tor advertises its
+        // .onion once the service is published.
+        _selfBeacons = tor ? [] : advertised ?? [new Beacon(EndpointKind.Host, localIp, _node.LocalEndPoint.Port)];
         _ = Task.Run(() => WatchReachabilityAsync(_cts.Token));
 
         lock (_lock)
@@ -1203,6 +1251,43 @@ public sealed class ChatService : IAsyncDisposable
         {
             return "127.0.0.1";
         }
+    }
+
+    /// <summary>
+    /// Parses <c>host:port</c> where host is an IPv4/IPv6/DNS name. IPv6 must be bracketed (<c>[::1]:43820</c>).
+    /// Accepts a DNS name or literal IP; the port must be 1–65535.
+    /// </summary>
+    internal static bool TryParseHostPort(string text, out string host, out int port)
+    {
+        host = string.Empty;
+        port = 0;
+        text = text.Trim();
+        if (text.Length == 0)
+            return false;
+
+        string portPart;
+        if (text.StartsWith('['))                       // bracketed IPv6: [addr]:port
+        {
+            var end = text.IndexOf(']');
+            if (end <= 1 || end + 1 >= text.Length || text[end + 1] != ':')
+                return false;
+            host = text[1..end];
+            portPart = text[(end + 2)..];
+            if (!IPAddress.TryParse(host, out _))       // must be a real IPv6 literal inside brackets
+                return false;
+        }
+        else
+        {
+            var idx = text.LastIndexOf(':');            // host:port (rightmost colon splits the port)
+            if (idx <= 0 || idx == text.Length - 1)
+                return false;
+            host = text[..idx];
+            portPart = text[(idx + 1)..];
+            if (host.Contains(':'))                      // an unbracketed IPv6 is ambiguous — reject it
+                return false;
+        }
+
+        return int.TryParse(portPart, out port) && port is > 0 and <= 65535 && host.Length > 0;
     }
 
     public async ValueTask DisposeAsync()

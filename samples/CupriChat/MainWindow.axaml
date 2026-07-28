@@ -26,6 +26,20 @@
                    Foreground="Gray" TextWrapping="Wrap"/>
         <Button Name="ClearnetButton" Content="Clearnet — fast; your IP is visible to peers" HorizontalAlignment="Stretch"/>
         <Button Name="TorButton" Content="Tor — hides your IP; slower to start" HorizontalAlignment="Stretch"/>
+
+        <!-- Optional (Clearnet): advertise a specific reachable address to seed/bootstrap a network. -->
+        <Expander Header="Advertise a specific address (bootstrap a network)" HorizontalAlignment="Stretch">
+          <StackPanel Spacing="8" Margin="0,6,0,0">
+            <TextBlock Text="Clearnet only. Puts a reachable public address of this machine into your link, so peers on other networks can connect — the usual way to seed a brand-new network from a box with a fixed public IP or a port-forward."
+                       Foreground="Gray" FontSize="11" TextWrapping="Wrap"/>
+            <TextBox Name="AdvertiseBox" Watermark="e.g. 203.0.113.5:43820 or seed.example.net:43820"/>
+            <StackPanel Orientation="Horizontal" Spacing="8">
+              <Button Name="DetectIpButton" Content="🌐 Detect my external IP"/>
+              <Button Name="BootstrapInfoButton" Content="ⓘ What is this?"/>
+            </StackPanel>
+          </StackPanel>
+        </Expander>
+
         <TextBlock Text="…or join directly with a link (its type decides the mode):" Foreground="Gray" Margin="0,8,0,0"/>
         <TextBox Name="JoinUrlBox" Watermark="paste cuprinet://intone/..." AcceptsReturn="True" TextWrapping="Wrap" Height="56"/>
         <Button Name="JoinUrlButton" Content="Join with URL" HorizontalAlignment="Left"/>
