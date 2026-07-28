@@ -77,26 +77,45 @@ public sealed class Constellation
     private readonly HashSet<Sigil> _anchored = new();
     private readonly ConstellationOptions _options;
 
+    // The table is read/written concurrently from the gossip loop, inbound control handlers, and cover-traffic
+    // loops. A plain Dictionary is not safe for concurrent write-while-enumerate, so every access is serialized
+    // through this monitor. It is re-entrant (ClosestTo -> IsAnchored), which Monitor permits.
+    private readonly object _gate = new();
+
     public Constellation(ConstellationOptions? options = null)
         => _options = options ?? new ConstellationOptions();
 
-    public int Count => _entries.Count;
+    public int Count
+    {
+        get { lock (_gate) return _entries.Count; }
+    }
 
-    public IEnumerable<ConstellationEntry> Entries => _entries.Values;
+    /// <summary>A snapshot of the current entries (safe to enumerate outside the lock).</summary>
+    public IReadOnlyList<ConstellationEntry> Entries
+    {
+        get { lock (_gate) return _entries.Values.ToArray(); }
+    }
 
     public int CountInBucket(PeerBucket bucket)
     {
-        var count = 0;
-        foreach (var entry in _entries.Values)
+        lock (_gate)
         {
-            if (entry.Bucket == bucket)
-                count++;
-        }
+            var count = 0;
+            foreach (var entry in _entries.Values)
+            {
+                if (entry.Bucket == bucket)
+                    count++;
+            }
 
-        return count;
+            return count;
+        }
     }
 
-    public ConstellationEntry? Get(Sigil sigil) => _entries.GetValueOrDefault(sigil);
+    public ConstellationEntry? Get(Sigil sigil)
+    {
+        lock (_gate)
+            return _entries.GetValueOrDefault(sigil);
+    }
 
     /// <summary>Offers a (pre-validated) record for admission or update.</summary>
     public AdmissionResult Admit(PeerRecord record, PeerBucket bucket, DateTimeOffset now, string? source = null)
@@ -104,53 +123,63 @@ public sealed class Constellation
         ArgumentNullException.ThrowIfNull(record);
         var sigil = record.Sigil;
 
-        if (_entries.TryGetValue(sigil, out var existing))
+        lock (_gate)
         {
-            if (record.SequenceNumber <= existing.Record.SequenceNumber)
-                return AdmissionResult.RejectedStale;
+            if (_entries.TryGetValue(sigil, out var existing))
+            {
+                if (record.SequenceNumber <= existing.Record.SequenceNumber)
+                    return AdmissionResult.RejectedStale;
 
-            existing.Record = record;
-            existing.LastSeen = now;
-            existing.Slash24 = NetworkDiversity.Slash24(record.Endpoints);
-            return AdmissionResult.Updated;
+                existing.Record = record;
+                existing.LastSeen = now;
+                existing.Slash24 = NetworkDiversity.Slash24(record.Endpoints);
+                return AdmissionResult.Updated;
+            }
+
+            var slash24 = NetworkDiversity.Slash24(record.Endpoints);
+            if (slash24 is { } prefix && CountInSlash24(prefix) >= _options.MaxPerSlash24)
+                return AdmissionResult.RejectedDiversity;
+
+            if (_entries.Count >= _options.MaxRecords && !TryEvictOne())
+                return AdmissionResult.RejectedFull;
+
+            _entries[sigil] = new ConstellationEntry(record, bucket, now, source, slash24);
+            return AdmissionResult.Admitted;
         }
-
-        var slash24 = NetworkDiversity.Slash24(record.Endpoints);
-        if (slash24 is { } prefix && CountInSlash24(prefix) >= _options.MaxPerSlash24)
-            return AdmissionResult.RejectedDiversity;
-
-        if (_entries.Count >= _options.MaxRecords && !TryEvictOne())
-            return AdmissionResult.RejectedFull;
-
-        _entries[sigil] = new ConstellationEntry(record, bucket, now, source, slash24);
-        return AdmissionResult.Admitted;
     }
 
     /// <summary>Rewards good behaviour (successful contact or referral).</summary>
     public void Reward(Sigil sigil, int amount = 1)
     {
-        if (_entries.TryGetValue(sigil, out var entry))
-            entry.Standing += amount;
+        lock (_gate)
+            if (_entries.TryGetValue(sigil, out var entry))
+                entry.Standing += amount;
     }
 
     /// <summary>Records misbehaviour; crossing the threshold quarantines the peer (Excommunication).</summary>
     public void Taint(Sigil sigil, int amount = 1)
     {
-        if (!_entries.TryGetValue(sigil, out var entry))
-            return;
+        lock (_gate)
+        {
+            if (!_entries.TryGetValue(sigil, out var entry))
+                return;
 
-        entry.Taint += amount;
-        if (entry.Taint >= _options.TaintQuarantineThreshold)
-            entry.Bucket = PeerBucket.Excommunicate;
+            entry.Taint += amount;
+            if (entry.Taint >= _options.TaintQuarantineThreshold)
+                entry.Bucket = PeerBucket.Excommunicate;
+        }
     }
 
     /// <summary>Moves a peer to a different bucket (e.g. promoting a Stranger to Kindred after pairing).</summary>
     public bool Promote(Sigil sigil, PeerBucket bucket)
     {
-        if (!_entries.TryGetValue(sigil, out var entry))
-            return false;
-        entry.Bucket = bucket;
-        return true;
+        lock (_gate)
+        {
+            if (!_entries.TryGetValue(sigil, out var entry))
+                return false;
+            entry.Bucket = bucket;
+            return true;
+        }
     }
 
     /// <summary>
@@ -163,11 +192,14 @@ public sealed class Constellation
     {
         if (sigil.IsEmpty)
             return;
-        if (_anchored.Count >= _options.MaxAnchored && !_anchored.Contains(sigil))
-            return; // bounded; a real node has few genuine relationships
-        _anchored.Add(sigil);
-        if (_entries.TryGetValue(sigil, out var entry) && entry.Bucket is not PeerBucket.Excommunicate)
-            entry.Bucket = PeerBucket.Kindred;
+        lock (_gate)
+        {
+            if (_anchored.Count >= _options.MaxAnchored && !_anchored.Contains(sigil))
+                return; // bounded; a real node has few genuine relationships
+            _anchored.Add(sigil);
+            if (_entries.TryGetValue(sigil, out var entry) && entry.Bucket is not PeerBucket.Excommunicate)
+                entry.Bucket = PeerBucket.Kindred;
+        }
     }
 
     /// <summary>
@@ -176,10 +208,13 @@ public sealed class Constellation
     /// </summary>
     public bool IsAnchored(Sigil sigil)
     {
-        if (_anchored.Contains(sigil))
-            return true;
-        return _entries.TryGetValue(sigil, out var entry)
-               && entry.Bucket is PeerBucket.Kindred or PeerBucket.Wayfarers or PeerBucket.Devotees;
+        lock (_gate)
+        {
+            if (_anchored.Contains(sigil))
+                return true;
+            return _entries.TryGetValue(sigil, out var entry)
+                   && entry.Bucket is PeerBucket.Kindred or PeerBucket.Wayfarers or PeerBucket.Devotees;
+        }
     }
 
     /// <summary>
@@ -192,35 +227,38 @@ public sealed class Constellation
         if (count == 0)
             return [];
 
-        var ranked = _entries.Values
-            .Where(e => e.Bucket != PeerBucket.Excommunicate)
-            .OrderByDescending(e => e.Standing)
-            .ThenBy(e => e.Taint)
-            .ToList();
-
-        var chosen = new List<PeerRecord>(Math.Min(count, ranked.Count));
-        var deferred = new List<PeerRecord>();
-        var seenPrefixes = new HashSet<uint>();
-
-        foreach (var entry in ranked)
+        lock (_gate)
         {
-            if (chosen.Count >= count)
-                break;
+            var ranked = _entries.Values
+                .Where(e => e.Bucket != PeerBucket.Excommunicate)
+                .OrderByDescending(e => e.Standing)
+                .ThenBy(e => e.Taint)
+                .ToList();
 
-            if (entry.Slash24 is { } prefix && !seenPrefixes.Add(prefix))
-                deferred.Add(entry.Record); // already have this /24 — try later if room remains
-            else
-                chosen.Add(entry.Record);
+            var chosen = new List<PeerRecord>(Math.Min(count, ranked.Count));
+            var deferred = new List<PeerRecord>();
+            var seenPrefixes = new HashSet<uint>();
+
+            foreach (var entry in ranked)
+            {
+                if (chosen.Count >= count)
+                    break;
+
+                if (entry.Slash24 is { } prefix && !seenPrefixes.Add(prefix))
+                    deferred.Add(entry.Record); // already have this /24 — try later if room remains
+                else
+                    chosen.Add(entry.Record);
+            }
+
+            foreach (var record in deferred)
+            {
+                if (chosen.Count >= count)
+                    break;
+                chosen.Add(record);
+            }
+
+            return chosen;
         }
-
-        foreach (var record in deferred)
-        {
-            if (chosen.Count >= count)
-                break;
-            chosen.Add(record);
-        }
-
-        return chosen;
     }
 
     /// <summary>Returns up to <paramref name="k"/> known peers whose Ascendant is closest to the target
@@ -231,15 +269,18 @@ public sealed class Constellation
         if (k == 0)
             return [];
 
-        // Distance stays primary so the requester's lookup still converges; among peers we could refer,
-        // prefer anchored (trusted) contacts over strangers as the tiebreak.
-        return _entries.Values
-            .Where(e => e.Bucket != PeerBucket.Excommunicate)
-            .OrderBy(e => RoutingKey.FromSealPublicKey(e.Record.SealPublicKey).DistanceTo(target))
-            .ThenBy(e => IsAnchored(e.Sigil) ? 0 : 1)
-            .Select(e => e.Record)
-            .Take(k)
-            .ToList();
+        lock (_gate)
+        {
+            // Distance stays primary so the requester's lookup still converges; among peers we could refer,
+            // prefer anchored (trusted) contacts over strangers as the tiebreak.
+            return _entries.Values
+                .Where(e => e.Bucket != PeerBucket.Excommunicate)
+                .OrderBy(e => RoutingKey.FromSealPublicKey(e.Record.SealPublicKey).DistanceTo(target))
+                .ThenBy(e => IsAnchored(e.Sigil) ? 0 : 1)
+                .Select(e => e.Record)
+                .Take(k)
+                .ToList();
+        }
     }
 
     private int CountInSlash24(uint prefix)

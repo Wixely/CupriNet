@@ -15,6 +15,51 @@ public class ConstellationTests
         return PeerRecordSigner.Create(identity, [new Beacon(EndpointKind.Host, ip, 43820)], seq, PeerCapabilities.None, suite, Now);
     }
 
+    // A record with a fabricated (unsigned) key — Admit doesn't verify, so this avoids per-record keygen in bulk.
+    private static PeerRecord Fabricate(int i)
+    {
+        var key = new byte[32];
+        BitConverter.GetBytes(i).CopyTo(key, 0);
+        return new PeerRecord
+        {
+            SealPublicKey = key,
+            Endpoints = [new Beacon(EndpointKind.Host, $"10.{(i >> 8) & 0xff}.{i & 0xff}.1", 43820)],
+            SequenceNumber = (ulong)i,
+            IssuedAtUnix = 0,
+            Capabilities = PeerCapabilities.None,
+            Signature = [],
+        };
+    }
+
+    [Fact]
+    public async Task ConcurrentAdmitAndReads_AreThreadSafe()
+    {
+        var constellation = new Constellation();
+        var tasks = new List<Task>();
+
+        // Writers admit (mutating the table) while readers Sample/enumerate — the exact write-while-enumerate
+        // pattern that throws "collection was modified" on an unsynchronized Dictionary.
+        for (var w = 0; w < 4; w++)
+            tasks.Add(Task.Run(() =>
+            {
+                for (var i = 0; i < 3000; i++)
+                    constellation.Admit(Fabricate(i), PeerBucket.Strangers, Now);
+            }));
+
+        for (var r = 0; r < 4; r++)
+            tasks.Add(Task.Run(() =>
+            {
+                for (var i = 0; i < 3000; i++)
+                {
+                    _ = constellation.Sample(16);
+                    _ = constellation.Count;
+                    foreach (var _ in constellation.Entries) { }
+                }
+            }));
+
+        await Task.WhenAll(tasks); // must not throw InvalidOperationException / corrupt the table
+    }
+
     [Fact]
     public void Admit_NewPeer_ThenUpdateOnlyOnNewerSequence()
     {
