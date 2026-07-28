@@ -1,4 +1,5 @@
 using System.Net;
+using System.Threading.Channels;
 using CupriNet.Abstractions;
 using CupriNet.Alembic;
 using CupriNet.Alembic.BouncyCastle;
@@ -34,6 +35,12 @@ public sealed partial class CupriNode : IAsyncDisposable
     private readonly ISecretStore _secretStore;
     private readonly CancellationTokenSource _lifetime = new();
 
+    // Inbound handshakes run off the accept loop, bounded by a slot semaphore; completed channel pairings are
+    // handed to AcceptAsync callers through this bounded queue. This keeps one slow peer from stalling accept.
+    private readonly SemaphoreSlim _handshakeSlots;
+    private readonly Channel<PairedPeer> _accepted =
+        Channel.CreateBounded<PairedPeer>(new BoundedChannelOptions(128) { FullMode = BoundedChannelFullMode.Wait });
+
     private CupriNode(CupriNodeOptions options, ICryptoSuite suite, NodeIdentity identity, VesselListener listener, ISecretStore secretStore)
     {
         _options = options;
@@ -43,6 +50,7 @@ public sealed partial class CupriNode : IAsyncDisposable
         _secretStore = secretStore;
         Network = new Concordium(options.Concordium);
         Constellation = new Constellation();
+        _handshakeSlots = new SemaphoreSlim(Math.Max(1, options.MaxConcurrentHandshakes));
         _advertiseHost = options.ListenAddress.Equals(IPAddress.Any) ? "127.0.0.1" : options.ListenAddress.ToString();
     }
 
@@ -108,6 +116,7 @@ public sealed partial class CupriNode : IAsyncDisposable
         node.StartLanDiscovery();
         node.StartPortMapping();
         node.StartTor();
+        node.StartAcceptDispatch();
         return node;
     }
 
@@ -317,107 +326,137 @@ public sealed partial class CupriNode : IAsyncDisposable
     /// ever receives channel peers, so an app's accept loop doubles as the node's overlay-serving loop.
     /// </summary>
     public async Task<PairedPeer> AcceptAsync(CancellationToken cancellationToken = default)
-    {
-        while (true)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            var vessel = await _listener.AcceptAsync(cancellationToken).ConfigureAwait(false);
+        => await _accepted.Reader.ReadAsync(cancellationToken).ConfigureAwait(false);
 
-            NoiseConjunctionResult conjunction;
-            byte kind;
+    /// <summary>Starts the single background loop that accepts inbound connections and dispatches them by kind.</summary>
+    internal void StartAcceptDispatch() => _ = AcceptDispatchLoopAsync(_lifetime.Token);
+
+    /// <summary>
+    /// Accepts inbound connections and hands each to a bounded background handshake worker. Gating on a free
+    /// handshake slot BEFORE accepting means a flood — or a batch of slow peers that connect and stall — queues
+    /// in the kernel backlog instead of stalling the loop: no single un-authenticated peer can block serving.
+    /// </summary>
+    private async Task AcceptDispatchLoopAsync(CancellationToken cancellationToken)
+    {
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            try { await _handshakeSlots.WaitAsync(cancellationToken).ConfigureAwait(false); }
+            catch (OperationCanceledException) { break; }
+
+            VesselSession vessel;
             try
             {
-                using var timed = LinkedHandshakeToken(cancellationToken);
-                // Issue and verify the pre-handshake Toll before allocating any Noise state (anti-exhaustion).
-                if (_options.EnableToll)
-                    await Toll.IssueAndVerifyAsync(vessel, _tollSecret, vessel.RemoteEndPoint, DateTimeOffset.UtcNow, timed.Token).ConfigureAwait(false);
-                conjunction = await NoiseConjunction.AcceptAsync(vessel, Identity, Network, Suite, timed.Token).ConfigureAwait(false);
-                kind = await ReadSessionKindAsync(conjunction.Vessel, timed.Token).ConfigureAwait(false);
+                vessel = await _listener.AcceptAsync(cancellationToken).ConfigureAwait(false);
             }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            catch (OperationCanceledException) { _handshakeSlots.Release(); break; }
+            catch { _handshakeSlots.Release(); continue; } // transient accept error — keep serving
+
+            _ = Task.Run(async () =>
             {
-                await vessel.DisposeAsync().ConfigureAwait(false);
-                throw;
-            }
-            catch
-            {
-                // A single failed handshake must not tear down the accept loop; skip and keep serving.
-                await vessel.DisposeAsync().ConfigureAwait(false);
-                continue;
-            }
-
-            if (kind == OverlayControl.KindControl)
-            {
-                var served = conjunction.Vessel;
-                var peerSigil = conjunction.PeerSigil;
-                var budget = _peerBudgets.GetOrAdd(peerSigil, _ =>
-                    new PeerControlBudget(_options.MaxControlRequestsPerWindow, _options.ControlWindowSeconds * 1000L));
-
-                // Ward: global cap, then per-peer connection cap — one peer cannot flood or multiply its budget.
-                if (Interlocked.Increment(ref _activeControlConnections) > _options.MaxConcurrentControlConnections
-                    || !budget.TryOpenConnection(_options.MaxControlConnectionsPerPeer))
-                {
-                    Interlocked.Decrement(ref _activeControlConnections);
-                    await served.DisposeAsync().ConfigureAwait(false);
-                    continue;
-                }
-
-                _ = Task.Run(async () =>
-                {
-                    try { await ServeControlAsync(served, budget, cancellationToken).ConfigureAwait(false); }
-                    finally
-                    {
-                        // Release the peer's slot; drop its budget once it has no more connections (bounds memory).
-                        if (budget.CloseConnection() == 0)
-                            _peerBudgets.TryRemove(new KeyValuePair<Sigil, PeerControlBudget>(peerSigil, budget));
-                        Interlocked.Decrement(ref _activeControlConnections);
-                    }
-                }, cancellationToken);
-                continue;
-            }
-
-            if (kind == OverlayControl.KindEffigy)
-            {
-                // A decoy channel session: serve it internally with cover traffic. It is never a real channel,
-                // never surfaced to the app. Counted against the global control cap so it can't be a flood vector.
-                var served = conjunction.Vessel;
-                if (Interlocked.Increment(ref _activeControlConnections) > _options.MaxConcurrentControlConnections)
-                {
-                    Interlocked.Decrement(ref _activeControlConnections);
-                    await served.DisposeAsync().ConfigureAwait(false);
-                    continue;
-                }
-                _ = Task.Run(async () =>
-                {
-                    try { await ServeEffigyAsync(served, cancellationToken).ConfigureAwait(false); }
-                    finally { Interlocked.Decrement(ref _activeControlConnections); }
-                }, cancellationToken);
-                continue;
-            }
-
-            if (kind == OverlayControl.KindPageant)
-            {
-                // An inbound Pageant (fake-group) clique edge: bind it to the group it cites and drain it.
-                var served = conjunction.Vessel;
-                var peerSigil = conjunction.PeerSigil;
-                if (Interlocked.Increment(ref _activeControlConnections) > _options.MaxConcurrentControlConnections)
-                {
-                    Interlocked.Decrement(ref _activeControlConnections);
-                    await served.DisposeAsync().ConfigureAwait(false);
-                    continue;
-                }
-                _ = Task.Run(async () =>
-                {
-                    try { await BindPageantEdgeAsync(served, peerSigil, cancellationToken).ConfigureAwait(false); }
-                    finally { Interlocked.Decrement(ref _activeControlConnections); }
-                }, cancellationToken);
-                continue;
-            }
-
-            await LearnReflexiveAsync(conjunction.Vessel, conjunction.PeerSigil, initiator: false, cancellationToken).ConfigureAwait(false);
-            await BootstrapOverlayAsync(conjunction.Vessel, initiator: false, DateTimeOffset.UtcNow, cancellationToken).ConfigureAwait(false);
-            return new PairedPeer(conjunction.Vessel, conjunction.PeerSigil, conjunction.PeerSealPublicKey, isInitiator: false);
+                try { await HandleInboundAsync(vessel, cancellationToken).ConfigureAwait(false); }
+                finally { _handshakeSlots.Release(); } // free the slot after the handshake (not the whole session)
+            }, cancellationToken);
         }
+    }
+
+    /// <summary>
+    /// Completes one inbound connection's handshake and dispatches it: overlay-control / effigy / pageant sessions
+    /// are served internally; a channel pairing is handed to a waiting <see cref="AcceptAsync"/> caller via the
+    /// accepted queue. Any handshake failure just drops the connection — it never affects the accept loop.
+    /// </summary>
+    private async Task HandleInboundAsync(VesselSession vessel, CancellationToken cancellationToken)
+    {
+        NoiseConjunctionResult conjunction;
+        byte kind;
+        try
+        {
+            using var timed = LinkedHandshakeToken(cancellationToken);
+            // Issue and verify the pre-handshake Toll before allocating any Noise state (anti-exhaustion).
+            if (_options.EnableToll)
+                await Toll.IssueAndVerifyAsync(vessel, _tollSecret, vessel.RemoteEndPoint, DateTimeOffset.UtcNow, timed.Token).ConfigureAwait(false);
+            conjunction = await NoiseConjunction.AcceptAsync(vessel, Identity, Network, Suite, timed.Token).ConfigureAwait(false);
+            kind = await ReadSessionKindAsync(conjunction.Vessel, timed.Token).ConfigureAwait(false);
+        }
+        catch
+        {
+            // A failed, timed-out, or cancelled handshake must never tear down serving; just drop this connection.
+            await vessel.DisposeAsync().ConfigureAwait(false);
+            return;
+        }
+
+        if (kind == OverlayControl.KindControl)
+        {
+            var served = conjunction.Vessel;
+            var peerSigil = conjunction.PeerSigil;
+            var budget = _peerBudgets.GetOrAdd(peerSigil, _ =>
+                new PeerControlBudget(_options.MaxControlRequestsPerWindow, _options.ControlWindowSeconds * 1000L));
+
+            // Ward: global cap, then per-peer connection cap — one peer cannot flood or multiply its budget.
+            if (Interlocked.Increment(ref _activeControlConnections) > _options.MaxConcurrentControlConnections
+                || !budget.TryOpenConnection(_options.MaxControlConnectionsPerPeer))
+            {
+                Interlocked.Decrement(ref _activeControlConnections);
+                await served.DisposeAsync().ConfigureAwait(false);
+                return;
+            }
+
+            _ = Task.Run(async () =>
+            {
+                try { await ServeControlAsync(served, budget, cancellationToken).ConfigureAwait(false); }
+                finally
+                {
+                    // Release the peer's slot; drop its budget once it has no more connections (bounds memory).
+                    if (budget.CloseConnection() == 0)
+                        _peerBudgets.TryRemove(new KeyValuePair<Sigil, PeerControlBudget>(peerSigil, budget));
+                    Interlocked.Decrement(ref _activeControlConnections);
+                }
+            }, cancellationToken);
+            return;
+        }
+
+        if (kind == OverlayControl.KindEffigy)
+        {
+            // A decoy channel session: serve it internally with cover traffic. It is never a real channel,
+            // never surfaced to the app. Counted against the global control cap so it can't be a flood vector.
+            var served = conjunction.Vessel;
+            if (Interlocked.Increment(ref _activeControlConnections) > _options.MaxConcurrentControlConnections)
+            {
+                Interlocked.Decrement(ref _activeControlConnections);
+                await served.DisposeAsync().ConfigureAwait(false);
+                return;
+            }
+            _ = Task.Run(async () =>
+            {
+                try { await ServeEffigyAsync(served, cancellationToken).ConfigureAwait(false); }
+                finally { Interlocked.Decrement(ref _activeControlConnections); }
+            }, cancellationToken);
+            return;
+        }
+
+        if (kind == OverlayControl.KindPageant)
+        {
+            // An inbound Pageant (fake-group) clique edge: bind it to the group it cites and drain it.
+            var served = conjunction.Vessel;
+            var peerSigil = conjunction.PeerSigil;
+            if (Interlocked.Increment(ref _activeControlConnections) > _options.MaxConcurrentControlConnections)
+            {
+                Interlocked.Decrement(ref _activeControlConnections);
+                await served.DisposeAsync().ConfigureAwait(false);
+                return;
+            }
+            _ = Task.Run(async () =>
+            {
+                try { await BindPageantEdgeAsync(served, peerSigil, cancellationToken).ConfigureAwait(false); }
+                finally { Interlocked.Decrement(ref _activeControlConnections); }
+            }, cancellationToken);
+            return;
+        }
+
+        await LearnReflexiveAsync(conjunction.Vessel, conjunction.PeerSigil, initiator: false, cancellationToken).ConfigureAwait(false);
+        await BootstrapOverlayAsync(conjunction.Vessel, initiator: false, DateTimeOffset.UtcNow, cancellationToken).ConfigureAwait(false);
+        var peer = new PairedPeer(conjunction.Vessel, conjunction.PeerSigil, conjunction.PeerSealPublicKey, isInitiator: false);
+        if (!_accepted.Writer.TryWrite(peer))
+            await peer.DisposeAsync().ConfigureAwait(false); // no one is accepting channels (or the backlog is full) — drop it
     }
 
     /// <summary>
@@ -612,10 +651,15 @@ public sealed partial class CupriNode : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         await _lifetime.CancelAsync().ConfigureAwait(false);
+        // Stop handing out new pairings and dispose any that were accepted but never taken.
+        _accepted.Writer.TryComplete();
+        while (_accepted.Reader.TryRead(out var pending))
+            await pending.DisposeAsync().ConfigureAwait(false);
         DisposeLan();
         await DisposeTorAsync().ConfigureAwait(false);
         await DisposeOverlayAsync().ConfigureAwait(false);
         await _listener.DisposeAsync().ConfigureAwait(false);
+        _handshakeSlots.Dispose();
         _lifetime.Dispose();
     }
 }

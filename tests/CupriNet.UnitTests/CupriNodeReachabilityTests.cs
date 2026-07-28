@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Sockets;
 using CupriNet.Abstractions;
 using CupriNet.Core;
 using CupriNet.Hosting;
@@ -61,5 +62,31 @@ public class CupriNodeReachabilityTests
         var bytes = new byte[Sigil.Size];
         Array.Fill(bytes, seed);
         return new Sigil(bytes);
+    }
+
+    [Fact]
+    public async Task AcceptLoop_IsNotBlockedByASilentPeer()
+    {
+        // Comfortably under the 30s handshake timeout: if a silent peer could stall the accept loop, a legitimate
+        // pairing would be delayed ~30s and this would cancel first.
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        var ct = cts.Token;
+
+        await using var host = await CupriNode.CreateAsync(new CupriNodeOptions { Concordium = "example.chat", EnableOverlayGossip = false }, ct);
+        await using var joiner = await CupriNode.CreateAsync(new CupriNodeOptions { Concordium = "example.chat", EnableOverlayGossip = false }, ct);
+
+        // A slow-loris: connect to the host and never speak, occupying an inbound handshake.
+        using var silent = new TcpClient();
+        await silent.ConnectAsync(IPAddress.Loopback, ((IPEndPoint)host.LocalEndPoint).Port, ct);
+
+        // A real peer must still pair promptly despite the silent connection.
+        var uri = host.IntoneUri(TimeSpan.FromHours(1), Now);
+        Assert.True(CupriNet.Core.IntonationUri.TryParse(uri, out var intonation, out _));
+
+        var acceptTask = host.AcceptAsync(ct);
+        await using var fromJoiner = await joiner.ConjoinAsync(intonation, Now, ct);
+        await using var fromHost = await acceptTask;
+
+        Assert.Equal(joiner.Identity.Sigil, fromHost.PeerSigil);
     }
 }

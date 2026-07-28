@@ -171,6 +171,14 @@ public sealed record CupriNodeOptions
     /// <summary>Max inbound overlay-control connections served concurrently across all peers — a Ward against connection floods.</summary>
     public int MaxConcurrentControlConnections { get; init; } = 256;
 
+    /// <summary>
+    /// Max inbound connections whose pre-authentication handshake (Toll + Noise) may be in progress at once. The
+    /// accept loop gates on a free slot before accepting, so a flood — or a batch of slow "slow-loris" peers that
+    /// connect and then stall — queues in the kernel backlog and can never stall the loop; each stalled handshake
+    /// also self-expires at the handshake timeout.
+    /// </summary>
+    public int MaxConcurrentHandshakes { get; init; } = 64;
+
     /// <summary>Max concurrent overlay-control connections from a single peer (Sigil), so one peer cannot multiply its budget.</summary>
     public int MaxControlConnectionsPerPeer { get; init; } = 8;
 
