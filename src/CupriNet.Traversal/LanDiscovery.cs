@@ -22,6 +22,10 @@ public sealed record DiscoveredNode(Sigil Sigil, byte[] SealPublicKey, IPEndPoin
 /// </summary>
 public sealed class LanDiscovery : IDisposable
 {
+    /// <summary>How far a presence's issue time may be from now before it is treated as stale/replayed. The announce
+    /// interval is a few seconds, so this is generous for clock skew and propagation while bounding replay reuse.</summary>
+    public static readonly TimeSpan MaxPresenceAge = TimeSpan.FromSeconds(120);
+
     private readonly NodeIdentity _identity;
     private readonly Concordium _network;
     private readonly ICryptoSuite _suite;
@@ -75,6 +79,14 @@ public sealed class LanDiscovery : IDisposable
             if (presence.Network != _network)
                 continue;
             if (presence.SealPublicKey.Length == 0 || !LanPresenceSigner.Verify(presence, _suite))
+                continue;
+
+            // Freshness: reject a stale or future-dated presence. Without this a captured announcement can be
+            // replayed indefinitely — and, since the endpoint is taken from the datagram source, replayed from the
+            // attacker's own IP to re-map the peer's Sigil to that address. (A dial still re-verifies the Sigil over
+            // Noise, so the residual same-window replay is a reachability nuisance, not impersonation.)
+            var skew = DateTimeOffset.UtcNow - DateTimeOffset.FromUnixTimeSeconds(presence.IssuedAtUnix);
+            if (skew > MaxPresenceAge || skew < -MaxPresenceAge)
                 continue;
 
             var sigil = presence.Sigil;

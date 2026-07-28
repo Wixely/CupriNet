@@ -9,7 +9,8 @@ namespace CupriNet.UnitTests;
 public class LanDiscoveryTests
 {
     private static readonly Concordium Network = new("example.chat");
-    private static readonly DateTimeOffset Now = DateTimeOffset.UnixEpoch.AddYears(56);
+    // Real time: LAN presences carry a freshness window, so announcements must be current to be accepted.
+    private static DateTimeOffset Now => DateTimeOffset.UtcNow;
     private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(15);
 
     [Fact]
@@ -79,5 +80,31 @@ public class LanDiscoveryTests
         var discovered = await listener.ReceiveAsync(ct);
         Assert.Equal(peerIdentity.Sigil, discovered.Sigil);
         Assert.Equal(3333, discovered.Endpoint.Port);
+    }
+
+    [Fact]
+    public async Task Discovery_IgnoresStalePresence()
+    {
+        using var cts = new CancellationTokenSource(Timeout);
+        var ct = cts.Token;
+        var suite = CryptoSuites.Secure();
+
+        var listenerIdentity = NodeIdentity.Generate(suite);
+        var staleId = NodeIdentity.Generate(suite);
+        var freshId = NodeIdentity.Generate(suite);
+
+        using var listener = new LanDiscovery(listenerIdentity, Network, suite, new IPEndPoint(IPAddress.Loopback, 0), []);
+        var listenerEndpoint = listener.LocalEndPoint;
+
+        using var stale = new LanDiscovery(staleId, Network, suite, new IPEndPoint(IPAddress.Loopback, 0), [listenerEndpoint]);
+        using var fresh = new LanDiscovery(freshId, Network, suite, new IPEndPoint(IPAddress.Loopback, 0), [listenerEndpoint]);
+
+        // A replayed/old announcement (well outside the freshness window) must be skipped; a current one is returned.
+        await stale.AnnounceAsync(1111, Now - LanDiscovery.MaxPresenceAge - TimeSpan.FromMinutes(5), ct);
+        await fresh.AnnounceAsync(2222, Now, ct);
+
+        var discovered = await listener.ReceiveAsync(ct);
+        Assert.Equal(freshId.Sigil, discovered.Sigil);
+        Assert.Equal(2222, discovered.Endpoint.Port);
     }
 }

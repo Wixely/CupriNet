@@ -16,6 +16,8 @@ namespace CupriNet.Hosting;
 /// </summary>
 public sealed partial class CupriNode
 {
+    private const int MaxDiscoveredPeers = 512;
+
     private LanDiscovery? _lan;
     private readonly ConcurrentDictionary<Sigil, DiscoveredNode> _discoveredPeers = new();
 
@@ -62,6 +64,10 @@ public sealed partial class CupriNode
             catch { continue; }
 
             var isNew = !_discoveredPeers.ContainsKey(node.Sigil);
+            // Ward: an attacker can mint unlimited keypairs and sign a valid presence for each. Cap the table so a
+            // flood of fresh Sigils can't grow it without bound; updates to known peers always apply.
+            if (isNew && _discoveredPeers.Count >= MaxDiscoveredPeers)
+                continue;
             _discoveredPeers[node.Sigil] = node;
             if (isNew)
             {
