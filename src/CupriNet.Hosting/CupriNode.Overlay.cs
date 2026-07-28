@@ -453,7 +453,8 @@ public sealed partial class CupriNode
         foreach (var extra in new[] { ReflexiveObserver.MappedBeacon(), _mappedBeacon, _onionBeacon })
             if (extra is not null && !beacons.Any(b => b.Kind == extra.Kind && b.Host == extra.Host && b.Port == extra.Port))
                 beacons.Add(extra);
-        return beacons;
+        // This record is gossiped across the overlay to remote peers, so never leak a private/LAN address.
+        return RemoteFacingBeacons(beacons);
     }
 
     private const long TributeEpochSeconds = 600; // coarse 10-minute buckets, derived from wall-clock on both sides

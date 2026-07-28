@@ -30,6 +30,16 @@ public sealed record CupriNodeOptions
     public IReadOnlyList<Beacon>? AdvertisedBeacons { get; init; }
 
     /// <summary>
+    /// Advertise private/LAN addresses (RFC 1918, CGNAT, link-local) to remote parties — in links and in the
+    /// self-record gossiped across the overlay. <em>Off by default</em>: a private Host beacon reveals your
+    /// internal network topology to whoever receives it, so it is stripped from anything remote-facing. Loopback,
+    /// public addresses, hostnames, and onion beacons are always kept. Same-LAN peers still pair via LAN discovery
+    /// (which is local-broadcast only and never embeds your address in an overlay-visible document). Turn this on
+    /// only for a LAN-only or fully-trusted deployment where you want direct overlay/link reachability by IP.
+    /// </summary>
+    public bool AdvertiseLocalAddresses { get; init; }
+
+    /// <summary>
     /// Run a reflexive-endpoint exchange during pairing so the node learns its externally-observed
     /// (Mapped) address. Requires both peers to support it. Default true.
     /// </summary>

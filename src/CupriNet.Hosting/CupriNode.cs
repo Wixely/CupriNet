@@ -136,6 +136,7 @@ public sealed partial class CupriNode : IAsyncDisposable
             foreach (var mapped in new[] { ReflexiveObserver.MappedBeacon(), _mappedBeacon, _onionBeacon })
                 if (mapped is not null && !beacons.Any(b => b.Kind == mapped.Kind && b.Host == mapped.Host && b.Port == mapped.Port))
                     beacons.Add(mapped);
+            beacons = RemoteFacingBeacons(beacons); // don't leak a private/LAN address to whoever gets this link
         }
         var litany = Constellation.Sample(IntonationCodec.MaxLitany).Select(r => r.Sigil).ToList();
 
@@ -152,6 +153,22 @@ public sealed partial class CupriNode : IAsyncDisposable
     /// <summary>Renders an Intonation as its <c>cuprinet://intone/…</c> URL.</summary>
     public string IntoneUri(TimeSpan lifetime, DateTimeOffset now, byte[]? petition = null)
         => IntonationUri.ToUri(Intone(lifetime, now, petition));
+
+    /// <summary>
+    /// Strips private/LAN addresses (RFC 1918, CGNAT, link-local) from beacons bound for a remote party — a link
+    /// recipient or the gossiped overlay — so internal network topology is never leaked. Loopback (harmless and
+    /// needed same-machine), public IPs, hostnames, and onion beacons pass through. Opt out with
+    /// <see cref="CupriNodeOptions.AdvertiseLocalAddresses"/> for a LAN-only / fully-trusted deployment.
+    /// </summary>
+    private List<Beacon> RemoteFacingBeacons(IReadOnlyList<Beacon> beacons)
+    {
+        if (_options.AdvertiseLocalAddresses)
+            return beacons.ToList();
+        return beacons.Where(b =>
+            !IPAddress.TryParse(b.Host, out var ip)     // a hostname or onion address — can't classify, so keep it
+            || IPAddress.IsLoopback(ip)
+            || NetworkReachability.IsPubliclyRoutable(ip)).ToList();
+    }
 
     /// <summary>Validates an Intonation, dials one of its beacons, and completes the Conjunction pairing.</summary>
     public async Task<PairedPeer> ConjoinAsync(Intonation intonation, DateTimeOffset now, CancellationToken cancellationToken = default)

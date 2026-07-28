@@ -57,6 +57,35 @@ public class CupriNodeReachabilityTests
         Assert.Contains(intonation.Beacons, b => b.Kind == EndpointKind.Host); // Host beacon still present
     }
 
+    [Fact]
+    public async Task Intone_And_SelfRecord_StripPrivateAddresses_ByDefault()
+    {
+        using var cts = new CancellationTokenSource(Timeout);
+        var ct = cts.Token;
+
+        var lan = new Beacon(EndpointKind.Host, "192.168.0.15", 43820);       // private — a topology leak
+        var wan = new Beacon(EndpointKind.Manual, "203.0.113.5", 51000);      // public — safe to advertise
+
+        // Default: private/LAN addresses are stripped from the link (they'd otherwise reach whoever gets it).
+        await using var priv = await CupriNode.CreateAsync(new CupriNodeOptions
+        {
+            Concordium = "example.chat", EnableOverlayGossip = false, AdvertisedBeacons = [lan, wan],
+        }, ct);
+        var link = priv.Intone(TimeSpan.FromHours(1), Now).Beacons;
+        Assert.DoesNotContain(link, b => b.Host == "192.168.0.15");
+        Assert.Contains(link, b => b.Host == "203.0.113.5");
+        // The gossiped self-record must not carry the LAN address either.
+        Assert.DoesNotContain(priv.SelfRecord(Now).Endpoints, b => b.Host == "192.168.0.15");
+
+        // Opt-in restores it for a LAN-only / trusted deployment.
+        await using var local = await CupriNode.CreateAsync(new CupriNodeOptions
+        {
+            Concordium = "example.chat", EnableOverlayGossip = false, AdvertisedBeacons = [lan, wan],
+            AdvertiseLocalAddresses = true,
+        }, ct);
+        Assert.Contains(local.Intone(TimeSpan.FromHours(1), Now).Beacons, b => b.Host == "192.168.0.15");
+    }
+
     private static Sigil Sig(byte seed)
     {
         var bytes = new byte[Sigil.Size];
