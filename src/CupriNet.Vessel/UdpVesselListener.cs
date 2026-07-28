@@ -15,20 +15,27 @@ namespace CupriNet.Vessel;
 public sealed class UdpVesselListener : IAsyncDisposable
 {
     private const int MaxDatagram = 1500;
+
+    /// <summary>Per-peer inbound datagram queue bound (Ward): a peer flooding faster than its ARQ drains loses excess
+    /// (ARQ retransmits legitimate segments). Caps memory at ~<see cref="MaxDatagram"/> × this per peer.</summary>
+    private const int MaxInboundQueuePerPeer = 64;
+
     private readonly Socket _socket;
     private readonly int _maxFrameSize;
+    private readonly int _maxPeers;
     private readonly ConcurrentDictionary<EndPoint, DemuxLink> _peers = new();
     private readonly Channel<Vessel> _accepted = Channel.CreateUnbounded<Vessel>();
     private readonly CancellationTokenSource _cts = new();
     private readonly Task _receiveLoop;
 
-    public UdpVesselListener(IPEndPoint endpoint, int maxFrameSize = FrameCodec.DefaultMaxFrameSize)
+    public UdpVesselListener(IPEndPoint endpoint, int maxFrameSize = FrameCodec.DefaultMaxFrameSize, int maxPeers = 256)
     {
         ArgumentNullException.ThrowIfNull(endpoint);
         _socket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
         _socket.Bind(endpoint);
         DisableUdpConnReset(_socket);
         _maxFrameSize = maxFrameSize;
+        _maxPeers = Math.Max(1, maxPeers);
         _receiveLoop = Task.Run(ReceiveLoopAsync);
     }
 
@@ -50,9 +57,21 @@ public sealed class UdpVesselListener : IAsyncDisposable
             catch (SocketException) { continue; }
             catch (ObjectDisposedException) { break; }
 
-            var datagram = buffer[..received.ReceivedBytes];
-            var link = _peers.GetOrAdd(received.RemoteEndPoint, OpenPeer);
-            link.Deliver(datagram);
+            var remote = received.RemoteEndPoint;
+            if (_peers.TryGetValue(remote, out var existing))
+            {
+                existing.Deliver(buffer[..received.ReceivedBytes]);
+                continue;
+            }
+
+            // A new source. UDP source addresses are trivially spoofable, so opening per-peer state (an ArqStream
+            // with background loops + a Vessel) is gated: drop datagrams too small to be a valid ARQ segment, and
+            // never exceed the peer cap — so a flood of spoofed sources cannot exhaust memory or the thread pool.
+            if (received.ReceivedBytes < ReliableArq.MinSegmentSize || _peers.Count >= _maxPeers)
+                continue;
+
+            var link = _peers.GetOrAdd(remote, OpenPeer);
+            link.Deliver(buffer[..received.ReceivedBytes]);
         }
     }
 
@@ -87,7 +106,10 @@ public sealed class UdpVesselListener : IAsyncDisposable
     /// outbound go to this peer's endpoint. It never closes the shared socket.</summary>
     private sealed class DemuxLink(Socket socket, EndPoint remote, EndPoint? local) : IPacketLink
     {
-        private readonly Channel<byte[]> _inbound = Channel.CreateUnbounded<byte[]>();
+        // Bounded: a peer that floods faster than its ARQ drains drops excess datagrams (ARQ retransmits the
+        // legitimate ones), so a single source cannot grow this queue without limit.
+        private readonly Channel<byte[]> _inbound = Channel.CreateBounded<byte[]>(
+            new BoundedChannelOptions(MaxInboundQueuePerPeer) { FullMode = BoundedChannelFullMode.DropWrite });
 
         public EndPoint? LocalEndPoint => local;
         public EndPoint? RemoteEndPoint => remote;

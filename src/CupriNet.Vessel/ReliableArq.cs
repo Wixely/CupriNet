@@ -24,6 +24,9 @@ public sealed class ReliableArq
     private const byte CmdClose = 3; // a sequenced end-of-stream marker (delivered in order, like an empty push)
     private const int Header = 11;
 
+    /// <summary>Smallest valid segment (header, no payload) — a cheap pre-filter for a listener before it allocates state.</summary>
+    internal const int MinSegmentSize = Header;
+
     /// <summary>Max application payload per segment (keeps a datagram comfortably under a typical MTU).</summary>
     public const int Mss = 1152;
 
