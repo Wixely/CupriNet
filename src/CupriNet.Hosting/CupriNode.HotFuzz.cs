@@ -30,8 +30,11 @@ public sealed partial class CupriNode
     /// </summary>
     internal void StartHotFuzz()
     {
+        // Cover traffic buys little over Tor (its transport already hides the per-connection tell) and costs scarce
+        // relay bandwidth, so it is not run in Tor-only mode — the onion service is the anonymity set there.
         if (_options is { EnableHotFuzz: true, EnableOverlayGossip: true, Power: PowerProfile.Unmetered }
-            && _options.HotFuzzDegree > 0)
+            && _options.HotFuzzDegree > 0
+            && _options.Mode != ReachabilityMode.TorOnly)
             _ = HotFuzzLoopAsync(_lifetime.Token);
     }
 

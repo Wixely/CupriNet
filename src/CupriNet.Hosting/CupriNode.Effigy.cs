@@ -38,8 +38,10 @@ public sealed partial class CupriNode
     /// </summary>
     internal void StartEffigies()
     {
+        // Not run in Tor-only mode: L2-shaped cover traffic over Tor is high-bandwidth for little gain (see StartHotFuzz).
         if (_options is { EnableEffigies: true, Power: PowerProfile.Unmetered }
-            && (_options.EffigyCount > 0 || _options.EffigyGroupSize > 0))
+            && (_options.EffigyCount > 0 || _options.EffigyGroupSize > 0)
+            && _options.Mode != ReachabilityMode.TorOnly)
             _ = EffigyLoopAsync(_lifetime.Token);
     }
 

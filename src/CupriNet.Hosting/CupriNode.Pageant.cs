@@ -37,7 +37,10 @@ public sealed partial class CupriNode
 
     internal void StartPageants()
     {
-        if (_options.Power == PowerProfile.Unmetered && (_options.EnablePageants || _options.MaxPageantsAsMember > 0))
+        // Not run in Tor-only mode: fake-group cover traffic over Tor is high-bandwidth for little gain (see StartHotFuzz).
+        if (_options.Power == PowerProfile.Unmetered
+            && (_options.EnablePageants || _options.MaxPageantsAsMember > 0)
+            && _options.Mode != ReachabilityMode.TorOnly)
             _ = PageantLoopAsync(_lifetime.Token);
     }
 

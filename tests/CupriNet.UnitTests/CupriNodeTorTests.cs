@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Net;
 using System.Text;
 using CupriNet.Abstractions;
+using CupriNet.Concordance;
 using CupriNet.Core;
 using CupriNet.Hosting;
 using CupriNet.Persistence;
@@ -168,6 +169,78 @@ public class CupriNodeTorTests
 
         var ex = await Assert.ThrowsAsync<CupriNodeException>(async () => await joiner.ConjoinAsync(link!, now, ct));
         Assert.Contains("clearnet", ex.Message);
+    }
+
+    [Fact]
+    public async Task TorOnly_Overlay_DropsClearnetRecords_KeepsOnionRecords()
+    {
+        using var cts = new CancellationTokenSource(Timeout);
+        var ct = cts.Token;
+        var now = DateTimeOffset.UtcNow;
+
+        var fake = new FakeOnionTransport((_, _) => throw new InvalidOperationException());
+        await using var tor = await CupriNode.CreateAsync(new CupriNodeOptions
+        {
+            Concordium = "tor.test", EnableOverlayGossip = false,
+            Mode = ReachabilityMode.TorOnly, SecretStore = new DurableStore(), OnionTransport = fake,
+        }, ct);
+        // A standard node, as a positive control that the filter does not break normal admission.
+        await using var clear = await CupriNode.CreateAsync(new CupriNodeOptions { Concordium = "tor.test", EnableOverlayGossip = false }, ct);
+        // A third identity whose records we admit.
+        await using var subject = await CupriNode.CreateAsync(new CupriNodeOptions { Concordium = "tor.test", EnableOverlayGossip = false }, ct);
+
+        var host = new Beacon(EndpointKind.Host, "203.0.113.5", 40000);
+        var onion = new Beacon(EndpointKind.Onion, new string('b', 56) + ".onion", CupriNode.OnionVirtualPort);
+
+        // Two distinct signer identities so admits don't collide as "updates".
+        var clearnetRecord = PeerRecordSigner.Create(subject.Identity, [host], 1, PeerCapabilities.ChannelProvider, tor.Suite, now);
+        var onionRecord = PeerRecordSigner.Create(clear.Identity, [onion], 1, PeerCapabilities.ChannelProvider, tor.Suite, now);
+
+        // Tor-only node: a clearnet-only record is refused (we could only reach it over clearnet)...
+        Assert.False(tor.AdmitPeer(clearnetRecord, now));
+        Assert.Null(tor.Constellation.Get(subject.Identity.Sigil));
+
+        // ...but an onion-bearing record is admitted — we can reach it over Tor.
+        Assert.True(tor.AdmitPeer(onionRecord, now));
+        Assert.NotNull(tor.Constellation.Get(clear.Identity.Sigil));
+
+        // A standard node still admits the clearnet record — the partition doesn't break normal mode.
+        Assert.True(clear.AdmitPeer(clearnetRecord, now));
+    }
+
+    [Fact]
+    public async Task TorOnly_Overlay_DialsOnion_NeverClearnet()
+    {
+        using var cts = new CancellationTokenSource(Timeout);
+        var ct = cts.Token;
+        var now = DateTimeOffset.UtcNow;
+
+        // The onion transport records what address it was asked to dial, then aborts (we only assert the lane used).
+        string? dialed = null;
+        var fake = new FakeOnionTransport((address, _) =>
+        {
+            dialed = address;
+            throw new InvalidOperationException("recorded");
+        });
+        await using var tor = await CupriNode.CreateAsync(new CupriNodeOptions
+        {
+            Concordium = "tor.test", EnableOverlayGossip = false,
+            Mode = ReachabilityMode.TorOnly, SecretStore = new DurableStore(), OnionTransport = fake,
+        }, ct);
+        await using var subject = await CupriNode.CreateAsync(new CupriNodeOptions { Concordium = "tor.test", EnableOverlayGossip = false }, ct);
+
+        // A dual-stack peer: a real clearnet Host beacon AND an onion beacon. The Tor node must use ONLY the onion.
+        var host = new Beacon(EndpointKind.Host, "203.0.113.5", 40000);
+        var onionAddress = new string('c', 56) + ".onion";
+        var onion = new Beacon(EndpointKind.Onion, onionAddress, CupriNode.OnionVirtualPort);
+        var dualStack = PeerRecordSigner.Create(subject.Identity, [host, onion], 1, PeerCapabilities.ChannelProvider, tor.Suite, now);
+        Assert.True(tor.AdmitPeer(dualStack, now));
+
+        // Drive one gossip round; the only reachable peer is the dual-stack one.
+        await tor.GossipOnceAsync(fanout: 1, sampleSize: 8, ct);
+
+        // It dialled the .onion over the onion transport — never opened a clearnet socket to 203.0.113.5.
+        Assert.Equal(onionAddress, dialed);
     }
 
     [Fact]

@@ -37,7 +37,8 @@ public sealed partial class CupriNode
     {
         var now = DateTimeOffset.UtcNow;
         foreach (var record in await ConstellationStore.LoadAsync(store, Suite, cancellationToken).ConfigureAwait(false))
-            Constellation.Admit(record, PeerBucket.Wayfarers, now, "warm-start");
+            if (CanReach(record))
+                Constellation.Admit(record, PeerBucket.Wayfarers, now, "warm-start");
     }
 
     /// <summary>A signed, self-describing record of this node (its dialable beacons + capabilities) to seed peers with.</summary>
@@ -50,6 +51,8 @@ public sealed partial class CupriNode
         ArgumentNullException.ThrowIfNull(record);
         if (!PeerRecordSigner.Verify(record, Suite))
             return false;
+        if (!CanReach(record))
+            return false; // a record we can't dial on our own transport (e.g. a clearnet peer in Tor-only mode)
         return Constellation.Admit(record, PeerBucket.Wayfarers, now, "seed") == AdmissionResult.Admitted;
     }
 
@@ -307,10 +310,7 @@ public sealed partial class CupriNode
         if (_controlPool.TryGetValue(sigil, out var pooled))
             return pooled;
 
-        var beacon = peer.Endpoints.FirstOrDefault(b => b.Kind is EndpointKind.Host or EndpointKind.Mapped or EndpointKind.Manual)
-                     ?? throw new CupriNodeException("Peer has no dialable beacon.");
-
-        var vessel = await TcpVessel.ConnectAsync(beacon.Host, beacon.Port, cancellationToken: cancellationToken).ConfigureAwait(false);
+        var vessel = await DialControlVesselAsync(peer, cancellationToken).ConfigureAwait(false);
         try
         {
             using var timed = LinkedHandshakeToken(cancellationToken);
@@ -333,6 +333,34 @@ public sealed partial class CupriNode
             await vessel.DisposeAsync().ConfigureAwait(false);
             throw;
         }
+    }
+
+    /// <summary>
+    /// Opens the transport vessel for an overlay-control connection over the lane matching this node's mode. In
+    /// Tor-only mode this is ONLY the peer's onion beacon over the onion transport — never a clearnet socket — which
+    /// is the choke point that keeps a Tor identity off clearnet even when handed a dual-stack peer record. In
+    /// standard mode it is a direct TCP dial to a Host/Mapped/Manual beacon (with onion as a fallback if available).
+    /// </summary>
+    private async Task<IVessel> DialControlVesselAsync(PeerRecord peer, CancellationToken cancellationToken)
+    {
+        if (_options.Mode == ReachabilityMode.TorOnly)
+        {
+            if (_onion is null)
+                throw new CupriNodeException("Tor-only overlay dialing requires an onion transport.");
+            var onion = peer.Endpoints.FirstOrDefault(b => b.Kind == EndpointKind.Onion)
+                        ?? throw new CupriNodeException("Tor-only overlay: peer has no onion beacon to dial.");
+            return await _onion.ConnectAsync(onion.Host, onion.Port, cancellationToken).ConfigureAwait(false);
+        }
+
+        var beacon = peer.Endpoints.FirstOrDefault(b => b.Kind is EndpointKind.Host or EndpointKind.Mapped or EndpointKind.Manual);
+        if (beacon is not null)
+            return await TcpVessel.ConnectAsync(beacon.Host, beacon.Port, cancellationToken: cancellationToken).ConfigureAwait(false);
+
+        var onionFallback = _onion is not null ? peer.Endpoints.FirstOrDefault(b => b.Kind == EndpointKind.Onion) : null;
+        if (onionFallback is not null)
+            return await _onion!.ConnectAsync(onionFallback.Host, onionFallback.Port, cancellationToken).ConfigureAwait(false);
+
+        throw new CupriNodeException("Peer has no dialable beacon.");
     }
 
     private void EvictControl(Sigil sigil)
@@ -395,6 +423,8 @@ public sealed partial class CupriNode
             {
                 if (record.Sigil == Identity.Sigil)
                     continue; // ourselves
+                if (!CanReach(record))
+                    continue; // cross-network record: not dialable on our transport, so never admit or re-gossip it
                 if (Constellation.Admit(record, PeerBucket.Strangers, now, "gossip") == AdmissionResult.Admitted)
                     learned++;
             }
@@ -407,12 +437,27 @@ public sealed partial class CupriNode
 
     private IReadOnlyList<Beacon> SelfBeacons()
     {
+        // Tor-only: our self-record advertises ONLY the onion beacon — never a clearnet Host/Mapped address that
+        // a peer could learn or gossip and tie to our onion Sigil.
+        if (_options.Mode == ReachabilityMode.TorOnly)
+            return _onionBeacon is not null ? [_onionBeacon] : [];
+
         var beacons = new List<Beacon> { new(EndpointKind.Host, _advertiseHost, LocalEndPoint.Port) };
-        var mapped = ReflexiveObserver.MappedBeacon();
-        if (mapped is not null && !beacons.Any(b => b.Kind == mapped.Kind && b.Host == mapped.Host && b.Port == mapped.Port))
-            beacons.Add(mapped);
+        foreach (var extra in new[] { ReflexiveObserver.MappedBeacon(), _mappedBeacon, _onionBeacon })
+            if (extra is not null && !beacons.Any(b => b.Kind == extra.Kind && b.Host == extra.Host && b.Port == extra.Port))
+                beacons.Add(extra);
         return beacons;
     }
+
+    /// <summary>Whether THIS node can actually dial a beacon given its transport/mode — the anti-cross-network rule.</summary>
+    private bool CanDial(Beacon beacon)
+        => _options.Mode == ReachabilityMode.TorOnly
+            ? beacon.Kind == EndpointKind.Onion // Tor-only: onion transport only, never a clearnet address
+            : beacon.Kind is EndpointKind.Host or EndpointKind.Mapped or EndpointKind.Manual
+              || (beacon.Kind == EndpointKind.Onion && _onion is not null);
+
+    /// <summary>True only if we can reach the peer on our own transport; used to drop cross-network records at intake.</summary>
+    private bool CanReach(PeerRecord record) => record.Endpoints.Any(CanDial);
 
     private async ValueTask DisposeOverlayAsync()
     {
