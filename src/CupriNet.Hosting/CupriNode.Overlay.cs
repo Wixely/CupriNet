@@ -198,9 +198,14 @@ public sealed partial class CupriNode
                     var decreeBytes = reader.ReadBytes();
                     var nonce = reader.ReadBytes();
                     var decree = DecreeCodec.Decode(decreeBytes).Decree;
-                    // Store only a validly-signed advert that paid enough proof-of-work (the Tribute Ward).
+                    // Store only a validly-signed advert that paid enough proof-of-work (the Tribute Ward). The proof
+                    // is bound to THIS holder (our Sigil) and the current epoch, so it cannot be transplanted to other
+                    // holders or replayed in a later epoch. A ±1-epoch window tolerates clock skew across nodes.
+                    var epoch = TributeEpoch(now);
                     if (DecreeSigner.Verify(decree, Suite)
-                        && Tribute.Verify(decreeBytes, nonce, _options.RequiredTributeDifficulty))
+                        && (Tribute.Verify(TributeSubject(decreeBytes, Identity.Sigil, epoch), nonce, _options.RequiredTributeDifficulty)
+                            || Tribute.Verify(TributeSubject(decreeBytes, Identity.Sigil, epoch - 1), nonce, _options.RequiredTributeDifficulty)
+                            || Tribute.Verify(TributeSubject(decreeBytes, Identity.Sigil, epoch + 1), nonce, _options.RequiredTributeDifficulty)))
                     {
                         _decrees.Publish(decree, now);
                         return OverlayControl.StatusResponse(OverlayControl.StatusOk);
@@ -284,8 +289,10 @@ public sealed partial class CupriNode
         {
             var conn = await GetControlAsync(holder, cancellationToken).ConfigureAwait(false);
             var decreeBytes = DecreeCodec.Encode(decree);
-            // Pay the Tribute over this advert so a holder that requires proof-of-work will store it.
-            var nonce = Tribute.Solve(decreeBytes, _options.TributeDifficulty, cancellationToken);
+            // Pay the Tribute, bound to this specific holder and the current epoch, so the proof can't be reused
+            // against other holders or in a later epoch.
+            var subject = TributeSubject(decreeBytes, holder.Sigil, TributeEpoch(DateTimeOffset.UtcNow));
+            var nonce = Tribute.Solve(subject, _options.TributeDifficulty, cancellationToken);
             await conn.RoundtripAsync(OverlayControl.PublishRequest(decreeBytes, nonce), cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException) { throw; }
@@ -447,6 +454,22 @@ public sealed partial class CupriNode
             if (extra is not null && !beacons.Any(b => b.Kind == extra.Kind && b.Host == extra.Host && b.Port == extra.Port))
                 beacons.Add(extra);
         return beacons;
+    }
+
+    private const long TributeEpochSeconds = 600; // coarse 10-minute buckets, derived from wall-clock on both sides
+
+    private static long TributeEpoch(DateTimeOffset now) => now.ToUnixTimeSeconds() / TributeEpochSeconds;
+
+    /// <summary>Binds a Tribute proof to a specific holder (its Sigil) and epoch, so it cannot be transplanted to
+    /// another holder or replayed in a later epoch.</summary>
+    private static byte[] TributeSubject(ReadOnlySpan<byte> decreeBytes, Sigil holder, long epoch)
+    {
+        var holderKey = holder.Span;
+        var subject = new byte[decreeBytes.Length + holderKey.Length + 8];
+        decreeBytes.CopyTo(subject);
+        holderKey.CopyTo(subject.AsSpan(decreeBytes.Length));
+        System.Buffers.Binary.BinaryPrimitives.WriteInt64BigEndian(subject.AsSpan(decreeBytes.Length + holderKey.Length), epoch);
+        return subject;
     }
 
     /// <summary>Whether THIS node can actually dial a beacon given its transport/mode — the anti-cross-network rule.</summary>
