@@ -125,6 +125,8 @@ public sealed class ReflexiveObserver
 
         if (weight <= 0)
             return;                       // tainted / quarantined reporter — no vote at all
+        if (observed.Port is <= 0 or > ushort.MaxValue)
+            return;                       // port 0 (or out of range) is never a dialable endpoint
 
         var address = Canonical(observed.Address);
         var source = Canonical(reporterSource);

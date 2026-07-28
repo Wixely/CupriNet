@@ -657,7 +657,9 @@ public sealed partial class CupriNode : IAsyncDisposable
             return 1; // dialled but untracked — minimal, non-zero trust
         if (entry.Bucket == PeerBucket.Excommunicate)
             return 0; // quarantined for misbehaviour — no vote
-        return Math.Clamp(1 + entry.Standing - entry.Taint, 0, ReflexiveObserver.MaxReporterWeight);
+        // Weight comes from an anchored relationship (a real Intonation/Consecration), not raw Standing — which a
+        // peer can farm cheaply by answering gossip. Reflexive reporters are pairing peers, so this is normally 2.
+        return Constellation.IsAnchored(reporter) ? 2 : 1;
     }
 
     public async ValueTask DisposeAsync()

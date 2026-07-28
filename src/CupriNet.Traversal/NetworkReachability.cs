@@ -34,11 +34,16 @@ public static class NetworkReachability
             return true;
         }
 
-        // IPv6: reject unspecified, link-local (fe80::/10), unique-local (fc00::/7), and multicast (ff00::/8).
+        // IPv6: only a global-unicast address (2000::/3) is a plausible public endpoint, and within that, reject
+        // transition/documentation ranges that aren't ordinarily dialable.
         if (address.IsIPv6LinkLocal || address.IsIPv6Multicast || address.Equals(IPAddress.IPv6Any))
             return false;
         var v6 = address.GetAddressBytes();
-        if ((v6[0] & 0xFE) == 0xFC) return false; // fc00::/7 unique-local
+        if ((v6[0] & 0xFE) == 0xFC) return false;                                            // fc00::/7 unique-local
+        if ((v6[0] & 0xE0) != 0x20) return false;                                            // outside global-unicast 2000::/3
+        if (v6[0] == 0x20 && v6[1] == 0x02) return false;                                    // 6to4 2002::/16 (may embed a private IPv4)
+        if (v6[0] == 0x20 && v6[1] == 0x01 && v6[2] == 0x00 && v6[3] == 0x00) return false;  // Teredo 2001:0000::/32
+        if (v6[0] == 0x20 && v6[1] == 0x01 && v6[2] == 0x0d && v6[3] == 0xb8) return false;  // documentation 2001:db8::/32
         return true;
     }
 }
