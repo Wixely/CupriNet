@@ -34,7 +34,9 @@ RUN mkdir -p /data && chown app:app /data
 USER app
 VOLUME ["/data"]
 
-# Default listen port (override with CUPRINET_LODESTAR_ListenPort). Publish with `-p 43820:43820`.
+# Default overlay listen port (override with CUPRINET_LODESTAR_ListenPort). Publish with `-p 43820:43820`.
 EXPOSE 43820
+# Optional status page (enable with CUPRINET_LODESTAR_EnableWeb=true). Publish with `-p 8080:8080`.
+EXPOSE 8080
 
 ENTRYPOINT ["dotnet", "cuprinet-lodestar.dll"]

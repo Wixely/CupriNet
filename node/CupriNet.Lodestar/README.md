@@ -31,6 +31,11 @@ Settings bind from `appsettings.json` (the `Lodestar` section), then environment
 | `ListenPort` | `CUPRINET_LODESTAR_ListenPort` | `43820` | TCP port to listen on. |
 | `PublicHost` | `CUPRINET_LODESTAR_PublicHost` | *(none)* | Reachable DNS/IP to advertise in this node's link. |
 | `PublicPort` | `CUPRINET_LODESTAR_PublicPort` | = `ListenPort` | Port advertised with `PublicHost`. |
+| `AdvertisedAddresses` | `CUPRINET_LODESTAR_AdvertisedAddresses__0`, … | `[]` | Extra reachable `host` / `host:port` addresses to put in the link — for a bootstrap where the service has public IPs it can't discover itself (cloud NAT/LB, second NIC, DNS name). Added alongside `PublicHost`. |
+| `EnableWeb` | `CUPRINET_LODESTAR_EnableWeb` | `false` | Serve a small read-only HTTP status page (link + QR, auto-refreshing). HTTP only — front with a reverse proxy for TLS. |
+| `WebListenAddress` | `CUPRINET_LODESTAR_WebListenAddress` | `0.0.0.0` | Interface the status page binds to. |
+| `WebPort` | `CUPRINET_LODESTAR_WebPort` | `8080` | Status-page TCP port. |
+| `WebRefreshSeconds` | `CUPRINET_LODESTAR_WebRefreshSeconds` | `30` | How often the link is regenerated and the browser re-polls (cached between regenerations). |
 | `DataDirectory` | `CUPRINET_LODESTAR_DataDirectory` | per‑OS | Hot path: identity, master key, known peers. |
 | `SeedLinks` | `CUPRINET_LODESTAR_SeedLinks__0`, … | `[]` | Seed links (array). |
 | `SeedsFile` | `CUPRINET_LODESTAR_SeedsFile` | *(none)* | File of seed links, one per line (`#` comments ok). |
@@ -112,14 +117,26 @@ docker build --secret id=packages_token,env=PACKAGES_TOKEN \
 
 docker run -d --name lodestar \
   -p 43820:43820 \
+  -p 8080:8080 \
   -v lodestar-data:/data \
   -e CUPRINET_LODESTAR_Concordium=example.chat \
   -e CUPRINET_LODESTAR_PublicHost=lodestar.example.net \
+  -e CUPRINET_LODESTAR_AdvertisedAddresses__0=203.0.113.9 \
+  -e CUPRINET_LODESTAR_AdvertisedAddresses__1=198.51.100.7:43820 \
+  -e CUPRINET_LODESTAR_EnableWeb=true \
   -e CUPRINET_LODESTAR_SEEDS="cuprinet://intone/AAA…;cuprinet://intone/BBB…" \
   cuprinet-lodestar
 
 docker logs -f lodestar    # copy the node's own link from here
 ```
+
+### Status page
+
+With `EnableWeb=true` (and the web port published, e.g. `-p 8080:8080`) the node serves a small read-only page at
+`http://<host>:8080/` showing its current connection link and a QR code. The browser auto-refreshes them by polling
+a tiny JSON endpoint — no manual reload, no client-side libraries — and the link is **cached** (regenerated at most
+once per `WebRefreshSeconds`, not on every request). It is **HTTP only** by design; terminate TLS with a reverse
+proxy (nginx/Caddy/Traefik) if you want HTTPS. The QR is rendered server-side (pure-managed, no native deps).
 
 The `/data` volume is the hot path — keep it to preserve the node's identity and known peers across restarts.
 

@@ -67,9 +67,14 @@ public sealed class LodestarService : BackgroundService
             await BootstrapFromSeedsAsync(node, stoppingToken).ConfigureAwait(false);
 
             // Serve inbound overlay control forever, and keep the map fresh / persisted, until shutdown.
-            await Task.WhenAll(
+            var loops = new List<Task>
+            {
                 AcceptLoopAsync(node, stoppingToken),
-                MaintenanceLoopAsync(node, startedAt, stoppingToken)).ConfigureAwait(false);
+                MaintenanceLoopAsync(node, startedAt, stoppingToken),
+            };
+            if (_options.EnableWeb)
+                loops.Add(WebLoopAsync(node, stoppingToken));
+            await Task.WhenAll(loops).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
@@ -98,9 +103,7 @@ public sealed class LodestarService : BackgroundService
         var masterKey = KeyFileMasterKey.LoadOrCreate(Path.Combine(dataDir, "master.key"));
         var store = new FileSecretStore(Path.Combine(dataDir, "secrets"), new AeadDataProtector(suite, masterKey));
 
-        IReadOnlyList<Beacon>? advertised = null;
-        if (!string.IsNullOrWhiteSpace(_options.PublicHost))
-            advertised = new[] { new Beacon(EndpointKind.Host, _options.PublicHost, _options.PublicPort ?? _options.ListenPort) };
+        var advertised = BuildAdvertisedBeacons();
 
         var node = await CupriNode.CreateAsync(new CupriNodeOptions
         {
@@ -150,10 +153,11 @@ public sealed class LodestarService : BackgroundService
         // Prominent, easy to copy from console/journal — this is the link others use to join our network.
         _log.LogInformation("This node's connection link (share it so others can join / seed from us):");
         _log.LogInformation("    {Link}", link);
-        if (string.IsNullOrWhiteSpace(_options.PublicHost) && !_options.EnablePortMapping)
+        if (string.IsNullOrWhiteSpace(_options.PublicHost) && _options.AdvertisedAddresses.Count == 0 && !_options.EnablePortMapping)
             _log.LogWarning(
-                "No PublicHost set and port mapping is off, so the link advertises the bind address only. " +
-                "Set 'Lodestar:PublicHost' (and PublicPort) to a reachable address for an externally-usable link.");
+                "No PublicHost / AdvertisedAddresses set and port mapping is off, so the link advertises the bind " +
+                "address only. Set 'Lodestar:PublicHost' (and PublicPort) or 'Lodestar:AdvertisedAddresses' to a " +
+                "reachable address for an externally-usable link.");
 
         if (_options.WriteSelfLink)
         {
@@ -273,6 +277,87 @@ public sealed class LodestarService : BackgroundService
             try { await node.SaveOverlayStateAsync(ct).ConfigureAwait(false); }
             catch (Exception ex) { _log.LogDebug(ex, "Periodic overlay save failed."); }
         }
+    }
+
+    /// <summary>
+    /// The reachable addresses to advertise in this node's link: <see cref="LodestarOptions.PublicHost"/> plus any
+    /// operator-supplied <see cref="LodestarOptions.AdvertisedAddresses"/> (for a bootstrap situation where the
+    /// service has public IPs it can't discover itself). Null when none are configured (advertise the bind address).
+    /// </summary>
+    private IReadOnlyList<Beacon>? BuildAdvertisedBeacons()
+    {
+        var defaultPort = _options.PublicPort ?? _options.ListenPort;
+        var beacons = new List<Beacon>();
+
+        if (!string.IsNullOrWhiteSpace(_options.PublicHost))
+            beacons.Add(new Beacon(EndpointKind.Host, _options.PublicHost!, defaultPort));
+
+        foreach (var entry in _options.AdvertisedAddresses)
+        {
+            if (string.IsNullOrWhiteSpace(entry))
+                continue;
+            if (!TryParseHostPort(entry, defaultPort, out var host, out var port))
+            {
+                _log.LogWarning("Ignoring malformed advertised address '{Entry}' (use host or host:port).", entry);
+                continue;
+            }
+            beacons.Add(new Beacon(EndpointKind.Manual, host, port));
+        }
+
+        return beacons.Count > 0 ? beacons : null;
+    }
+
+    private async Task WebLoopAsync(CupriNode node, CancellationToken ct)
+    {
+        var refresh = Math.Max(5, _options.WebRefreshSeconds);
+        var provider = new LodestarLinkProvider(
+            node, TimeSpan.FromHours(_options.SelfLinkLifetimeHours), TimeSpan.FromSeconds(refresh));
+        var server = new LodestarWebServer(provider, node, _options.Concordium, refresh, _log);
+        try
+        {
+            await server.RunAsync(_options.WebListenAddress, _options.WebPort, ct).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // shutting down
+        }
+        catch (Exception ex)
+        {
+            // The status page is auxiliary: never let it bring the node down.
+            _log.LogError(ex, "Status page stopped unexpectedly; the node keeps running.");
+        }
+    }
+
+    /// <summary>Parses <c>host</c> or <c>host:port</c> (bracket IPv6). A bare host uses <paramref name="defaultPort"/>.</summary>
+    private static bool TryParseHostPort(string text, int defaultPort, out string host, out int port)
+    {
+        host = string.Empty;
+        port = defaultPort;
+        text = text.Trim();
+        if (text.Length == 0)
+            return false;
+
+        if (text.StartsWith('['))                       // [ipv6] or [ipv6]:port
+        {
+            var end = text.IndexOf(']');
+            if (end <= 1)
+                return false;
+            host = text[1..end];
+            var rest = text[(end + 1)..];
+            if (rest.Length == 0)
+                return IPAddress.TryParse(host, out _);
+            return rest[0] == ':' && int.TryParse(rest[1..], out port) && port is > 0 and <= 65535 && IPAddress.TryParse(host, out _);
+        }
+
+        var colon = text.LastIndexOf(':');
+        if (colon < 0 || text.IndexOf(':') != colon)    // no colon = bare host; multiple = unbracketed IPv6 (reject)
+        {
+            host = text;
+            return colon < 0 && host.Length > 0;
+        }
+
+        host = text[..colon];
+        return host.Length > 0 && int.TryParse(text[(colon + 1)..], out port) && port is > 0 and <= 65535;
     }
 
     private string ResolveDataDirectory()

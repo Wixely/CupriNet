@@ -45,6 +45,32 @@ public sealed class LodestarOptions
     public string? SeedsFile { get; set; }
 
     /// <summary>
+    /// Extra reachable addresses to advertise in this node's link, for a bootstrap situation where the service
+    /// has public IPs it can't discover itself (a cloud NAT/load balancer, a second interface, a DNS name). Each
+    /// entry is <c>host</c> or <c>host:port</c> (bracket IPv6, e.g. <c>[2001:db8::1]:43820</c>); a bare host uses
+    /// <see cref="PublicPort"/> or <see cref="ListenPort"/>. These are added alongside <see cref="PublicHost"/>.
+    /// </summary>
+    public List<string> AdvertisedAddresses { get; set; } = new();
+
+    /// <summary>
+    /// Serve a small read-only HTTP status page (HTTP only — front it with a reverse proxy for TLS) showing this
+    /// node's current connection link and a QR code, auto-refreshing in the browser. Off by default.
+    /// </summary>
+    public bool EnableWeb { get; set; }
+
+    /// <summary>Interface the status page binds to. <c>0.0.0.0</c>/<c>any</c> = all interfaces.</summary>
+    public string WebListenAddress { get; set; } = "0.0.0.0";
+
+    /// <summary>TCP port for the status page.</summary>
+    public int WebPort { get; set; } = 8080;
+
+    /// <summary>
+    /// How often (seconds) the link is regenerated and the browser re-polls. The link is cached between
+    /// regenerations, so it is not minted on every request. Minimum 5.
+    /// </summary>
+    public int WebRefreshSeconds { get; set; } = 30;
+
+    /// <summary>
     /// Subnets this node may connect to and accept from — CIDR (<c>10.0.0.0/8</c>), a netmask (<c>10.0.0.0/255.0.0.0</c>),
     /// or a bare IP. An allow-list match always beats the deny-list. Empty = LAN + WAN (no fence). For a private
     /// CupriNet or LAN-only node, set <see cref="DeniedSubnets"/> to <c>0.0.0.0/0</c> and list your subnets here.
