@@ -1,6 +1,7 @@
 using CupriNet.Abstractions;
 using CupriNet.Alembic;
 using CupriNet.Codex;
+using CupriNet.Marks;
 
 namespace CupriNet.Arcanum;
 
@@ -105,7 +106,7 @@ public static class Ownership
 
         var draft = new ChannelDescriptor
         {
-            Version = DescriptorVersion,
+            Version = checked((byte)CupriMarks.Supported(CupriMarks.ChannelDescriptor).Max),
             ChannelId = channelId,
             OwnerPublicKey = owner.PublicKey,
             AccessMode = accessMode,
@@ -121,6 +122,8 @@ public static class Ownership
     {
         ArgumentNullException.ThrowIfNull(d);
         ArgumentNullException.ThrowIfNull(suite);
+        if (!CupriMarks.Accepts(CupriMarks.ChannelDescriptor, d.Version)) // a superseded/unknown descriptor version is refused
+            return false;
         return suite.Verifier.Verify(DescriptorBody(d), d.Signature, d.OwnerPublicKey);
     }
 
@@ -197,7 +200,7 @@ public static class Ownership
 
         var draft = new Investiture
         {
-            Version = InvestitureVersion,
+            Version = checked((byte)CupriMarks.Supported(CupriMarks.Investiture).Max),
             ChannelId = channelId,
             MemberSealPublicKey = memberSealPublicKey,
             Roles = roles,
@@ -219,6 +222,8 @@ public static class Ownership
         ArgumentNullException.ThrowIfNull(channelId);
         ArgumentNullException.ThrowIfNull(suite);
 
+        if (!CupriMarks.Accepts(CupriMarks.Investiture, inv.Version)) // a superseded/unknown credential version is refused
+            return false;
         if (!inv.ChannelId.AsSpan().SequenceEqual(channelId))
             return false;
         if (!inv.IssuerPublicKey.AsSpan().SequenceEqual(expectedIssuerPublicKey))

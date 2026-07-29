@@ -79,6 +79,17 @@ public class CupriMarksTests
     }
 
     [Fact]
+    public void Ownership_Components_AcceptV1_RejectUnknown()
+    {
+        foreach (var component in new[] { CupriMarks.ChannelDescriptor, CupriMarks.Investiture })
+        {
+            Assert.Equal(1, (int)CupriMarks.Supported(component).Max);
+            Assert.True(CupriMarks.Accepts(component, 1));
+            Assert.False(CupriMarks.Accepts(component, 2));
+        }
+    }
+
+    [Fact]
     public void UnknownComponent_Throws()
     {
         Assert.Throws<ArgumentException>(() => CupriMarks.Supported("not-a-component"));

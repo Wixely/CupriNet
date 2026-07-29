@@ -40,6 +40,35 @@ public class OwnershipTests
     }
 
     [Fact]
+    public void Descriptor_RejectsUnknownVersion_EvenWhenValidlySigned()
+    {
+        var suite = Suite();
+        var owner = suite.GenerateSeal();
+        var v1 = Ownership.CreateDescriptor(owner, Channel, ArcanumEntry.Sanction, policyVersion: 1, suite, Now);
+        Assert.True(Ownership.VerifyDescriptor(v1, suite));
+
+        // Re-signed at a version the CupriMark catalogue doesn't know: the acceptance gate refuses it even
+        // though the signature itself is valid (isolating the version check from the signature check).
+        var draft = v1 with { Version = (byte)(v1.Version + 1), Signature = [] };
+        var signed = draft with { Signature = suite.CreateSigner(owner.PrivateKey).Sign(Ownership.DescriptorBody(draft)) };
+        Assert.False(Ownership.VerifyDescriptor(signed, suite));
+    }
+
+    [Fact]
+    public void Investiture_RejectsUnknownVersion_EvenWhenValidlySigned()
+    {
+        var suite = Suite();
+        var owner = suite.GenerateSeal();
+        var member = suite.GenerateSeal();
+        var v1 = Ownership.Invest(owner, Channel, member.PublicKey, ArcanumRole.Member, Now, Now.AddDays(30), serialNumber: 1, suite);
+        Assert.True(Ownership.VerifyInvestiture(v1, owner.PublicKey, Channel, suite, Now));
+
+        var draft = v1 with { Version = (byte)(v1.Version + 1), Signature = [] };
+        var signed = draft with { Signature = suite.CreateSigner(owner.PrivateKey).Sign(Ownership.InvestitureBody(draft)) };
+        Assert.False(Ownership.VerifyInvestiture(signed, owner.PublicKey, Channel, suite, Now));
+    }
+
+    [Fact]
     public void Ascension_TransfersOwnership_AcrossReigns()
     {
         var suite = Suite();

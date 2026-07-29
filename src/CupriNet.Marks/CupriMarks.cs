@@ -24,6 +24,12 @@ public static class CupriMarks
     /// <summary>The Intonation (signed connection link) document component.</summary>
     public const string Intonation = "intonation";
 
+    /// <summary>The ChannelDescriptor (owner-signed channel root) document component.</summary>
+    public const string ChannelDescriptor = "channel-descriptor";
+
+    /// <summary>The Investiture (owner-signed membership credential) document component.</summary>
+    public const string Investiture = "investiture";
+
     /// <summary>
     /// The single built-in catalogue for the CupriNet protocol suite. Frozen at first access; its
     /// SHA-256 <see cref="Catalogue.Id"/> identifies exactly this set of definitions, so two builds that
@@ -53,6 +59,16 @@ public static class CupriMarks
         new Component(Intonation,
         [
             // v1 — the signed connection link (inviter identity, beacons, litany, severance).
+            new ComponentVersion(1, BumpReason.Functionality, VersionStatus.Active),
+        ]),
+        new Component(ChannelDescriptor,
+        [
+            // v1 — the founding owner-signed channel root (Reign 0).
+            new ComponentVersion(1, BumpReason.Functionality, VersionStatus.Active),
+        ]),
+        new Component(Investiture,
+        [
+            // v1 — the owner-signed membership credential.
             new ComponentVersion(1, BumpReason.Functionality, VersionStatus.Active),
         ]),
     ]);
