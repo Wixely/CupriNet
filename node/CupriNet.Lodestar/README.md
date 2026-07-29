@@ -104,8 +104,11 @@ See [`deploy/cuprinet-lodestar.service`](deploy/cuprinet-lodestar.service) for a
 ### Docker
 
 ```bash
-# build from the repo root (the Dockerfile needs src/ in context)
-docker build -f node/CupriNet.Lodestar/Dockerfile -t cuprinet-lodestar .
+# build from the repo root (the Dockerfile needs src/ in context). The core pulls CupriMark from the
+# Wixely GitHub Packages feed, so pass a read:packages token as a BuildKit secret:
+PACKAGES_TOKEN=<your read:packages PAT> \
+docker build --secret id=packages_token,env=PACKAGES_TOKEN \
+  -f node/CupriNet.Lodestar/Dockerfile -t cuprinet-lodestar .
 
 docker run -d --name lodestar \
   -p 43820:43820 \

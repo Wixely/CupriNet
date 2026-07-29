@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    CupriMark integration: defines CupriNet's version catalogue and negotiation, so the handshake
+    range-negotiates protocol versions instead of hard-failing on an equality check. CupriMark is
+    restored from the Wixely GitHub Packages feed (see /nuget.config), so this project (and anything
+    that references it — currently CupriNet.Conjunction) needs that feed + a read:packages token.
+  -->
+
+  <ItemGroup>
+    <ProjectReference Include="..\CupriNet.Alembic\CupriNet.Alembic.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="CupriMark" Version="0.2.0" />
+  </ItemGroup>
+
+</Project>

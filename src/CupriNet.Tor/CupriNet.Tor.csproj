@@ -5,9 +5,8 @@
     Kept a SEPARATE project (and intentionally NOT in CupriNet.slnx) so the core stays
     dependency-free of Tor and the main build/CI needs no package feed or token.
 
-    The binding is compile-verified against CupriTor 0.1.5. To build THIS project you need:
-      • the Wixely GitHub Packages feed (see /nuget.config) + a read:packages token, and
-      • CupriTor 0.1.5 published to that feed (it currently trails the released 0.1.4).
+    The binding is compile-verified against CupriTor 0.1.5 (the latest release). To build THIS project
+    you need the Wixely GitHub Packages feed (see /nuget.config) + a read:packages token.
     Anyone who wants Tor references this project; everyone else ignores it.
   -->
 

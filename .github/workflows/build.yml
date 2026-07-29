@@ -9,7 +9,7 @@ on:
 
 permissions:
   contents: write   # needed to attach assets to a release on tag builds
-  packages: read    # read the CupriTor package from the Wixely GitHub Packages feed (best-effort jobs)
+  packages: read    # read CupriMark (core) + CupriTor (CupriChat) from the Wixely GitHub Packages feed
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -23,9 +23,10 @@ env:
 
 jobs:
   # ---------------------------------------------------------------------------
-  # Build + run the full test suite. The test project pulls in the whole core
-  # library but NOT CupriNet.Tor / CupriChat, so this is token-free (no CupriTor
-  # feed) and is the authoritative "does it build and pass" gate.
+  # Build + run the full test suite — the authoritative "does it build and pass"
+  # gate. The core now depends on CupriMark (version negotiation) from the Wixely
+  # GitHub Packages feed, so this authenticates that feed with PACKAGES_TOKEN
+  # (an org read:packages PAT) or the workflow token.
   # ---------------------------------------------------------------------------
   test:
     runs-on: ubuntu-latest
@@ -34,8 +35,14 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
-      - name: Use nuget.org only (disable the private CupriTor feed)
-        run: dotnet nuget disable source GitHub-Wixely-Packages --configfile nuget.config
+      - name: Authenticate to the Wixely feed (CupriMark is a core dependency)
+        shell: bash
+        run: >
+          dotnet nuget update source GitHub-Wixely-Packages
+          --username ${{ github.actor }}
+          --password "${{ secrets.PACKAGES_TOKEN || secrets.GITHUB_TOKEN }}"
+          --store-password-in-clear-text
+          --configfile nuget.config
       - name: Test (core library + full suite)
         run: dotnet test tests/CupriNet.UnitTests/CupriNet.UnitTests.csproj -c Release
 
@@ -51,8 +58,14 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
-      - name: Use nuget.org only (disable the private CupriTor feed)
-        run: dotnet nuget disable source GitHub-Wixely-Packages --configfile nuget.config
+      - name: Authenticate to the Wixely feed (CupriMark is a core dependency)
+        shell: bash
+        run: >
+          dotnet nuget update source GitHub-Wixely-Packages
+          --username ${{ github.actor }}
+          --password "${{ secrets.PACKAGES_TOKEN || secrets.GITHUB_TOKEN }}"
+          --store-password-in-clear-text
+          --configfile nuget.config
       - name: Determine version
         id: ver
         shell: bash
@@ -175,9 +188,14 @@ jobs:
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
 
-      - name: Use nuget.org only (disable the private CupriTor feed)
+      - name: Authenticate to the Wixely feed (CupriMark is a core dependency)
         shell: bash
-        run: dotnet nuget disable source GitHub-Wixely-Packages --configfile nuget.config
+        run: >
+          dotnet nuget update source GitHub-Wixely-Packages
+          --username ${{ github.actor }}
+          --password "${{ secrets.PACKAGES_TOKEN || secrets.GITHUB_TOKEN }}"
+          --store-password-in-clear-text
+          --configfile nuget.config
 
       - name: Publish Lodestar (self-contained single file)
         shell: bash
@@ -244,6 +262,8 @@ jobs:
           push: ${{ startsWith(github.ref, 'refs/tags/v') }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          secrets: |
+            packages_token=${{ secrets.PACKAGES_TOKEN || secrets.GITHUB_TOKEN }}
 
   # ---------------------------------------------------------------------------
   # On a v* tag, gather everything into a GitHub Release as downloadable assets.

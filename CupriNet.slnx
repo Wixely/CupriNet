@@ -16,6 +16,7 @@
     <Project Path="src/CupriNet.Conjunction/CupriNet.Conjunction.csproj" />
     <Project Path="src/CupriNet.Core/CupriNet.Core.csproj" />
     <Project Path="src/CupriNet.Hosting/CupriNet.Hosting.csproj" />
+    <Project Path="src/CupriNet.Marks/CupriNet.Marks.csproj" />
     <Project Path="src/CupriNet.Noise/CupriNet.Noise.csproj" />
     <Project Path="src/CupriNet.Persistence/CupriNet.Persistence.csproj" />
     <Project Path="src/CupriNet.Rites/CupriNet.Rites.csproj" />

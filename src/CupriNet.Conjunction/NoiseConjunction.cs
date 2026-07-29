@@ -1,7 +1,9 @@
+using CupriMark;
 using CupriNet.Abstractions;
 using CupriNet.Alembic;
 using CupriNet.Codex;
 using CupriNet.Core;
+using CupriNet.Marks;
 using CupriNet.Noise;
 using CupriNet.Vessel;
 
@@ -10,8 +12,11 @@ namespace CupriNet.Conjunction;
 /// <summary>Thrown when a Noise-based transport handshake fails.</summary>
 public sealed class NoiseConjunctionException(string message) : Exception(message);
 
-/// <summary>The result of a Noise transport handshake: an encrypting vessel and the authenticated peer identity.</summary>
-public sealed record NoiseConjunctionResult(NoiseVessel Vessel, Sigil PeerSigil, byte[] PeerSealPublicKey);
+/// <summary>
+/// The result of a Noise transport handshake: an encrypting vessel, the authenticated peer identity, and
+/// the CupriMark-negotiated Conjunction protocol version (the highest both peers speak).
+/// </summary>
+public sealed record NoiseConjunctionResult(NoiseVessel Vessel, Sigil PeerSigil, byte[] PeerSealPublicKey, ushort ConjunctionVersion);
 
 /// <summary>
 /// Establishes a forward-secure, mutually-authenticated transport with a peer. A Noise_XX handshake
@@ -68,8 +73,13 @@ public static class NoiseConjunction
         var transport = handshake.Split();
         var secure = new NoiseVessel(vessel, transport);
 
-        // Identity binding over the now-encrypted transport: sign the handshake hash with the Seal.
-        var myBinding = BuildBinding(identity, network, suite, transport.HandshakeHash);
+        // Identity binding over the now-encrypted transport. Each side also advertises the ordinal range of
+        // the Conjunction protocol it speaks (CupriMark), and signs the handshake hash TOGETHER WITH that
+        // range: so the advertised range is bound to both this identity and this session — a downgrade that
+        // rewrites the range can't survive signature verification. The range travels inside the Noise-
+        // encrypted channel, so it is confidential as well (no on-path observer learns how old a build is).
+        var mine = CupriMarks.Supported(CupriMarks.Conjunction);
+        var myBinding = BuildBinding(identity, network, suite, transport.HandshakeHash, mine.Min, mine.Max);
         byte[] peerBinding;
         if (initiator)
         {
@@ -82,39 +92,79 @@ public static class NoiseConjunction
             await secure.SendAsync(HandshakeStream, myBinding, cancellationToken).ConfigureAwait(false);
         }
 
-        var (peerNetwork, peerSealPublicKey, peerSignature) = ParseBinding(peerBinding);
+        var (peerNetwork, peerSealPublicKey, peerMin, peerMax, peerSignature) = ParseBinding(peerBinding);
         if (peerNetwork != network)
             throw new NoiseConjunctionException("Peer belongs to a different network (Concordium).");
-        if (!suite.Verifier.Verify(transport.HandshakeHash, peerSignature, peerSealPublicKey))
+        if (peerMin > peerMax)
+            throw new NoiseConjunctionException("Peer advertised a malformed Conjunction version range.");
+        if (!suite.Verifier.Verify(BindingContext(transport.HandshakeHash, peerMin, peerMax), peerSignature, peerSealPublicKey))
             throw new NoiseConjunctionException("Peer identity binding did not verify against the handshake.");
 
         var peerSigil = Sigil.FromSealPublicKey(peerSealPublicKey);
         if (expectedPeer is { } expected && peerSigil != expected)
             throw new NoiseConjunctionException("Peer Sigil did not match the expected identity from the Intonation.");
 
-        return new NoiseConjunctionResult(secure, peerSigil, peerSealPublicKey);
+        // Range-negotiate the Conjunction version instead of hard-failing on an equality check: the highest
+        // ordinal both speak, at or above our security floor. A peer too old to meet the floor is rejected
+        // with a typed reason rather than silently partitioned.
+        var negotiation = CupriMarks.Negotiate(CupriMarks.Conjunction, OrdinalRange.Create(peerMin, peerMax));
+        if (!negotiation.Accepted)
+            throw new NoiseConjunctionException(
+                $"Conjunction version negotiation failed ({negotiation.Reason}); peer offered [{peerMin}..{peerMax}], our floor is {negotiation.EffectiveFloor}.");
+
+        return new NoiseConjunctionResult(secure, peerSigil, peerSealPublicKey, negotiation.SelectedOrdinal);
     }
 
-    private static byte[] BuildBinding(NodeIdentity identity, Concordium network, ICryptoSuite suite, byte[] handshakeHash)
+    private static byte[] BuildBinding(
+        NodeIdentity identity, Concordium network, ICryptoSuite suite, byte[] handshakeHash, ushort min, ushort max)
     {
-        var signature = suite.CreateSigner(identity.Seal.PrivateKey).Sign(handshakeHash);
+        var signature = suite.CreateSigner(identity.Seal.PrivateKey).Sign(BindingContext(handshakeHash, min, max));
         var w = new CodexWriter();
         w.WriteByte(BindingVersion);
         w.WriteString(network.Value);
         w.WriteBytes(identity.Seal.PublicKey);
+        w.WriteVarUInt(min);
+        w.WriteVarUInt(max);
         w.WriteBytes(signature);
         return w.ToArray();
     }
 
-    private static (Concordium Network, byte[] SealPublicKey, byte[] Signature) ParseBinding(ReadOnlySpan<byte> data)
+    private static (Concordium Network, byte[] SealPublicKey, ushort Min, ushort Max, byte[] Signature) ParseBinding(ReadOnlySpan<byte> data)
     {
         var r = new CodexReader(data);
         if (r.ReadByte() != BindingVersion)
             throw new NoiseConjunctionException("Unsupported identity-binding version.");
         var network = new Concordium(r.ReadString());
         var sealPublicKey = r.ReadBytes().ToArray();
+        var min = ReadOrdinal(ref r);
+        var max = ReadOrdinal(ref r);
         var signature = r.ReadBytes().ToArray();
-        return (network, sealPublicKey, signature);
+        return (network, sealPublicKey, min, max, signature);
+    }
+
+    private static ushort ReadOrdinal(ref CodexReader r)
+    {
+        var value = r.ReadVarUInt();
+        if (value > ushort.MaxValue)
+            throw new NoiseConjunctionException("Peer advertised an out-of-range Conjunction ordinal.");
+        return (ushort)value;
+    }
+
+    /// <summary>
+    /// The exact bytes signed by the identity binding: the Noise handshake hash followed by the advertised
+    /// Conjunction ordinal range (4 bytes, big-endian). Both peers derive this identically, so signing it
+    /// ties the advertised range to the session and makes any tampering fail verification.
+    /// </summary>
+    private static byte[] BindingContext(byte[] handshakeHash, ushort min, ushort max)
+    {
+        var context = new byte[handshakeHash.Length + 4];
+        handshakeHash.CopyTo(context, 0);
+        var i = handshakeHash.Length;
+        context[i] = (byte)(min >> 8);
+        context[i + 1] = (byte)min;
+        context[i + 2] = (byte)(max >> 8);
+        context[i + 3] = (byte)max;
+        return context;
     }
 
     private static ValueTask SendAsync(IVessel vessel, byte[] payload, CancellationToken cancellationToken)

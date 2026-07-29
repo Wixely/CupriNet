@@ -6,9 +6,16 @@
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 COPY . .
-# Restore against nuget.org only: Lodestar's dependency graph is all public (no CupriTor / GitHub Packages),
-# so this stays token-free regardless of the repo's nuget.config.
-RUN dotnet restore node/CupriNet.Lodestar/CupriNet.Lodestar.csproj --source https://api.nuget.org/v3/index.json
+# The core now pulls CupriMark (version negotiation) from the Wixely GitHub Packages feed, so restore needs a
+# read:packages token. Pass it as a BuildKit secret (empty is tolerated for a fully-public future):
+#   docker build --secret id=packages_token,env=PACKAGES_TOKEN -f node/CupriNet.Lodestar/Dockerfile .
+RUN --mount=type=secret,id=packages_token \
+    sh -c 'TOKEN="$(cat /run/secrets/packages_token 2>/dev/null || true)"; \
+      if [ -n "$TOKEN" ]; then \
+        dotnet nuget update source GitHub-Wixely-Packages --username docker --password "$TOKEN" \
+          --store-password-in-clear-text --configfile nuget.config; \
+      fi; \
+      dotnet restore node/CupriNet.Lodestar/CupriNet.Lodestar.csproj'
 RUN dotnet publish node/CupriNet.Lodestar/CupriNet.Lodestar.csproj -c Release -o /app --no-restore -p:UseAppHost=false
 
 # ---- runtime ----

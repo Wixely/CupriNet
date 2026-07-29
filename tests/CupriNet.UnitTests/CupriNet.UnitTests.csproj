@@ -19,6 +19,7 @@
     <ProjectReference Include="..\..\src\CupriNet.Core\CupriNet.Core.csproj" />
     <ProjectReference Include="..\..\src\CupriNet.Vessel\CupriNet.Vessel.csproj" />
     <ProjectReference Include="..\..\src\CupriNet.Conjunction\CupriNet.Conjunction.csproj" />
+    <ProjectReference Include="..\..\src\CupriNet.Marks\CupriNet.Marks.csproj" />
     <ProjectReference Include="..\..\src\CupriNet.Persistence\CupriNet.Persistence.csproj" />
     <ProjectReference Include="..\..\src\CupriNet.Concordance\CupriNet.Concordance.csproj" />
     <ProjectReference Include="..\..\src\CupriNet.Arcanum\CupriNet.Arcanum.csproj" />
