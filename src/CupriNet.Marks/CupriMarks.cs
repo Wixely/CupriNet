@@ -12,8 +12,11 @@ namespace CupriNet.Marks;
 /// </summary>
 public static class CupriMarks
 {
-    /// <summary>The Conjunction (pairing handshake) protocol component.</summary>
+    /// <summary>The Conjunction (L1 transport pairing handshake) protocol component.</summary>
     public const string Conjunction = "conjunction";
+
+    /// <summary>The Consecration (L2 Arcanum channel handshake) protocol component.</summary>
+    public const string Consecration = "consecration";
 
     /// <summary>
     /// The single built-in catalogue for the CupriNet protocol suite. Frozen at first access; its
@@ -28,6 +31,12 @@ public static class CupriMarks
         [
             // v1 — the Noise_XX transport handshake with an Ed25519 identity binding over the Noise
             // handshake hash (the original, and so far only, pairing protocol).
+            new ComponentVersion(1, BumpReason.Functionality, VersionStatus.Active),
+        ]),
+        new Component(Consecration,
+        [
+            // v1 — the Watchword key-confirmation channel handshake, transcript-bound to the channel
+            // Ascendant, epoch, both peer Sigils, and both nonces.
             new ComponentVersion(1, BumpReason.Functionality, VersionStatus.Active),
         ]),
     ]);

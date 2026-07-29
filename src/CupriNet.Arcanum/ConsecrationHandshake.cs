@@ -1,7 +1,9 @@
 using System.Security.Cryptography;
+using CupriMark;
 using CupriNet.Abstractions;
 using CupriNet.Alembic;
 using CupriNet.Codex;
+using CupriNet.Marks;
 using VesselSession = CupriNet.Vessel.IVessel;
 
 namespace CupriNet.Arcanum;
@@ -9,8 +11,11 @@ namespace CupriNet.Arcanum;
 /// <summary>Thrown when a Consecration fails (wrong Watchword, stale epoch, or a broken transcript).</summary>
 public sealed class ConsecrationException(string message) : Exception(message);
 
-/// <summary>The result of a completed Consecration: the agreed epoch and the fresh Veil session key.</summary>
-public sealed record Consecration(long Epoch, byte[] SessionKey);
+/// <summary>
+/// The result of a completed Consecration: the agreed epoch, the fresh Veil session key, and the
+/// CupriMark-negotiated channel-handshake version (the highest both members speak).
+/// </summary>
+public sealed record Consecration(long Epoch, byte[] SessionKey, ushort ConsecrationVersion);
 
 /// <summary>
 /// The second-layer channel handshake. The transport peer and the channel member are separate trust
@@ -62,30 +67,47 @@ public static class ConsecrationHandshake
 
         var myEpoch = Glyph.Epoch(now, turningSeconds);
         var myNonce = RandomNumberGenerator.GetBytes(NonceSize);
+        var mine = CupriMarks.Supported(CupriMarks.Consecration);
 
         long epoch;
         byte[] initiatorNonce, responderNonce;
+        OrdinalRange peerRange;
 
         if (isInitiator)
         {
-            await SendHelloAsync(vessel, stream, myEpoch, myNonce, cancellationToken).ConfigureAwait(false);
+            await SendHelloAsync(vessel, stream, myEpoch, myNonce, mine.Min, mine.Max, cancellationToken).ConfigureAwait(false);
             var peer = await ReceiveHelloAsync(vessel, stream, cancellationToken).ConfigureAwait(false);
             epoch = myEpoch; // the initiator's epoch is authoritative
             initiatorNonce = myNonce;
             responderNonce = peer.Nonce;
+            peerRange = peer.Range;
         }
         else
         {
             var peer = await ReceiveHelloAsync(vessel, stream, cancellationToken).ConfigureAwait(false);
             if (Math.Abs(peer.Epoch - myEpoch) > 1)
                 throw new ConsecrationException("Consecration epoch is outside the acceptable window.");
-            await SendHelloAsync(vessel, stream, myEpoch, myNonce, cancellationToken).ConfigureAwait(false);
+            await SendHelloAsync(vessel, stream, myEpoch, myNonce, mine.Min, mine.Max, cancellationToken).ConfigureAwait(false);
             epoch = peer.Epoch; // adopt the initiator's epoch
             initiatorNonce = peer.Nonce;
             responderNonce = myNonce;
+            peerRange = peer.Range;
         }
 
-        var transcript = BuildTranscript(suite, keys, epoch, initiatorSigil, responderSigil, initiatorNonce, responderNonce);
+        // Range-negotiate the channel-handshake version instead of hard-failing on an equality check.
+        var negotiation = CupriMarks.Negotiate(CupriMarks.Consecration, peerRange);
+        if (!negotiation.Accepted)
+            throw new ConsecrationException(
+                $"Consecration version negotiation failed ({negotiation.Reason}); peer offered [{peerRange.Min}..{peerRange.Max}], our floor is {negotiation.EffectiveFloor}.");
+
+        // Fold the negotiation (both advertised ranges + the selected ordinal, role-normalised) into the
+        // channel transcript. The key confirmation and Veil session key derive from that transcript, so a
+        // downgrade that rewrites either side's advertised range yields a different transcript and fails
+        // confirmation — downgrade protection with no extra message, reusing the existing binding.
+        var negotiationDigest = TranscriptBinding.Digest(
+            NegotiationBinding.FromLocal(CupriMarks.Consecration, mine, peerRange, negotiation, isInitiator));
+
+        var transcript = BuildTranscript(suite, keys, negotiationDigest, epoch, initiatorSigil, responderSigil, initiatorNonce, responderNonce);
         var myTag = Tag(suite, keys.ConcordKey, transcript, isInitiator ? ConfirmInitiator : ConfirmResponder);
         var expectedPeerTag = Tag(suite, keys.ConcordKey, transcript, isInitiator ? ConfirmResponder : ConfirmInitiator);
 
@@ -105,13 +127,13 @@ public static class ConsecrationHandshake
             throw new ConsecrationException("Peer failed channel key confirmation (wrong Watchword or epoch).");
 
         var sessionKey = suite.Kdf.DeriveKey(keys.ConcordKey, transcript, VeilSessionInfo, SessionKeySize);
-        return new Consecration(epoch, sessionKey);
+        return new Consecration(epoch, sessionKey, negotiation.SelectedOrdinal);
     }
 
-    private static byte[] BuildTranscript(ICryptoSuite suite, ArcanumKeys keys, long epoch, Sigil initiator, Sigil responder, byte[] initiatorNonce, byte[] responderNonce)
+    private static byte[] BuildTranscript(ICryptoSuite suite, ArcanumKeys keys, byte[] negotiationDigest, long epoch, Sigil initiator, Sigil responder, byte[] initiatorNonce, byte[] responderNonce)
     {
         var w = new CodexWriter();
-        w.WriteByte(Version);
+        w.WriteBytes(negotiationDigest); // binds the CupriMark-negotiated version + both advertised ranges
         w.WriteBytes(keys.Ascendant.Span); // binds the session to this channel
         w.WriteUInt64((ulong)epoch);
         w.WriteBytes(initiator.Span);
@@ -124,27 +146,41 @@ public static class ConsecrationHandshake
     private static byte[] Tag(ICryptoSuite suite, byte[] concordKey, byte[] transcript, byte[] roleInfo)
         => suite.Kdf.DeriveKey(concordKey, salt: transcript, info: roleInfo, TagSize);
 
-    private static async Task SendHelloAsync(VesselSession vessel, ushort stream, long epoch, byte[] nonce, CancellationToken cancellationToken)
+    private static async Task SendHelloAsync(VesselSession vessel, ushort stream, long epoch, byte[] nonce, ushort min, ushort max, CancellationToken cancellationToken)
     {
         var w = new CodexWriter();
         w.WriteByte((byte)MessageType.Hello);
-        w.WriteByte(Version);
+        w.WriteByte(Version);          // message-envelope format (framing), not the negotiated protocol version
+        w.WriteVarUInt(min);           // advertised Consecration ordinal range (CupriMark)
+        w.WriteVarUInt(max);
         w.WriteUInt64((ulong)epoch);
         w.WriteBytes(nonce);
         await vessel.SendAsync(stream, w.ToArray(), cancellationToken).ConfigureAwait(false);
     }
 
-    private static async Task<(long Epoch, byte[] Nonce)> ReceiveHelloAsync(VesselSession vessel, ushort stream, CancellationToken cancellationToken)
+    private static async Task<(long Epoch, byte[] Nonce, OrdinalRange Range)> ReceiveHelloAsync(VesselSession vessel, ushort stream, CancellationToken cancellationToken)
     {
         var payload = await ReceiveOnAsync(vessel, stream, cancellationToken).ConfigureAwait(false);
         var r = new CodexReader(payload);
         if ((MessageType)r.ReadByte() != MessageType.Hello)
             throw new ConsecrationException("Expected a channel Hello.");
         if (r.ReadByte() != Version)
-            throw new ConsecrationException("Unsupported channel handshake version.");
+            throw new ConsecrationException("Unsupported channel handshake message version.");
+        var min = ReadOrdinal(ref r);
+        var max = ReadOrdinal(ref r);
+        if (min > max)
+            throw new ConsecrationException("Peer advertised a malformed Consecration version range.");
         var epoch = (long)r.ReadUInt64();
         var nonce = r.ReadBytes().ToArray();
-        return (epoch, nonce);
+        return (epoch, nonce, OrdinalRange.Create(min, max));
+    }
+
+    private static ushort ReadOrdinal(ref CodexReader r)
+    {
+        var value = r.ReadVarUInt();
+        if (value > ushort.MaxValue)
+            throw new ConsecrationException("Peer advertised an out-of-range Consecration ordinal.");
+        return (ushort)value;
     }
 
     private static async Task SendConfirmAsync(VesselSession vessel, ushort stream, byte[] tag, CancellationToken cancellationToken)

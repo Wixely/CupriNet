@@ -47,6 +47,21 @@ public class CupriMarksTests
     }
 
     [Fact]
+    public void Consecration_SupportedIsVersionOne_AndNegotiates()
+    {
+        var supported = CupriMarks.Supported(CupriMarks.Consecration);
+        Assert.Equal(1, (int)supported.Min);
+        Assert.Equal(1, (int)supported.Max);
+
+        var shared = CupriMarks.Negotiate(CupriMarks.Consecration, OrdinalRange.Create(1, 3));
+        Assert.True(shared.Accepted);
+        Assert.Equal(1, (int)shared.SelectedOrdinal);
+
+        var none = CupriMarks.Negotiate(CupriMarks.Consecration, OrdinalRange.Create(2, 5));
+        Assert.False(none.Accepted);
+    }
+
+    [Fact]
     public void UnknownComponent_Throws()
     {
         Assert.Throws<ArgumentException>(() => CupriMarks.Supported("not-a-component"));

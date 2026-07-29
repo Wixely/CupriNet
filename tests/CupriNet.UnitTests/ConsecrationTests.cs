@@ -54,6 +54,10 @@ public class ConsecrationTests
         Assert.Equal(a.Epoch, b.Epoch);
         Assert.Equal(a.SessionKey, b.SessionKey); // shared Veil session key
         Assert.Equal(32, a.SessionKey.Length);
+        // Both members range-negotiated the channel-handshake version (v1) via CupriMark. That they derived
+        // the SAME session key also proves both folded an identical negotiation digest into the transcript.
+        Assert.Equal(1, (int)a.ConsecrationVersion);
+        Assert.Equal(1, (int)b.ConsecrationVersion);
     }
 
     [Fact]
