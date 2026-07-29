@@ -18,6 +18,9 @@ public static class CupriMarks
     /// <summary>The Consecration (L2 Arcanum channel handshake) protocol component.</summary>
     public const string Consecration = "consecration";
 
+    /// <summary>The Decree (signed channel advertisement) document component.</summary>
+    public const string Decree = "decree";
+
     /// <summary>
     /// The single built-in catalogue for the CupriNet protocol suite. Frozen at first access; its
     /// SHA-256 <see cref="Catalogue.Id"/> identifies exactly this set of definitions, so two builds that
@@ -39,6 +42,11 @@ public static class CupriMarks
             // Ascendant, epoch, both peer Sigils, and both nonces.
             new ComponentVersion(1, BumpReason.Functionality, VersionStatus.Active),
         ]),
+        new Component(Decree,
+        [
+            // v1 — the signed, epoch-scoped channel advertisement document.
+            new ComponentVersion(1, BumpReason.Functionality, VersionStatus.Active),
+        ]),
     ]);
 
     /// <summary>The ordinal range this build advertises for <paramref name="component"/> (what a peer negotiates against).</summary>
@@ -50,6 +58,17 @@ public static class CupriMarks
     /// </summary>
     public static NegotiationResult Negotiate(string component, OrdinalRange peerAdvertised) =>
         Negotiator.Negotiate(Require(component), peerAdvertised);
+
+    /// <summary>
+    /// Whether this build accepts a one-way document/message stamped at <paramref name="version"/> for
+    /// <paramref name="component"/> — i.e. it is a version we support, at or above our security floor, and
+    /// not buried. Equivalent to negotiating against a peer that speaks only that single version, so it
+    /// reuses the exact floor/lifecycle rules: a too-new version (above our max) or a superseded/buried one
+    /// is refused. Use this for versioned documents (a Decree, a link) that carry no negotiation exchange.
+    /// </summary>
+    public static bool Accepts(string component, int version) =>
+        version is >= 0 and <= ushort.MaxValue
+        && Negotiator.Negotiate(Require(component), OrdinalRange.Create((ushort)version, (ushort)version)).Accepted;
 
     private static Component Require(string component) =>
         Catalogue.Component(component)

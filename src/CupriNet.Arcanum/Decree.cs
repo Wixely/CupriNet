@@ -2,6 +2,7 @@ using CupriNet.Abstractions;
 using CupriNet.Alembic;
 using CupriNet.Codex;
 using CupriNet.Core;
+using CupriNet.Marks;
 
 namespace CupriNet.Arcanum;
 
@@ -100,7 +101,9 @@ public static class DecreeSigner
 
         var draft = new Decree
         {
-            Version = DecreeCodec.CurrentVersion,
+            // Stamp the highest Decree version this build supports, per the CupriMark catalogue (the single
+            // source of versioning truth). Consumers accept it via DecreeValidator.IsVersionAcceptable.
+            Version = checked((byte)CupriMarks.Supported(CupriMarks.Decree).Max),
             Glyph = glyph,
             ProviderSealPublicKey = provider.PublicKey.ToArray(),
             Endpoints = endpoints,
@@ -133,12 +136,26 @@ public static class DecreeSigner
 /// <summary>Matches a Decree to a channel the caller holds the Watchword for.</summary>
 public static class DecreeValidator
 {
-    /// <summary>True if the Decree is unexpired and its Glyph falls in the channel's current epoch window.</summary>
+    /// <summary>
+    /// Whether this build accepts the Decree's document version (CupriMark) — a version we support, at or
+    /// above our security floor, and not buried. Keys-free, so a storing/relaying node can refuse a
+    /// too-new or superseded advert before it ever holds the Watchword.
+    /// </summary>
+    public static bool IsVersionAcceptable(Decree decree)
+    {
+        ArgumentNullException.ThrowIfNull(decree);
+        return CupriMarks.Accepts(CupriMarks.Decree, decree.Version);
+    }
+
+    /// <summary>True if the Decree's version is acceptable, it is unexpired, and its Glyph falls in the channel's current epoch window.</summary>
     public static bool Matches(Decree decree, ArcanumKeys keys, DateTimeOffset now, ICryptoSuite suite, long turningSeconds = Glyph.DefaultTurningSeconds)
     {
         ArgumentNullException.ThrowIfNull(decree);
         ArgumentNullException.ThrowIfNull(keys);
         ArgumentNullException.ThrowIfNull(suite);
+
+        if (!IsVersionAcceptable(decree))
+            return false;
 
         if (now.ToUnixTimeSeconds() > decree.ExpiresAtUnix)
             return false;

@@ -60,4 +60,25 @@ public class DecreeTests
         var decree = DecreeSigner.Publish(provider, keys, [], TimeSpan.FromMinutes(10), 1, suite, Now);
         Assert.False(DecreeValidator.Matches(decree, keys, Now.AddMinutes(30), suite));
     }
+
+    [Fact]
+    public void VersionAcceptance_AcceptsCurrent_RejectsUnknown()
+    {
+        var suite = CryptoSuites.Simulacrum();
+        var keys = ArcanumKeys.Derive(Fixed("Gaming"), suite);
+        var provider = NodeIdentity.Generate(suite);
+
+        var decree = DecreeSigner.Publish(provider, keys, [], TimeSpan.FromMinutes(20), 1, suite, Now);
+
+        // The published version (from the CupriMark catalogue) is accepted and the decree matches its channel.
+        Assert.True(DecreeValidator.IsVersionAcceptable(decree));
+        Assert.True(DecreeValidator.Matches(decree, keys, Now, suite));
+
+        // A version we don't have in the catalogue (a too-new advert) is refused outright — even though its
+        // Glyph would otherwise match. Version is part of the signed body, so a real one could never be forged
+        // this way; this asserts the acceptance gate itself.
+        var future = decree with { Version = (byte)(decree.Version + 1) };
+        Assert.False(DecreeValidator.IsVersionAcceptable(future));
+        Assert.False(DecreeValidator.Matches(future, keys, Now, suite));
+    }
 }

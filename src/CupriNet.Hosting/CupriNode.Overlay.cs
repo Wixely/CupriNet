@@ -202,7 +202,8 @@ public sealed partial class CupriNode
                     // is bound to THIS holder (our Sigil) and the current epoch, so it cannot be transplanted to other
                     // holders or replayed in a later epoch. A ±1-epoch window tolerates clock skew across nodes.
                     var epoch = TributeEpoch(now);
-                    if (DecreeSigner.Verify(decree, Suite)
+                    if (DecreeValidator.IsVersionAcceptable(decree)   // refuse a too-new / superseded advert before relaying it
+                        && DecreeSigner.Verify(decree, Suite)
                         && (Tribute.Verify(TributeSubject(decreeBytes, Identity.Sigil, epoch), nonce, _options.RequiredTributeDifficulty)
                             || Tribute.Verify(TributeSubject(decreeBytes, Identity.Sigil, epoch - 1), nonce, _options.RequiredTributeDifficulty)
                             || Tribute.Verify(TributeSubject(decreeBytes, Identity.Sigil, epoch + 1), nonce, _options.RequiredTributeDifficulty)))

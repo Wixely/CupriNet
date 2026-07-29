@@ -62,6 +62,15 @@ public class CupriMarksTests
     }
 
     [Fact]
+    public void Decree_AcceptsSupportedVersion_RejectsUnknownOrZero()
+    {
+        Assert.Equal(1, (int)CupriMarks.Supported(CupriMarks.Decree).Max);
+        Assert.True(CupriMarks.Accepts(CupriMarks.Decree, 1));   // current
+        Assert.False(CupriMarks.Accepts(CupriMarks.Decree, 2));  // too new — not in our catalogue
+        Assert.False(CupriMarks.Accepts(CupriMarks.Decree, 0));  // not a real version
+    }
+
+    [Fact]
     public void UnknownComponent_Throws()
     {
         Assert.Throws<ArgumentException>(() => CupriMarks.Supported("not-a-component"));
