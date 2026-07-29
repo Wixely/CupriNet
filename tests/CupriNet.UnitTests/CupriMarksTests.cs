@@ -71,6 +71,14 @@ public class CupriMarksTests
     }
 
     [Fact]
+    public void Intonation_AcceptsSupportedVersion_RejectsUnknown()
+    {
+        Assert.Equal(1, (int)CupriMarks.Supported(CupriMarks.Intonation).Max);
+        Assert.True(CupriMarks.Accepts(CupriMarks.Intonation, 1));
+        Assert.False(CupriMarks.Accepts(CupriMarks.Intonation, 2));
+    }
+
+    [Fact]
     public void UnknownComponent_Throws()
     {
         Assert.Throws<ArgumentException>(() => CupriMarks.Supported("not-a-component"));

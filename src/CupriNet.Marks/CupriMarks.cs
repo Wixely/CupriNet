@@ -21,6 +21,9 @@ public static class CupriMarks
     /// <summary>The Decree (signed channel advertisement) document component.</summary>
     public const string Decree = "decree";
 
+    /// <summary>The Intonation (signed connection link) document component.</summary>
+    public const string Intonation = "intonation";
+
     /// <summary>
     /// The single built-in catalogue for the CupriNet protocol suite. Frozen at first access; its
     /// SHA-256 <see cref="Catalogue.Id"/> identifies exactly this set of definitions, so two builds that
@@ -45,6 +48,11 @@ public static class CupriMarks
         new Component(Decree,
         [
             // v1 — the signed, epoch-scoped channel advertisement document.
+            new ComponentVersion(1, BumpReason.Functionality, VersionStatus.Active),
+        ]),
+        new Component(Intonation,
+        [
+            // v1 — the signed connection link (inviter identity, beacons, litany, severance).
             new ComponentVersion(1, BumpReason.Functionality, VersionStatus.Active),
         ]),
     ]);

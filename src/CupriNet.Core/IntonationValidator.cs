@@ -1,5 +1,6 @@
 using CupriNet.Abstractions;
 using CupriNet.Alembic;
+using CupriNet.Marks;
 
 namespace CupriNet.Core;
 
@@ -66,7 +67,10 @@ public static class IntonationValidator
     {
         ArgumentNullException.ThrowIfNull(suite);
 
-        if (intonation.Version != IntonationCodec.CurrentVersion)
+        // Range-accept the link version (CupriMark) instead of an exact-equality check: a version we support,
+        // at or above our security floor, and not buried. A future security bump raises the floor and refuses
+        // old links; a version newer than we understand is refused too (we can't parse it safely).
+        if (!CupriMarks.Accepts(CupriMarks.Intonation, intonation.Version))
             return new IntonationValidation(IntonationStatus.UnsupportedVersion, intonation);
 
         if (intonation.Network != expectedNetwork)

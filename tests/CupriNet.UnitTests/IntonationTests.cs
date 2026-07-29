@@ -97,6 +97,18 @@ public class IntonationTests
     }
 
     [Fact]
+    public void Validate_UnsupportedVersion_IsRejected()
+    {
+        var suite = Suite();
+        // A link stamped with a version the CupriMark catalogue doesn't know (too new / superseded) is refused;
+        // the version gate runs before the signature check, so this holds regardless of the (now stale) signature.
+        var intonation = Sample(suite) with { Version = (byte)(IntonationCodec.CurrentVersion + 1) };
+
+        var result = IntonationValidator.ValidateDocument(IntonationCodec.Encode(intonation), Network, suite, Now);
+        Assert.Equal(IntonationStatus.UnsupportedVersion, result.Status);
+    }
+
+    [Fact]
     public void Validate_Malformed_IsRejected()
     {
         var suite = Suite();

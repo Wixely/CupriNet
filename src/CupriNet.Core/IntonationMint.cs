@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using CupriNet.Abstractions;
 using CupriNet.Alembic;
+using CupriNet.Marks;
 
 namespace CupriNet.Core;
 
@@ -37,7 +38,9 @@ public static class IntonationMint
 
         var draft = new Intonation
         {
-            Version = IntonationCodec.CurrentVersion,
+            // Stamp the highest link version this build supports, per the CupriMark catalogue (the single
+            // source of versioning truth); recipients accept it via CupriMarks.Accepts in IntonationValidator.
+            Version = checked((byte)CupriMarks.Supported(CupriMarks.Intonation).Max),
             Network = options.Network,
             InviterSealPublicKey = identity.PublicKey.ToArray(),
             Beacons = options.Beacons,
