@@ -40,12 +40,26 @@ internal static class FerrymanProtocol
 
     private static readonly byte[] DomainReserve = "cuprinet/ferryman/handle/v1"u8.ToArray();
 
-    public static byte[] Reserve(byte[] handle, IReadOnlyList<IPEndPoint> candidates)
+    /// <summary>The exact bytes a target signs to prove it owns the key behind <paramref name="handle"/> (anti-squat).</summary>
+    public static byte[] ReserveSubject(byte[] handle, IReadOnlyList<IPEndPoint> candidates)
+    {
+        var w = new CodexWriter();
+        w.WriteBytes(DomainReserveSig);
+        w.WriteBytes(handle);
+        WriteCandidates(w, candidates);
+        return w.ToArray();
+    }
+
+    private static readonly byte[] DomainReserveSig = "cuprinet/ferryman/reserve/v1"u8.ToArray();
+
+    public static byte[] Reserve(byte[] handle, IReadOnlyList<IPEndPoint> candidates, byte[] sealPublicKey, byte[] signature)
     {
         var w = new CodexWriter();
         w.WriteByte(MsgReserve);
         w.WriteBytes(handle);
         WriteCandidates(w, candidates);
+        w.WriteBytes(sealPublicKey);
+        w.WriteBytes(signature);
         return w.ToArray();
     }
 
@@ -81,8 +95,27 @@ internal static class FerrymanProtocol
 
     // ---- parsing ------------------------------------------------------------------------------
 
-    public static bool TryReadReserve(ReadOnlySpan<byte> payload, out byte[] handle, out List<IPEndPoint> candidates)
-        => TryReadHandleAndCandidates(payload, MsgReserve, out handle, out candidates);
+    public static bool TryReadReserve(ReadOnlySpan<byte> payload, out byte[] handle, out List<IPEndPoint> candidates, out byte[] sealPublicKey, out byte[] signature)
+    {
+        handle = [];
+        candidates = [];
+        sealPublicKey = [];
+        signature = [];
+        try
+        {
+            var r = new CodexReader(payload);
+            if (r.ReadByte() != MsgReserve)
+                return false;
+            handle = r.ReadBytes().ToArray();
+            if (handle.Length != HandleSize)
+                return false;
+            candidates = ReadCandidates(ref r);
+            sealPublicKey = r.ReadBytes().ToArray();
+            signature = r.ReadBytes().ToArray();
+            return sealPublicKey.Length is > 0 and <= 64 && signature.Length is > 0 and <= 128;
+        }
+        catch (CodexFormatException) { return false; }
+    }
 
     public static bool TryReadRendezvous(ReadOnlySpan<byte> payload, out byte[] handle, out List<IPEndPoint> candidates)
         => TryReadHandleAndCandidates(payload, MsgRendezvous, out handle, out candidates);

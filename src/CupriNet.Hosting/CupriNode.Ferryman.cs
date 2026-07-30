@@ -20,14 +20,24 @@ namespace CupriNet.Hosting;
 public sealed partial class CupriNode
 {
     private readonly ConcurrentDictionary<string, FerrymanReservation> _reservations = new();
+    private int _ferrymanSessions;
 
-    private sealed record FerrymanReservation(IVessel Vessel, IReadOnlyList<IPEndPoint> Candidates);
+    private sealed record FerrymanReservation(IVessel Vessel, IReadOnlyList<IPEndPoint> Candidates, SemaphoreSlim SendGate);
 
     // ---- Relay side ----------------------------------------------------------------------------
 
     /// <summary>Serves an inbound Ferryman session: a RESERVE (a target parks a handle) or a RENDEZVOUS (a requester brokers a punch).</summary>
     private async Task ServeFerrymanAsync(IVessel vessel, CancellationToken cancellationToken)
     {
+        // Global concurrent-session cap: a Ward against a public relay being swamped (the requester uses an
+        // ephemeral identity, so per-Sigil budgeting is pointless; this bounds total sessions instead).
+        if (Interlocked.Increment(ref _ferrymanSessions) > Math.Max(16, _options.MaxFerrymanReservations * 2))
+        {
+            Interlocked.Decrement(ref _ferrymanSessions);
+            await vessel.DisposeAsync().ConfigureAwait(false);
+            return;
+        }
+
         string? reservedKey = null;
         try
         {
@@ -37,16 +47,23 @@ public sealed partial class CupriNode
             var payload = first.Value.Payload;
 
             if (payload[0] == FerrymanProtocol.MsgReserve
-                && FerrymanProtocol.TryReadReserve(payload, out var handle, out var candidates))
+                && FerrymanProtocol.TryReadReserve(payload, out var handle, out var candidates, out var sealPublicKey, out var signature))
             {
+                // Anti-squat: the reserver must PROVE it holds the key whose hash is the handle. Without this,
+                // anyone could reserve hash(victimSigil) — a public value — and hijack a target's handle.
+                var subject = FerrymanProtocol.ReserveSubject(handle, candidates);
+                var authentic = Suite.Verifier.Verify(subject, signature, sealPublicKey)
+                                && FerrymanProtocol.Handle(Sigil.FromSealPublicKey(sealPublicKey)).AsSpan().SequenceEqual(handle);
                 reservedKey = Convert.ToHexStringLower(handle);
-                if (_reservations.Count >= _options.MaxFerrymanReservations
-                    || !_reservations.TryAdd(reservedKey, new FerrymanReservation(vessel, candidates)))
+                if (!authentic
+                    || (!_reservations.ContainsKey(reservedKey) && _reservations.Count >= _options.MaxFerrymanReservations))
                 {
                     await vessel.SendAsync(OverlayControl.Stream, FerrymanProtocol.Reserved(FerrymanProtocol.StatusNotReserved), cancellationToken).ConfigureAwait(false);
                     reservedKey = null;
                     return;
                 }
+                // Only the key-holder can produce a valid RESERVE for this handle, so overwriting is safe (it's a refresh).
+                _reservations[reservedKey] = new FerrymanReservation(vessel, candidates, new SemaphoreSlim(1, 1));
                 await vessel.SendAsync(OverlayControl.Stream, FerrymanProtocol.Reserved(FerrymanProtocol.StatusOk), cancellationToken).ConfigureAwait(false);
 
                 // Hold the connection open so the rendezvous handler can push a NOTIFY; a null frame means the target left.
@@ -66,10 +83,16 @@ public sealed partial class CupriNode
                 if (_reservations.TryGetValue(key, out var reservation))
                 {
                     var nonce = RandomNumberGenerator.GetBytes(FerrymanProtocol.NonceSize);
-                    // Push the requester's candidates to the parked target; the relay only forwards signaling.
-                    try { await reservation.Vessel.SendAsync(OverlayControl.Stream, FerrymanProtocol.Notify(nonce, requesterCandidates), cancellationToken).ConfigureAwait(false); }
+                    // Push the requester's candidates to the parked target; serialize sends so concurrent rendezvous
+                    // for one target can't interleave frames on its vessel. The relay only forwards signaling.
+                    var pushed = false;
+                    await reservation.SendGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+                    try { await reservation.Vessel.SendAsync(OverlayControl.Stream, FerrymanProtocol.Notify(nonce, requesterCandidates), cancellationToken).ConfigureAwait(false); pushed = true; }
                     catch { /* target vanished between lookup and push */ }
-                    await vessel.SendAsync(OverlayControl.Stream, FerrymanProtocol.Offer(FerrymanProtocol.StatusOk, nonce, reservation.Candidates), cancellationToken).ConfigureAwait(false);
+                    finally { reservation.SendGate.Release(); }
+
+                    var status = pushed ? FerrymanProtocol.StatusOk : FerrymanProtocol.StatusNotReserved;
+                    await vessel.SendAsync(OverlayControl.Stream, FerrymanProtocol.Offer(status, nonce, pushed ? reservation.Candidates : []), cancellationToken).ConfigureAwait(false);
                 }
                 else
                 {
@@ -80,8 +103,11 @@ public sealed partial class CupriNode
         catch { /* connection dropped or malformed — nothing to serve */ }
         finally
         {
-            if (reservedKey is not null)
-                _reservations.TryRemove(reservedKey, out _);
+            // Only remove the reservation if it's still ours (a fresh RESERVE by the same key may have replaced it).
+            if (reservedKey is not null
+                && _reservations.TryGetValue(reservedKey, out var mine) && ReferenceEquals(mine.Vessel, vessel))
+                _reservations.TryRemove(new KeyValuePair<string, FerrymanReservation>(reservedKey, mine));
+            Interlocked.Decrement(ref _ferrymanSessions);
             await vessel.DisposeAsync().ConfigureAwait(false);
         }
     }
@@ -118,8 +144,15 @@ public sealed partial class CupriNode
             var (vessel, _) = await DialFerrymanAsync(relayBeacon, cancellationToken).ConfigureAwait(false);
             try
             {
-                await vessel.SendAsync(OverlayControl.Stream, FerrymanProtocol.Reserve(handle, candidates), cancellationToken).ConfigureAwait(false);
-                _ = await vessel.ReceiveAsync(cancellationToken).ConfigureAwait(false); // RESERVED ack
+                // Sign the reservation with our real Seal so the relay can verify we own the handle (anti-squat).
+                var subject = FerrymanProtocol.ReserveSubject(handle, candidates);
+                var signature = Suite.CreateSigner(Identity.Seal.PrivateKey).Sign(subject);
+                await vessel.SendAsync(OverlayControl.Stream, FerrymanProtocol.Reserve(handle, candidates, Identity.Seal.PublicKey, signature), cancellationToken).ConfigureAwait(false);
+
+                var ack = await vessel.ReceiveAsync(cancellationToken).ConfigureAwait(false);
+                if (ack is null || ack.Value.Payload.Length < 2
+                    || ack.Value.Payload[0] != FerrymanProtocol.MsgReserved || ack.Value.Payload[1] != FerrymanProtocol.StatusOk)
+                    return; // reservation refused (relay full / rejected) — the outer loop backs off and retries elsewhere
 
                 while (!cancellationToken.IsCancellationRequested)
                 {

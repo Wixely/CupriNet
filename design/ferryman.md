@@ -131,6 +131,29 @@ connection metadata to** — a deliberate, low‑stakes, one‑time choice per r
   `RENDEZVOUS_REQUEST` and the punch; on failure, offer Tor.
 - **App (CupriChat):** the consent prompt, fingerprint display, `known_relays` management.
 
+## Implementation status (v1) & deferred hardening
+
+**Implemented & tested** (`CupriNode.Ferryman.cs`, `FerrymanProtocol.cs`, `KnownRelays.cs`, CupriChat, Lodestar):
+the relay/reserve/rendezvous protocol, the ephemeral-identity requester flow, the direct Sigil-pinned pairing,
+the `KnownRelays` TOFU store + CupriChat confirm-and-explain dialog, and Lodestar-as-Ferryman by default.
+**Reservations are authenticated** — the target signs the reservation with its Seal and the relay verifies the
+signature *and* that `handle == hash(Sigil)`, so a handle (a hash of a public Sigil) **cannot be squatted or
+hijacked**. NOTIFY pushes to a reserved target are serialized (a per-reservation gate), and a global
+concurrent-session cap Wards the relay.
+
+**Deferred hardening** (tracked; none are security-critical — the relay still can't read content or impersonate):
+- **Reservation TTL / keep-alive** — today a reservation lives with its vessel; add a ~30 s keep-alive + ~90 s TTL
+  so idle reservations are reaped promptly.
+- **Per-source-IP / per-subnet caps** and a **Tribute (PoW)** on `RENDEZVOUS` — beyond the global session cap.
+- **Fresh socket per incoming** on the target so it can serve concurrent requesters (v1 handles one per socket,
+  then re-reserves).
+- **Rotating handles** — the handle is currently a static (authenticated) hash; a passive relay can de-blind it
+  by precomputing hashes of known Sigils, so blinding is weak. A rotating/relay-blinded handle would restore it.
+- **Candidate hygiene** — filter loopback/RFC1918/unspecified candidates signaled via a relay, and address-family
+  mismatches, to avoid reflected-punch noise and private-IP disclosure.
+- **Name-based changed-key** warning is inert until relays carry names (Phase 3); by raw Sigil a changed key is
+  simply a new relay (first-use prompt).
+
 ## Phasing
 
 1. **MVP** — explicit relay: D reserves with a configured Ferryman and advertises the `Brokered` beacon; E
