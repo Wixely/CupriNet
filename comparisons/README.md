@@ -17,6 +17,7 @@ of the file) and aims to be **fair, not a sales pitch** — including the places
 |---|---|---|
 | [FIPS](https://github.com/jmcorgan/fips) | Rust, Nostr-identified, **routed encrypted IP mesh** (IPv6 adapter + DNS) — closest to Tailscale/Yggdrasil | [cuprinet-vs-fips.md](cuprinet-vs-fips.md) |
 | [Tor](https://www.torproject.org/) | **Anonymity network / transport** — onion routing + onion services. Not an alternative; CupriNet runs *over* it | [cuprinet-vs-tor.md](cuprinet-vs-tor.md) |
+| [Tox](https://tox.chat/) | **P2P instant messenger** (DHT-findable, voice/video) — the closest like-for-like; compared via our **CupriChat** sample | [cuprinet-vs-tox.md](cuprinet-vs-tox.md) |
 
 *(More to come.)*
 
