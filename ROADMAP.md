@@ -64,11 +64,20 @@ The two-layer stack is real, wired end-to-end, and covered by the test suite (**
 
 Three features we've scoped but not started — captured here so the intent is on record:
 
-- **Websites over CupriNet + a browser bridge.** A sample serving HTTP-style request/response **directly from a
-  node** over the Rites layer, viewed through a **browser extension / local gateway** that maps a `cuprinet://…`
-  address to a fetch — the way you'd view a Tor onion site. **Live self-hosted** (reachable only while the host is
-  online; nothing stored in the overlay); addressable by link, and later by a node **name** (below). Persistent /
-  distributed hosting is explicitly *out of scope* for the first cut.
+- **Websites over CupriNet + a browser bridge.** Serve HTTP-style request/response **directly from a node** over
+  the Rites layer, viewed through a **browser extension / local gateway** that maps a `cuprinet://…` address to a
+  fetch — the way you'd view a Tor onion site. It reuses the L2 transport but with **one-sided auth**: the *host*
+  proves it owns the URL (a dedicated **site key**, self-authenticating like `.onion` — Noise NK-style, or XX with
+  a throwaway per-visit visitor identity), while the *visitor* stays anonymous. A public site has **no access
+  control by design**; add a Watchword and it becomes a private Arcanum channel that serves web content. The site
+  key is **separate from the node's overlay Sigil**, so hosting reveals no L1 identity and keeps L2's
+  unlinkability + no-relay guarantees. The **URL is the 32-byte (256-bit) self-auth key rendered as bech32** —
+  branded human prefix + checksum (`cupri1…`, ~52 chars, v3-onion-grade) — unstealable, no registry, no CA.
+  **Live self-hosted** for the first cut (reachable only while the host is online; nothing stored in the overlay).
+  *Open problem:* resolving a **stable short URL to a moving host** without a global DHT — v1 embeds reachability
+  in a signed link, or host the site as a **Tor onion** so the `.onion` is itself the stable self-auth URL.
+  Addressable by link now, by a verifiable node **name** later (below); persistent/distributed hosting is *out of
+  scope* for the first cut.
 - **L3 — optional in-channel end-to-end encryption (recipient-anonymous sealed messages).** A *third* encryption
   layer **inside** an Arcanum channel: a member **seals** a payload to specific recipients' **portable public
   keys** and posts the **ciphertext** into the channel, so the channel — and every other member, even an untrusted
@@ -88,9 +97,10 @@ Three features we've scoped but not started — captured here so the intent is o
   supports **pinning an expected Sigil**, so a client that obtained the real node's fingerprint through a trusted
   **side channel** (e.g. the entity's own website) can verify it isn't talking to an impostor. Scope: attach the
   name label to published records/links; define a side-channel format for publishing a `name → Sigil` claim (and
-  optionally a domain/social **proof** for a "verified" badge). Names are **self-asserted labels, not a global
-  namespace** — no registry, no squatting-by-fiat. (Pairs naturally with the websites item: address a site by
-  a verifiable node name.)
+  optionally a domain/social **proof** for a "verified" badge). Fingerprints/Sigils shown to users render as
+  **bech32** (branded prefix + checksum), the same encoding as the site URLs above. Names are **self-asserted
+  labels, not a global namespace** — no registry, no squatting-by-fiat. (Pairs naturally with the websites item:
+  address a site by a verifiable node name.)
 
 ## 💤 Deferred / accepted (not bugs)
 
