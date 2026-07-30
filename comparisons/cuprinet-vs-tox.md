@@ -37,7 +37,7 @@ wins today on **features and maturity**; CupriNet leans harder into **privacy-by
 | | Tox (qTox / toxcore) | CupriChat (CupriNet) |
 |---|---|---|
 | **Kind** | P2P messenger — text, **voice/video**, files, groups | P2P messenger — text, data, **files**, group channels (no A/V) |
-| **Discovery** | **Public DHT** + bootstrap nodes; findable by Tox ID | **No DHT** — reached via a signed, **expiring link** (or LAN / introductions) |
+| **Discovery** | **Public DHT** + bootstrap nodes; findable by Tox ID | **No identity DHT** — reached via a signed, **expiring link** (or LAN / introductions); opt-in *channel* lookup only |
 | **Identity** | **Static** Tox ID (curve25519 key + nospam + checksum) | Sigil (Ed25519 key hash); **per-channel identities unlinkable** from it |
 | **Add someone** | Send/accept a friend request to a Tox ID | Share/paste a `cuprinet://intone/…` link (or QR); join a channel by `Name#Salt` |
 | **IP privacy** | **None by default** — contacts see your IP; Tor is a workaround | Clearnet also shows IP to a direct peer, but **first-class Tor** (dual-stack / onion-only) is built in |
@@ -52,9 +52,10 @@ wins today on **features and maturity**; CupriNet leans harder into **privacy-by
 
 **1. Findable-by-ID vs reachable-by-link.** Tox puts you on a **public DHT**: anyone with your Tox ID can find and
 message you — convenient and open, but it means a **static, globally-queryable identifier** and a discovery
-surface. CupriNet has **no DHT**: you're reached only by a **signed, expiring Intonation link** you chose to share
-(or same-LAN / a member introduction). That's worse for "be reachable by anyone" and better for **closed, private
-groups** where non-discoverability is the point.
+surface. CupriNet has **no identity DHT**: you're reached only by a **signed, expiring Intonation link** you chose
+to share (or same-LAN / a member introduction). That's worse for "be reachable by anyone" and better for
+**closed, private groups** where non-discoverability is the point. *(Detailed below — including the one lookup
+CupriNet does have.)*
 
 **2. IP privacy: bolt-on vs built-in.** Tox is upfront that it **doesn't cloak your IP** from contacts, and Tor is
 a documented workaround (that sacrifices UDP). CupriNet clearnet *also* exposes your IP to a direct peer — but
@@ -76,6 +77,74 @@ forks) — a more governed model, at the cost of simplicity.
 **5. Runtime & license.** Tox is a C library under **GPL-3.0**; CupriNet is **managed C# under MIT**. For
 embedding in a proprietary or permissively-licensed .NET app, MIT + no native deps is materially easier; for a
 native/systems client, toxcore's C is the more natural fit.
+
+## Discovery in depth: our search vs Tox's DHT
+
+**Tox — a global identity DHT.** Tox runs a Kademlia-style DHT that indexes **node identities**: your curve25519
+key is announced into the DHT and resolves (via bootstrap nodes) to your current endpoint, so anyone holding your
+**Tox ID can locate and reach you** at any time. Friend *lookups* are onion-routed so DHT nodes don't learn who's
+searching — but you are, by design, **globally findable by a static identifier**.
+
+**CupriNet — no identity index; opt-in, member-keyed channel lookup.** CupriNet never publishes a "who is where"
+index. Discovery, in order of preference:
+
+1. **Given a link.** The normal path: someone shares a signed, expiring `cuprinet://intone/…` carrying their
+   reachability *and* a small sample of seed peers (the **Litany**), so you enter the overlay with several live
+   entry points at once.
+2. **Same-LAN presence** and a **warm-start cache** (peers you already paired with, reloaded on restart).
+3. **Bounded sampled exchange (gossip).** Peers trade *bounded samples* of their peer view — never full lists — to
+   keep the map fresh among nodes you already know.
+4. **Opt-in routed channel lookup (Divination).** *Only if you enable it*, an **iterative, bounded, referral-only**
+   lookup (α=3, hard query caps) converges on the nodes nearest a **channel routing coordinate (Ascendant)** to
+   fetch that channel's signed adverts. The coordinate is a **secret derived from the channel's Watchword** —
+   non-members can't compute it — and the public match token (**Glyph**) **rotates each epoch**. Crucially, **no
+   node relays your request**: peers return *referrals* (Augury) and you dial each suggested peer yourself.
+
+Two structural differences matter: Tox indexes **identities** (findable people) in an **always-on** global
+structure; CupriNet indexes only **channels**, behind a **member-only secret**, and only **when you opt in** — and
+it has **no way to resolve "Sigil X → address"** at all.
+
+| | Tox DHT (finds people) | CupriNet (link-first; opt-in channel lookup) |
+|---|---|---|
+| **What's indexed** | Node identities (key → endpoint) | Nothing by default; optionally *channels* via a secret coordinate |
+| **Findable by a static ID?** | **Yes** — your Tox ID locates you | **No** — reached via an expiring link / LAN / introduction |
+| **Default network exposure** | Announced in the DHT | Nothing published to any index |
+| **Who can locate a target** | Anyone with the ID | Only a member (holds the Watchword), and only if lookup is on |
+| **Request handling** | Iterative (client-driven) | Iterative, **referral-only** — no node forwards your request |
+| **Long-lived correlator** | Static Tox ID | Expiring links + a **rotating** channel token |
+
+**Pros of Tox's DHT**
+- **Reach anyone, anytime** with just their ID — no pre-shared link, no need to have been online simultaneously.
+- Mature, self-healing, scales; a permanent ID you never refresh.
+- Ideal for **open** contact ("here's my Tox ID, message me").
+
+**Cons of Tox's DHT**
+- You're **globally findable and enumerable** by a **static** identifier — a standing metadata/privacy surface;
+  DHT participation exposes your key and makes your IP discoverable to the network.
+- **Unsolicited contact / spam** to your ID (nospam mitigates it, but rotating it changes your ID).
+- The DHT is itself an attack surface (Sybil / eclipse / poisoning of the lookup).
+
+**Pros of CupriNet's method**
+- **Not globally findable**: no identity index and no static public locator — strong for **closed/private groups**
+  and metadata minimization. You're reachable only by those you handed a link (or share a LAN with, or are
+  introduced to).
+- **Opt-in leakage**: by default you tell the network **nothing** about what you seek; the routed lookup — which
+  *does* reveal to the peers you ask that you're searching — is **off** unless you enable it.
+- Channel lookup is keyed by a **member-only secret** with a **rotating** public token, so non-members can't even
+  locate a channel — and **no node relays** your request.
+
+**Cons of CupriNet's method**
+- **Bootstrap friction**: you must be **given** a link (or share a LAN / be introduced) — there's no "find me by
+  ID," and two parties with **no shared contact can't discover each other** (genesis / first contact is manual).
+- **Links expire**, so you may need fresh ones (mitigated by the Litany seed sample + warm-start cache, but a
+  long-stale link can fail).
+- The opt-in lookup, when used, **reveals to the peers you query that you're searching** for *some* channel — less
+  private than not searching at all (a deliberate trade-off).
+- No always-available global fallback: reachability depends on a valid link or live known peers.
+
+**Net:** Tox optimizes for **open, permanent findability**; CupriNet optimizes for **non-discoverability and
+metadata minimization**, accepting more bootstrap friction. It's the discovery-layer expression of the same
+philosophy split you see everywhere else in this comparison.
 
 ## Where they're kin
 
