@@ -52,9 +52,13 @@ The two-layer stack is real, wired end-to-end, and covered by the test suite (**
 
 ## 🧭 Planned — larger pieces
 
-- **Ferryman relay** — an optional, separate capability that relays **L1 data only** and coordinates **L2
-  hole-punching** (signaling), never carrying L2 content. Lets a symmetric-NAT pair that can't be punched
-  still discover/coordinate; keeps the server-independent core intact.
+- **Ferryman relay** — an **opt-in public relay** that brokers a direct connection between two NAT'd peers by
+  **coordinating a hole punch** (signaling only) and then dropping out — it **never carries L2 content** (punch
+  succeeds → direct session; punch fails → fall back to Tor, never TURN). The relay can't break end-to-end
+  security (it only sees metadata + IPs), so the app gates it with **SSH-style TOFU trust** (show the relay's
+  name + bech32 fingerprint, remember approved relays to a `known_relays` file, warn on a changed key). Same
+  pattern as libp2p circuit-relay-v2 + DCUtR; a natural role for a public **Lodestar**. Full design:
+  [design/ferryman.md](design/ferryman.md).
 - **Simulation & fuzzing at scale** — a virtual-node harness (hundreds–thousands) for poisoning / partition
   / eclipse / Sybil scenarios, and decoder fuzzing across every frame and document parser.
 - **IPv6 direct** paths and pluggable rendezvous.
