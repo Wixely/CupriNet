@@ -60,6 +60,33 @@ The two-layer stack is real, wired end-to-end, and covered by the test suite (**
 - **IPv6 direct** paths and pluggable rendezvous.
 - **A mobile sample** exercising suspend/reconnect against the retry layer.
 
+### Explored ideas (shaping)
+
+Three features we've scoped but not started — captured here so the intent is on record:
+
+- **Websites over CupriNet + a browser bridge.** A sample serving HTTP-style request/response **directly from a
+  node** over the Rites layer, viewed through a **browser extension / local gateway** that maps a `cuprinet://…`
+  address to a fetch — the way you'd view a Tor onion site. **Live self-hosted** (reachable only while the host is
+  online; nothing stored in the overlay); addressable by link, and later by a node **name** (below). Persistent /
+  distributed hosting is explicitly *out of scope* for the first cut.
+- **L3 — optional in-channel end-to-end encryption (OpenPGP).** A *third* encryption layer **inside** an Arcanum
+  channel: a member encrypts a payload to specific recipients' **existing PGP keys** and posts the **ciphertext**
+  into the channel, so the channel — and every other member, even an untrusted or compromised one — sees only
+  ciphertext and **only key-holders decrypt**. With OpenPGP **hidden-recipient** ("throw key-ids") the message
+  carries no recipient key-id, so an observer **can't prove who it was for** — recipient **plausible deniability**
+  for a PM sent through a group. Purpose: private sub-conversations, and communicating in **a channel you no
+  longer trust**, using participants' own PGP identities — sitting on top of (and independent from) CupriNet's
+  transport crypto.
+- **Named, out-of-band-verifiable node identities (L1).** Let a node advertise a **human-readable name** (e.g.
+  "Wikipedia") so popular/infrastructure nodes are recognisable — but trust comes from the **fingerprint, not the
+  name**. A node's **Sigil is already the cryptographic hash of its key**, and the pairing handshake already
+  supports **pinning an expected Sigil**, so a client that obtained the real node's fingerprint through a trusted
+  **side channel** (e.g. the entity's own website) can verify it isn't talking to an impostor. Scope: attach the
+  name label to published records/links; define a side-channel format for publishing a `name → Sigil` claim (and
+  optionally a domain/social **proof** for a "verified" badge). Names are **self-asserted labels, not a global
+  namespace** — no registry, no squatting-by-fiat. (Pairs naturally with the websites item: address a site by
+  a verifiable node name.)
+
 ## 💤 Deferred / accepted (not bugs)
 
 - **First contact needs a seed.** Isolated partitions with no shared contact can't discover each other; links
