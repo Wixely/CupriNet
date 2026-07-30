@@ -25,8 +25,6 @@ services:
       - lodestar-data:/data   # hot path: identity, master key, known peers, lodestar.link
     environment:
       CUPRINET_LODESTAR_Concordium: "example.chat"        # the network this node keeps alive
-      CUPRINET_LODESTAR_Moniker: "Wikipedia"              # self-asserted display name (UNVERIFIED — peers trust it
-                                                          #   only by matching this node's fingerprint). Omit for none.
       CUPRINET_LODESTAR_PublicHost: "lodestar.example.net" # <-- your reachable DNS name or public IP
       # CUPRINET_LODESTAR_PublicPort: "43820"              # defaults to ListenPort
       # Extra reachable addresses the node can't detect itself (cloud NAT/LB, second NIC):

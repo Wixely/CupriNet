@@ -35,7 +35,7 @@ public sealed class LodestarOptions
     public int? PublicPort { get; set; }
 
     /// <summary>
-    /// Optional self-asserted display name (Moniker) this node advertises — e.g. "Wikipedia". It rides in the node's
+    /// Optional self-asserted display name (Moniker) this node advertises — e.g. "Community Relay". It rides in the node's
     /// signed link and peer record, so it can only be claimed for this node's own key. CupriNet <b>never verifies</b>
     /// it: peers see it as a hint and decide whether to trust it, always by matching this node's fingerprint. Leave
     /// empty to advertise no name.

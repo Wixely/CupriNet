@@ -1,7 +1,7 @@
 namespace CupriNet.Core;
 
 /// <summary>
-/// A Moniker is a node's self-asserted display name (e.g. "Wikipedia"). It rides inside a signed body, so a node can
+/// A Moniker is a node's self-asserted display name (e.g. "Community Relay"). It rides inside a signed body, so a node can
 /// only claim one for its own key — but CupriNet <b>never verifies it</b>: it is a display hint, and a consuming app
 /// decides whether to believe it, always by matching the node's fingerprint (Sigil). This helper only normalises the
 /// string (trim + length Ward); trust is entirely the client's business.

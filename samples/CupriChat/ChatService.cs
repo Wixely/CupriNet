@@ -378,7 +378,7 @@ public sealed class ChatService : IAsyncDisposable
             return;
         }
 
-        // The link may carry a self-asserted Moniker (e.g. "Wikipedia"). It is UNVERIFIED — the signature only proves
+        // The link may carry a self-asserted Moniker (e.g. "Community Relay"). It is UNVERIFIED — the signature only proves
         // the key made the claim, not that the name is true. We show it next to the fingerprint so the user can judge
         // it against a fingerprint they trust; the app never treats the name itself as identity.
         if (!string.IsNullOrWhiteSpace(intonation.Moniker))

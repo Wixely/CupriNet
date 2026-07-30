@@ -28,7 +28,7 @@ public sealed record PeerRecord
     public required PeerCapabilities Capabilities { get; init; }
 
     /// <summary>
-    /// Optional self-asserted display name (Moniker) — e.g. "Wikipedia". Signed (so a node can only claim one for its
+    /// Optional self-asserted display name (Moniker) — e.g. "Community Relay". Signed (so a node can only claim one for its
     /// own key) but <b>never verified by CupriNet</b>. It's a display hint; a client believes it only by matching the
     /// node's fingerprint (<see cref="Sigil"/>) against one it trusts.
     /// </summary>

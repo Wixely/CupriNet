@@ -35,9 +35,9 @@ public class PeerRecordTests
         var suite = CryptoSuites.Simulacrum();
         var identity = NodeIdentity.Generate(suite);
 
-        var named = PeerRecordSigner.Create(identity, [], 1, PeerCapabilities.None, suite, Now, moniker: "Wikipedia");
+        var named = PeerRecordSigner.Create(identity, [], 1, PeerCapabilities.None, suite, Now, moniker: "Example Node");
         var (namedBack, _) = PeerRecordCodec.Decode(PeerRecordCodec.Encode(named));
-        Assert.Equal("Wikipedia", namedBack.Moniker);
+        Assert.Equal("Example Node", namedBack.Moniker);
 
         var plain = PeerRecordSigner.Create(identity, [], 1, PeerCapabilities.None, suite, Now);
         Assert.Null(plain.Moniker);
@@ -50,7 +50,7 @@ public class PeerRecordTests
     {
         var suite = CryptoSuites.Secure();
         var identity = NodeIdentity.Generate(suite);
-        var record = PeerRecordSigner.Create(identity, [], 1, PeerCapabilities.None, suite, Now, moniker: "Wikipedia");
+        var record = PeerRecordSigner.Create(identity, [], 1, PeerCapabilities.None, suite, Now, moniker: "Example Node");
 
         Assert.True(PeerRecordSigner.Verify(record, suite));
         Assert.False(PeerRecordSigner.Verify(record with { Moniker = "Imposter" }, suite));

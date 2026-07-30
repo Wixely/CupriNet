@@ -40,7 +40,7 @@ public sealed record CupriNodeOptions
     public bool AdvertiseLocalAddresses { get; init; }
 
     /// <summary>
-    /// Optional self-asserted display name (Moniker) this node claims for itself, e.g. "Wikipedia". It rides in the
+    /// Optional self-asserted display name (Moniker) this node claims for itself, e.g. "Community Relay". It rides in the
     /// signed link and self-record, so a node can only claim a Moniker for its own key — but it is <b>never verified
     /// by CupriNet</b>. It's a display hint; a consuming app decides whether to believe it, always by matching the
     /// node's fingerprint (Sigil) against one it trusts.

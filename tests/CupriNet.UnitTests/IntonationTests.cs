@@ -58,11 +58,11 @@ public class IntonationTests
         {
             Network = Network,
             Beacons = [new Beacon(EndpointKind.Host, "192.168.1.20", 43820)],
-            Moniker = "Wikipedia",
+            Moniker = "Example Node",
         }, Now);
 
         var (decoded, _) = IntonationCodec.Decode(IntonationCodec.Encode(intonation));
-        Assert.Equal("Wikipedia", decoded.Moniker);
+        Assert.Equal("Example Node", decoded.Moniker);
     }
 
     [Fact]
@@ -90,7 +90,7 @@ public class IntonationTests
         {
             Network = Network,
             Beacons = [new Beacon(EndpointKind.Host, "192.168.1.20", 43820)],
-            Moniker = "Wikipedia",
+            Moniker = "Example Node",
         }, Now);
 
         Assert.Equal(IntonationStatus.Valid,

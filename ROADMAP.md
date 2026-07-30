@@ -96,7 +96,7 @@ Three features we've scoped but not started — captured here so the intent is o
   a session/ratchet (MLS/Signal) that conflicts with the self-contained-blob-using-existing-keys model — an accepted
   trade for this use.
 - **Monikers — self-asserted node labels (L1).** Let a node advertise a **Moniker**: a human-readable name it
-  claims for itself (e.g. "Wikipedia"), so popular/infrastructure nodes are recognisable. **The protocol carries
+  claims for itself (e.g. "Community Relay"), so popular/infrastructure nodes are recognisable. **The protocol carries
   the Moniker unverified** — it is a display hint, never a truth claim — and **validating it is the consuming
   client's job**, however that client chooses: match the node's fingerprint against one it already trusts (a Sigil
   pinned earlier, a side channel like the entity's own website, an allow-list, or a later domain/social proof).

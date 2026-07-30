@@ -36,7 +36,7 @@ public sealed record Intonation
     public byte[]? Petition { get; init; }
 
     /// <summary>
-    /// Optional self-asserted display name (Moniker) the node claims for itself, e.g. "Wikipedia". Carried inside
+    /// Optional self-asserted display name (Moniker) the node claims for itself, e.g. "Community Relay". Carried inside
     /// the signed body (so a node can only claim a Moniker for its own key), but <b>never verified by the protocol</b>
     /// — it is a display hint; a consuming client decides whether to believe it, always against the fingerprint.
     /// </summary>
