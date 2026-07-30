@@ -30,6 +30,33 @@ public class PeerRecordTests
     }
 
     [Fact]
+    public void Moniker_RoundTrips_AndIsNullWhenUnset()
+    {
+        var suite = CryptoSuites.Simulacrum();
+        var identity = NodeIdentity.Generate(suite);
+
+        var named = PeerRecordSigner.Create(identity, [], 1, PeerCapabilities.None, suite, Now, moniker: "Wikipedia");
+        var (namedBack, _) = PeerRecordCodec.Decode(PeerRecordCodec.Encode(named));
+        Assert.Equal("Wikipedia", namedBack.Moniker);
+
+        var plain = PeerRecordSigner.Create(identity, [], 1, PeerCapabilities.None, suite, Now);
+        Assert.Null(plain.Moniker);
+        var (plainBack, _) = PeerRecordCodec.Decode(PeerRecordCodec.Encode(plain));
+        Assert.Null(plainBack.Moniker);
+    }
+
+    [Fact]
+    public void Moniker_IsCoveredBySignature_UnderSecureSuite()
+    {
+        var suite = CryptoSuites.Secure();
+        var identity = NodeIdentity.Generate(suite);
+        var record = PeerRecordSigner.Create(identity, [], 1, PeerCapabilities.None, suite, Now, moniker: "Wikipedia");
+
+        Assert.True(PeerRecordSigner.Verify(record, suite));
+        Assert.False(PeerRecordSigner.Verify(record with { Moniker = "Imposter" }, suite));
+    }
+
+    [Fact]
     public void Sigil_IsDerivedFromSeal_MatchesIdentity()
     {
         var suite = CryptoSuites.Simulacrum();

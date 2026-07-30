@@ -134,6 +134,7 @@ public sealed class LodestarService : BackgroundService
             Suite = suite,
             SecretStore = store,
             AdvertisedBeacons = advertised,
+            Moniker = _options.Moniker,   // self-asserted display name, carried unverified in link + peer record
             OnionTransport = onion,
             // Standard + an OnionTransport = dual-stack (clearnet AND onion); TorOnly enforces onion-only.
             Mode = onionOnly ? ReachabilityMode.TorOnly : ReachabilityMode.Standard,
@@ -161,7 +162,10 @@ public sealed class LodestarService : BackgroundService
     private void AnnounceSelf(CupriNode node, string dataDir, CancellationToken ct)
     {
         _log.LogInformation("Lodestar online for network '{Network}'.", _options.Concordium);
+        if (!string.IsNullOrWhiteSpace(_options.Moniker))
+            _log.LogInformation("Advertising Moniker '{Moniker}' (self-asserted, unverified — peers trust it only via the fingerprint).", Monikers.Normalize(_options.Moniker));
         _log.LogInformation("Node key (Sigil): {Sigil}", Hex(node.Identity.Sigil));
+        _log.LogInformation("Fingerprint: {Fingerprint}", Bech32.Fingerprint(node.Identity.Sigil));
         _log.LogInformation("Listening on {Endpoint}.", node.LocalEndPoint);
         _log.LogInformation("Known peers loaded from hot path: {Count}", node.Constellation.Count);
         if (_options.EnableFerryman && !_options.TorOnly)

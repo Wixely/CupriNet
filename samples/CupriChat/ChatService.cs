@@ -378,6 +378,12 @@ public sealed class ChatService : IAsyncDisposable
             return;
         }
 
+        // The link may carry a self-asserted Moniker (e.g. "Wikipedia"). It is UNVERIFIED — the signature only proves
+        // the key made the claim, not that the name is true. We show it next to the fingerprint so the user can judge
+        // it against a fingerprint they trust; the app never treats the name itself as identity.
+        if (!string.IsNullOrWhiteSpace(intonation.Moniker))
+            Status?.Invoke($"Link claims to be “{Monikers.Normalize(intonation.Moniker)}” (unverified) — fingerprint {Bech32.Fingerprint(intonation.InviterSigil)}. Verify the fingerprint before trusting the name.");
+
         try
         {
             var peer = await _node.ConjoinAsync(intonation, DateTimeOffset.UtcNow, _cts.Token);

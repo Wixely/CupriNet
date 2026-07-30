@@ -168,6 +168,7 @@ public sealed partial class CupriNode : IAsyncDisposable
             Litany = litany,
             Lifetime = lifetime,
             Petition = petition,
+            Moniker = _options.Moniker,
         }, now);
     }
 

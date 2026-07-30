@@ -22,6 +22,9 @@ public sealed record IntonationOptions
 
     /// <summary>Optional capability secret bound into the link.</summary>
     public byte[]? Petition { get; init; }
+
+    /// <summary>Optional self-asserted display name (Moniker) to advertise in the link. Never verified by the protocol.</summary>
+    public string? Moniker { get; init; }
 }
 
 /// <summary>Mints signed Intonations for a node identity (the <c>Intone</c> command).</summary>
@@ -49,6 +52,7 @@ public static class IntonationMint
             SeveranceUnix = now.Add(options.Lifetime).ToUnixTimeSeconds(),
             Nonce = RandomNumberGenerator.GetBytes(NonceSize),
             Petition = options.Petition,
+            Moniker = options.Moniker,
             Signature = [],
         };
 

@@ -43,7 +43,7 @@ public sealed partial class CupriNode
 
     /// <summary>A signed, self-describing record of this node (its dialable beacons + capabilities) to seed peers with.</summary>
     public PeerRecord SelfRecord(DateTimeOffset now)
-        => PeerRecordSigner.Create(Identity, SelfBeacons(), (ulong)now.ToUnixTimeMilliseconds(), PeerCapabilities.ChannelProvider, Suite, now);
+        => PeerRecordSigner.Create(Identity, SelfBeacons(), (ulong)now.ToUnixTimeMilliseconds(), PeerCapabilities.ChannelProvider, Suite, now, _options.Moniker);
 
     /// <summary>Admits a (validated) peer record into the Constellation so overlay lookups have somewhere to start.</summary>
     public bool AdmitPeer(PeerRecord record, DateTimeOffset now)

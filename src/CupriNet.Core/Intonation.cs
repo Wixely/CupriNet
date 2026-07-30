@@ -35,6 +35,13 @@ public sealed record Intonation
     /// <summary>Optional capability secret (Petition) proving possession of the link.</summary>
     public byte[]? Petition { get; init; }
 
+    /// <summary>
+    /// Optional self-asserted display name (Moniker) the node claims for itself, e.g. "Wikipedia". Carried inside
+    /// the signed body (so a node can only claim a Moniker for its own key), but <b>never verified by the protocol</b>
+    /// — it is a display hint; a consuming client decides whether to believe it, always against the fingerprint.
+    /// </summary>
+    public string? Moniker { get; init; }
+
     /// <summary>Detached signature over the canonical body, made with the inviter's Seal.</summary>
     public required byte[] Signature { get; init; }
 

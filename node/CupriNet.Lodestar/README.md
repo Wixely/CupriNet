@@ -31,6 +31,7 @@ Settings bind from `appsettings.json` (the `Lodestar` section), then environment
 | `ListenPort` | `CUPRINET_LODESTAR_ListenPort` | `43820` | TCP port to listen on. |
 | `PublicHost` | `CUPRINET_LODESTAR_PublicHost` | *(none)* | Reachable DNS/IP to advertise in this node's link. |
 | `PublicPort` | `CUPRINET_LODESTAR_PublicPort` | = `ListenPort` | Port advertised with `PublicHost`. |
+| `Moniker` | `CUPRINET_LODESTAR_Moniker` | *(none)* | Self-asserted display name advertised in this node's link + peer record (e.g. `Wikipedia`). Carried **unverified** — a hint only; peers trust it solely by matching this node's fingerprint. |
 | `AdvertisedAddresses` | `CUPRINET_LODESTAR_AdvertisedAddresses__0`, … | `[]` | Extra reachable `host` / `host:port` addresses to put in the link — for a bootstrap where the service has public IPs it can't discover itself (cloud NAT/LB, second NIC, DNS name). Added alongside `PublicHost`. |
 | `EnableWeb` | `CUPRINET_LODESTAR_EnableWeb` | `false` | Serve a small read-only HTTP status page (link + QR, auto-refreshing). HTTP only — front with a reverse proxy for TLS. |
 | `WebListenAddress` | `CUPRINET_LODESTAR_WebListenAddress` | `0.0.0.0` | Interface the status page binds to. |

@@ -26,6 +26,14 @@ public sealed record PeerRecord
     public required ulong SequenceNumber { get; init; }
     public required long IssuedAtUnix { get; init; }
     public required PeerCapabilities Capabilities { get; init; }
+
+    /// <summary>
+    /// Optional self-asserted display name (Moniker) — e.g. "Wikipedia". Signed (so a node can only claim one for its
+    /// own key) but <b>never verified by CupriNet</b>. It's a display hint; a client believes it only by matching the
+    /// node's fingerprint (<see cref="Sigil"/>) against one it trusts.
+    /// </summary>
+    public string? Moniker { get; init; }
+
     public required byte[] Signature { get; init; }
 
     public Sigil Sigil => Sigil.FromSealPublicKey(SealPublicKey);
@@ -45,6 +53,13 @@ public static class PeerRecordCodec
         w.WriteUInt64(record.SequenceNumber);
         w.WriteUInt64((ulong)record.IssuedAtUnix);
         w.WriteUInt32((uint)record.Capabilities);
+
+        // Optional trailing Moniker: written only when set, so a record without one is byte-identical to the older
+        // format (backward-compatible — old decoders read up to here and stop; see DecodeBody).
+        var moniker = Monikers.Normalize(record.Moniker);
+        if (moniker is not null)
+            w.WriteString(moniker);
+
         return w.ToArray();
     }
 
@@ -76,6 +91,9 @@ public static class PeerRecordCodec
         var issuedAt = (long)r.ReadUInt64();
         var capabilities = (PeerCapabilities)r.ReadUInt32();
 
+        // Optional trailing Moniker (see EncodeBody): present only if bytes remain. Clamped, never rejected.
+        var moniker = r.End ? null : Monikers.Normalize(r.ReadString());
+
         return new PeerRecord
         {
             SealPublicKey = sealKey,
@@ -83,6 +101,7 @@ public static class PeerRecordCodec
             SequenceNumber = sequence,
             IssuedAtUnix = issuedAt,
             Capabilities = capabilities,
+            Moniker = moniker,
             Signature = [],
         };
     }
@@ -92,7 +111,7 @@ public static class PeerRecordCodec
 public static class PeerRecordSigner
 {
     /// <summary>Signs a fresh peer record for this node.</summary>
-    public static PeerRecord Create(NodeIdentity identity, IReadOnlyList<Beacon> endpoints, ulong sequenceNumber, PeerCapabilities capabilities, ICryptoSuite suite, DateTimeOffset now)
+    public static PeerRecord Create(NodeIdentity identity, IReadOnlyList<Beacon> endpoints, ulong sequenceNumber, PeerCapabilities capabilities, ICryptoSuite suite, DateTimeOffset now, string? moniker = null)
     {
         ArgumentNullException.ThrowIfNull(identity);
         ArgumentNullException.ThrowIfNull(endpoints);
@@ -105,6 +124,7 @@ public static class PeerRecordSigner
             SequenceNumber = sequenceNumber,
             IssuedAtUnix = now.ToUnixTimeSeconds(),
             Capabilities = capabilities,
+            Moniker = Monikers.Normalize(moniker),
             Signature = [],
         };
 

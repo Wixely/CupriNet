@@ -49,6 +49,12 @@ public static class IntonationCodec
             w.WriteByte(0);
         }
 
+        // Optional trailing Moniker: written only when set, so a link without one is byte-identical to the older
+        // format (backward-compatible — old decoders read up to here and stop; see DecodeBody).
+        var moniker = Monikers.Normalize(intonation.Moniker);
+        if (moniker is not null)
+            w.WriteString(moniker);
+
         return w.ToArray();
     }
 
@@ -109,6 +115,10 @@ public static class IntonationCodec
             _ => throw new CodexFormatException("Invalid Petition presence flag."),
         };
 
+        // Optional trailing Moniker (see EncodeBody): present only if bytes remain. Over-long is clamped rather
+        // than rejected — it's a cosmetic hint, never trusted, so a malformed one must not sink the whole link.
+        var moniker = r.End ? null : Monikers.Normalize(r.ReadString());
+
         return new Intonation
         {
             Version = version,
@@ -120,6 +130,7 @@ public static class IntonationCodec
             SeveranceUnix = severance,
             Nonce = nonce,
             Petition = petition,
+            Moniker = moniker,
             Signature = [],
         };
     }

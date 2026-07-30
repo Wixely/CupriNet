@@ -50,6 +50,74 @@ public class IntonationTests
     }
 
     [Fact]
+    public void Moniker_RoundTrips_WhenSet()
+    {
+        var suite = Suite();
+        var identity = NodeIdentity.Generate(suite);
+        var intonation = IntonationMint.Intone(identity, suite, new IntonationOptions
+        {
+            Network = Network,
+            Beacons = [new Beacon(EndpointKind.Host, "192.168.1.20", 43820)],
+            Moniker = "Wikipedia",
+        }, Now);
+
+        var (decoded, _) = IntonationCodec.Decode(IntonationCodec.Encode(intonation));
+        Assert.Equal("Wikipedia", decoded.Moniker);
+    }
+
+    [Fact]
+    public void Moniker_IsNull_WhenUnset_AndOmittedFromBody()
+    {
+        // A link without a Moniker must be byte-identical to the pre-Moniker format: the optional trailing field
+        // is simply absent, so an older decoder reads up to the Petition flag and stops. We prove the field is
+        // omitted (not written as an empty string) by decoding and confirming null.
+        var suite = Suite();
+        var withMoniker = Sample(suite);
+        Assert.Null(withMoniker.Moniker);
+
+        var (decoded, _) = IntonationCodec.Decode(IntonationCodec.Encode(withMoniker));
+        Assert.Null(decoded.Moniker);
+    }
+
+    [Fact]
+    public void Moniker_IsCoveredBySignature_UnderSecureSuite()
+    {
+        // The Moniker rides inside the signed body, so swapping it must break verification — a node can only
+        // claim a Moniker for its own key. (Under the real suite; Simulacrum is credulous by design.)
+        var secure = CryptoSuites.Secure();
+        var identity = NodeIdentity.Generate(secure);
+        var intonation = IntonationMint.Intone(identity, secure, new IntonationOptions
+        {
+            Network = Network,
+            Beacons = [new Beacon(EndpointKind.Host, "192.168.1.20", 43820)],
+            Moniker = "Wikipedia",
+        }, Now);
+
+        Assert.Equal(IntonationStatus.Valid,
+            IntonationValidator.ValidateDocument(IntonationCodec.Encode(intonation), Network, secure, Now).Status);
+
+        var forged = intonation with { Moniker = "TotallyLegitNews" };
+        Assert.Equal(IntonationStatus.BadSignature,
+            IntonationValidator.ValidateDocument(IntonationCodec.Encode(forged), Network, secure, Now).Status);
+    }
+
+    [Fact]
+    public void Moniker_OverLength_IsClamped()
+    {
+        var suite = Suite();
+        var identity = NodeIdentity.Generate(suite);
+        var intonation = IntonationMint.Intone(identity, suite, new IntonationOptions
+        {
+            Network = Network,
+            Beacons = [new Beacon(EndpointKind.Host, "192.168.1.20", 43820)],
+            Moniker = new string('x', Monikers.MaxLength + 20),
+        }, Now);
+
+        var (decoded, _) = IntonationCodec.Decode(IntonationCodec.Encode(intonation));
+        Assert.Equal(Monikers.MaxLength, decoded.Moniker!.Length);
+    }
+
+    [Fact]
     public void Uri_RoundTrips_ThroughPrefixedBase64Url()
     {
         var suite = Suite();

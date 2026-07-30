@@ -35,6 +35,14 @@ public sealed class LodestarOptions
     public int? PublicPort { get; set; }
 
     /// <summary>
+    /// Optional self-asserted display name (Moniker) this node advertises — e.g. "Wikipedia". It rides in the node's
+    /// signed link and peer record, so it can only be claimed for this node's own key. CupriNet <b>never verifies</b>
+    /// it: peers see it as a hint and decide whether to trust it, always by matching this node's fingerprint. Leave
+    /// empty to advertise no name.
+    /// </summary>
+    public string? Moniker { get; set; }
+
+    /// <summary>
     /// Seed links (<c>cuprinet://intone/…</c>) to bootstrap from on first start. A seed carries another node's
     /// key + reachability. As many as you like — every reachable one grows the local map. Also gathered from
     /// <see cref="SeedsFile"/>, the <c>CUPRINET_LODESTAR_SEEDS</c> env var, and repeated <c>--seed</c> arguments.
