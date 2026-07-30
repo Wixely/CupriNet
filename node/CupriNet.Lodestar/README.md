@@ -41,7 +41,8 @@ Settings bind from `appsettings.json` (the `Lodestar` section), then environment
 | `SeedsFile` | `CUPRINET_LODESTAR_SeedsFile` | *(none)* | File of seed links, one per line (`#` comments ok). |
 | `AllowedSubnets` | `CUPRINET_LODESTAR_AllowedSubnets__0`, … | `[]` | CIDR/netmask/IP ranges this node may connect to and accept from. An allow match beats a deny. |
 | `DeniedSubnets` | `CUPRINET_LODESTAR_DeniedSubnets__0`, … | `[]` | Ranges to refuse (unless also allowed). |
-| `EnableTor` | `CUPRINET_LODESTAR_EnableTor` | `false` | Run onion‑only over Tor: publish a v3 `.onion` and reach peers only through Tor (hides the node's IP). Clearnet settings don't apply; the `.onion` link appears once Tor bootstraps. |
+| `EnableTor` | `CUPRINET_LODESTAR_EnableTor` | `false` | **Dual‑stack**: also publish a v3 `.onion` and accept/dial Tor peers *alongside* clearnet. The link carries both, so the node is reachable by clearnet **and** Tor peers. The `.onion` appears once Tor bootstraps. |
+| `TorOnly` | `CUPRINET_LODESTAR_TorOnly` | `false` | Onion‑only (implies `EnableTor`): reach peers solely through Tor, hiding the node's IP. Clearnet settings don't apply. Restricts reachability to Tor peers — prefer dual‑stack unless anonymity is the goal. |
 | `EnablePortMapping` | `CUPRINET_LODESTAR_EnablePortMapping` | `false` | Ask the gateway (NAT‑PMP) to forward the port. |
 | `EnableLanDiscovery` | `CUPRINET_LODESTAR_EnableLanDiscovery` | `false` | Announce/discover peers on the LAN. |
 | `EnableCoverTraffic` | `CUPRINET_LODESTAR_EnableCoverTraffic` | `false` | Run anonymity cover traffic (extra bandwidth). |
@@ -144,12 +145,14 @@ proxy (nginx/Caddy/Traefik) if you want HTTPS. The QR is rendered server-side (p
 Two sample stacks live in [`deploy/`](deploy/) — both use the **same image**, differing only by config:
 
 ```bash
-docker compose -f deploy/docker-compose.clearnet.yml up -d   # fast, IP-visible; set PublicHost
-docker compose -f deploy/docker-compose.tor.yml      up -d   # onion-only; hides the node's IP
+docker compose -f deploy/docker-compose.clearnet.yml up -d   # clearnet only; set PublicHost
+docker compose -f deploy/docker-compose.tor.yml      up -d   # clearnet + Tor (dual-stack)
 ```
 
 - **Clearnet** publishes the overlay port (`43820`) and the status page (`8080`); set `PublicHost`/`AdvertisedAddresses` to a reachable address.
-- **Tor** (`EnableTor=true`) publishes nothing but the status page (bound to localhost) — inbound arrives over the node's `.onion`, which is minted from the persistent onion key in the data volume and appears in the logs / status page once Tor bootstraps. Tor is a managed client baked into the binary, so no extra packages or native Tor daemon are needed.
+- **Tor** (`EnableTor=true`) is **dual-stack** — it keeps the clearnet address *and* publishes a `.onion` (minted from the persistent onion key in the data volume), so the node is reachable by clearnet **and** Tor peers; the `.onion` is added to the link once Tor bootstraps. Tor is a managed client baked into the binary — no extra packages or native Tor daemon. To run **onion-only** (hide the IP, Tor peers only) set `TorOnly=true` and drop the published overlay port; the sample has this commented inline.
+
+**Which Tor mode?** For a public keep-alive node, prefer **dual-stack** (`EnableTor`): maximum reachability, with Tor as an extra lane. Use **onion-only** (`TorOnly`) only when you deliberately want to hide the node's IP — it costs reachability (Tor-capable peers only) and adds bootstrap latency and circuit overhead.
 
 ### Run in the debugger (VS Code)
 

@@ -82,12 +82,20 @@ public sealed class LodestarOptions
     public List<string> DeniedSubnets { get; set; } = new();
 
     /// <summary>
-    /// Run onion-only over Tor: publish a v3 <c>.onion</c> service and reach peers only through Tor, hiding this
-    /// node's IP. Off by default. In Tor mode clearnet settings (<see cref="PublicHost"/>,
-    /// <see cref="AdvertisedAddresses"/>, <see cref="EnableLanDiscovery"/>, <see cref="EnablePortMapping"/>) do not
-    /// apply — the link advertises the <c>.onion</c>, which appears once Tor finishes bootstrapping.
+    /// Also run Tor <em>alongside</em> clearnet (dual-stack): publish a v3 <c>.onion</c> and accept/dial onion peers
+    /// while still advertising a clearnet address. The link then carries both, so the node is reachable by clearnet
+    /// peers <em>and</em> by Tor peers. Off by default. The <c>.onion</c> appears once Tor finishes bootstrapping.
+    /// For a public keep-alive node this is usually the right choice — see <see cref="TorOnly"/> to hide the IP.
     /// </summary>
     public bool EnableTor { get; set; }
+
+    /// <summary>
+    /// Run <em>onion-only</em> (implies <see cref="EnableTor"/>): reach peers solely through Tor and never touch
+    /// clearnet, hiding this node's IP. Clearnet settings (<see cref="PublicHost"/>, <see cref="AdvertisedAddresses"/>,
+    /// <see cref="EnableLanDiscovery"/>, <see cref="EnablePortMapping"/>) do not apply. This restricts who can reach
+    /// the node to Tor-capable peers, so prefer dual-stack (<see cref="EnableTor"/> alone) unless anonymity is the goal.
+    /// </summary>
+    public bool TorOnly { get; set; }
 
     /// <summary>Ask the home gateway (NAT-PMP) to forward the listen port. Off by default — servers usually have a public IP.</summary>
     public bool EnablePortMapping { get; set; }

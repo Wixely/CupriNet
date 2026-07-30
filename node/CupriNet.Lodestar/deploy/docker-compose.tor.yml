@@ -1,12 +1,13 @@
-# Tor Lodestar — onion-only. Hides the node's IP; peers reach it solely through its v3 .onion, so nothing
-# needs to be port-forwarded and no PublicHost is required. Uses the SAME image as clearnet — Tor is a
-# managed client baked into the binary, enabled by config.
+# Lodestar with Tor — dual-stack: reachable over BOTH clearnet and its .onion at the same time. The link
+# carries both, so clearnet peers dial the public address and Tor peers dial the onion. This is the
+# recommended way to add Tor to a public keep-alive node (maximum reachability). The image is the same as
+# clearnet — Tor is a managed client baked in, enabled by config.
 #
 #   docker compose -f docker-compose.tor.yml up -d
-#   docker compose -f docker-compose.tor.yml logs -f     # the .onion link appears once Tor finishes bootstrapping
+#   docker compose -f docker-compose.tor.yml logs -f     # clearnet link now; the .onion is added once Tor bootstraps
 #
-# The status page shows the .onion link + QR; it is bound to localhost here since it reveals your onion —
-# view it on the host, or tunnel it (e.g. `ssh -L 8080:127.0.0.1:8080 <host>`).
+# To run ONION-ONLY instead (hide the node's IP; reachable only by Tor peers), set TorOnly=true and drop the
+# published overlay port (inbound then arrives solely over the onion). See the commented lines below.
 
 services:
   lodestar:
@@ -17,16 +18,19 @@ services:
     #   secrets: [packages_token]
     container_name: cuprinet-lodestar-tor
     restart: unless-stopped
-    # No overlay port is published — inbound arrives over the onion service, not a public TCP port.
     ports:
-      - "127.0.0.1:8080:8080"   # status page, localhost-only (it reveals the .onion)
+      - "43820:43820"     # overlay (clearnet half) — omit this for onion-only
+      - "8080:8080"       # status page (shows both the clearnet link and the .onion)
     volumes:
-      - lodestar-tor-data:/data # hot path incl. the persistent onion key, so the .onion survives restarts
+      - lodestar-tor-data:/data   # hot path incl. the persistent onion key, so the .onion survives restarts
     environment:
       CUPRINET_LODESTAR_Concordium: "example.chat"
-      CUPRINET_LODESTAR_EnableTor: "true"    # onion-only; PublicHost/AdvertisedAddresses are ignored
+      CUPRINET_LODESTAR_EnableTor: "true"                   # clearnet + onion (dual-stack)
+      CUPRINET_LODESTAR_PublicHost: "lodestar.example.net"  # <-- your reachable clearnet address
       CUPRINET_LODESTAR_EnableWeb: "true"
-      # CUPRINET_LODESTAR_EnableCoverTraffic: "true"   # optional decoy traffic over Tor (extra bandwidth)
+      # --- onion-only variant (hide the IP): uncomment, and remove the 43820 port mapping above ---
+      # CUPRINET_LODESTAR_TorOnly: "true"
+      # CUPRINET_LODESTAR_EnableCoverTraffic: "true"        # optional decoy traffic over Tor (extra bandwidth)
       # CUPRINET_LODESTAR_SEEDS: "cuprinet://intone/AAA…"
 
 volumes:
