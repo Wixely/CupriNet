@@ -318,6 +318,17 @@ public sealed record CupriNodeOptions
     /// other Tor-only traffic (it never touches clearnet). No effect outside TorOnly mode.
     /// </summary>
     public bool AllowCoverTrafficOverTor { get; init; }
+
+    /// <summary>
+    /// Act as a <b>Ferryman</b>: a public relay that brokers a hole punch between two NAT'd peers by shuttling
+    /// their candidate addresses and a session nonce, then dropping out. It carries <em>signaling only</em> — never
+    /// L2 content — and never learns the peers' real identities (they connect with ephemeral keys). Off by default;
+    /// a natural role for a reachable keep-alive node (Lodestar). See <c>design/ferryman.md</c>.
+    /// </summary>
+    public bool EnableFerryman { get; init; }
+
+    /// <summary>Max concurrent reservations this Ferryman will hold (a Ward against a reservation flood).</summary>
+    public int MaxFerrymanReservations { get; init; } = 1024;
 }
 
 /// <summary>Whether a node uses clearnet transports, or is strictly Tor-only for anonymity. See <see cref="CupriNodeOptions.Mode"/>.</summary>

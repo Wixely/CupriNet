@@ -504,6 +504,17 @@ public sealed partial class CupriNode : IAsyncDisposable
             return;
         }
 
+        if (kind == OverlayControl.KindFerryman)
+        {
+            // A Ferryman rendezvous (reserve/broker). Served only when we opt in as a relay; otherwise dropped.
+            var served = conjunction.Vessel;
+            if (_options.EnableFerryman)
+                _ = Task.Run(() => ServeFerrymanAsync(served, cancellationToken), cancellationToken);
+            else
+                await served.DisposeAsync().ConfigureAwait(false);
+            return;
+        }
+
         await LearnReflexiveAsync(conjunction.Vessel, conjunction.PeerSigil, initiator: false, cancellationToken).ConfigureAwait(false);
         await BootstrapOverlayAsync(conjunction.Vessel, initiator: false, DateTimeOffset.UtcNow, cancellationToken).ConfigureAwait(false);
         var peer = new PairedPeer(conjunction.Vessel, conjunction.PeerSigil, conjunction.PeerSealPublicKey, isInitiator: false);

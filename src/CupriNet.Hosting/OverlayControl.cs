@@ -38,6 +38,9 @@ internal static class OverlayControl
     /// </summary>
     public const byte KindPageant = 4;
 
+    /// <summary>A Ferryman rendezvous session: the initiator reserves or requests a brokered hole punch (signaling only).</summary>
+    public const byte KindFerryman = 5;
+
     public const byte OpDivine = 1;
     public const byte OpPublish = 2;
     public const byte OpLookup = 3;
