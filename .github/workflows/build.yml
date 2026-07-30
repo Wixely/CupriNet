@@ -256,6 +256,10 @@ jobs:
             type=sha
       - name: Build (and push on tag) the Lodestar image
         uses: docker/build-push-action@v6
+        env:
+          # Don't upload the build-record (.dockerbuild) artifact: the release job downloads ALL artifacts and
+          # this metadata blob has been failing that step's download after retries. The release doesn't need it.
+          DOCKER_BUILD_RECORD_UPLOAD: false
         with:
           context: .
           file: node/CupriNet.Lodestar/Dockerfile
