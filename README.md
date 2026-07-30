@@ -9,7 +9,8 @@ security is [Noise](https://noiseprotocol.org/) over TCP; cryptography is manage
 ([BouncyCastle](https://www.bouncycastle.org/) primitives behind a swappable seam).
 
 > Status: pre-1.0, evolving. The cryptographic core (Noise_XX identity binding, channel Consecration,
-> signed documents) is real and reviewed; **285+ unit tests** pass. Not yet audited for production use.
+> signed documents) is real and reviewed; **326 unit tests** pass. Not yet audited for production use.
+> See the [roadmap](ROADMAP.md) for what's done, next, and deliberately out of scope.
 
 ## The model — two layers
 
@@ -38,11 +39,14 @@ Transport (Vessel)   TCP + length-prefixed framing + stream multiplexing · Nois
   carrying a node's reachability candidates + a sample of seed peers. Show it as text or a QR code.
 - **NAT traversal** — LAN discovery, NAT-PMP auto port-mapping, mutual-link UDP hole punching, and a
   pure-managed reliable-UDP transport, all behind the transport-agnostic pairing seam.
-- **Tor** — optional onion transport ([CupriTor](https://github.com/Wixely/CupriTor)) with an enforced
-  **Tor-only** mode: loopback bind, onion-only advertising/dialing, separate identity from clearnet.
+- **Tor** — optional onion transport ([CupriTor](https://github.com/Wixely/CupriTor), managed, no native
+  daemon): **dual-stack** (clearnet + `.onion` at once) or a strict **onion-only** mode that hides the IP.
 - **Traffic-analysis cover** — overlay gossip fuzzing, long-lived decoy connections (hot fuzz), decoy
   channel sessions (effigies), and fake groups (pageants).
 - **Warm start** — an encrypted local cache of known peers so a node reconnects directly after restart.
+- **Version negotiation ([CupriMark](https://github.com/Wixely/CupriMark))** — handshakes range-negotiate a
+  shared protocol version (bound into the transcript against downgrades); signed documents accept by security
+  floor / buried lifecycle. Newer and older nodes interoperate through a deliberate window instead of a flag day.
 
 ## Repository layout
 
@@ -58,6 +62,7 @@ Transport (Vessel)   TCP + length-prefixed framing + stream multiplexing · Nois
 | `src/CupriNet.Traversal` | LAN discovery, NAT-PMP, hole punch, reliable-UDP |
 | `src/CupriNet.Persistence` | `ISecretStore` + encrypted file store |
 | `src/CupriNet.Hosting` | **`CupriNode`** — the public API |
+| `src/CupriNet.Marks` | CupriMark version negotiation — the [catalogue](src/CupriNet.Marks/README.md) & floors |
 | `src/CupriNet.Tor` | CupriTor onion transport binding (needs the CupriTor feed) |
 | `node/CupriNet.Lodestar` | headless "keep the network alive" overlay node — see its [README](node/CupriNet.Lodestar/README.md) |
 | `samples/CupriChat` | Avalonia sample chat app — see its [README](samples/CupriChat/README.md) |
@@ -83,10 +88,13 @@ var channel = await node.ConsecrateAsync(peer, watchword, DateTimeOffset.UtcNow)
 
 ## Building
 
-Requires the **.NET 10 SDK**.
+Requires the **.NET 10 SDK** and access to the **[Wixely GitHub Packages](https://github.com/Wixely)** feed
+(a GitHub token with `read:packages`; see [`nuget.config`](nuget.config)). The core depends on
+[CupriMark](https://github.com/Wixely/CupriMark) (version negotiation), and the Tor bits on
+[CupriTor](https://github.com/Wixely/CupriTor) — both published there.
 
 ```bash
-# Core library + full test suite (no external feeds needed)
+# Full test suite
 dotnet test tests/CupriNet.UnitTests/CupriNet.UnitTests.csproj -c Release
 
 # The headless Lodestar node (self-contained single file)
@@ -94,21 +102,20 @@ dotnet publish node/CupriNet.Lodestar/CupriNet.Lodestar.csproj -c Release -r lin
   --self-contained true -p:PublishSingleFile=true -o out/lodestar
 ```
 
-**Tor is optional and gated behind a private feed.** `CupriNet.Tor` and the `CupriChat` sample depend on
-the `CupriTor` package from the [Wixely GitHub Packages](https://github.com/Wixely) feed (see
-[`nuget.config`](nuget.config)). Building them needs a GitHub token with the `read:packages` scope; the
-rest of the solution builds with only nuget.org. The library exposes Tor purely through the
-`IOnionTransport` seam, so the core has no Tor dependency.
+Tor is exposed purely through the `IOnionTransport` seam, so the library's *design* keeps it optional even
+though the package is pulled in for the samples and Lodestar.
 
 ## Continuous integration
 
-`.github/workflows/build.yml` runs on every push:
+`.github/workflows/build.yml` runs on every push. Because the core now depends on CupriMark (and the Tor
+bits on CupriTor) from the Wixely feed, the build jobs authenticate it with a `PACKAGES_TOKEN` secret (an org
+`read:packages` PAT) or the workflow token:
 
-- **test / pack / lodestar / docker** — token-free: builds and tests the core, packs the core NuGet
-  packages, and produces `win-x64` + `linux-x64` Lodestar binaries and a container image.
-- **publish-app (CupriChat)** — best-effort: builds the Tor-enabled sample; it needs the CupriTor feed,
-  so it authenticates with the workflow token (or a `PACKAGES_TOKEN` secret) and won't fail the pipeline
-  if that access isn't configured.
+- **test** — builds and runs the full suite (the authoritative gate).
+- **pack** — packs the core NuGet packages.
+- **publish-lodestar / docker-lodestar** — `win-x64` + `linux-x64` Lodestar binaries and a container image
+  (the Docker build takes the feed token as a BuildKit secret).
+- **publish-app (CupriChat)** — the Tor-enabled sample (best-effort).
 
 On a `v*` tag, artifacts are attached to a GitHub Release and the Lodestar image is pushed to GHCR.
 
