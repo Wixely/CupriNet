@@ -44,6 +44,7 @@ Settings bind from `appsettings.json` (the `Lodestar` section), then environment
 | `DeniedSubnets` | `CUPRINET_LODESTAR_DeniedSubnets__0`, … | `[]` | Ranges to refuse (unless also allowed). |
 | `EnableTor` | `CUPRINET_LODESTAR_EnableTor` | `false` | **Dual‑stack**: also publish a v3 `.onion` and accept/dial Tor peers *alongside* clearnet. The link carries both, so the node is reachable by clearnet **and** Tor peers. The `.onion` appears once Tor bootstraps. |
 | `TorOnly` | `CUPRINET_LODESTAR_TorOnly` | `false` | Onion‑only (implies `EnableTor`): reach peers solely through Tor, hiding the node's IP. Clearnet settings don't apply. Restricts reachability to Tor peers — prefer dual‑stack unless anonymity is the goal. |
+| `EnableFerryman` | `CUPRINET_LODESTAR_EnableFerryman` | `true` | Act as a **Ferryman** relay: broker hole punches between NAT'd peers (signaling only, never channel content). On by default — a reachable node is the ideal relay. No effect in onion‑only mode. |
 | `EnablePortMapping` | `CUPRINET_LODESTAR_EnablePortMapping` | `false` | Ask the gateway (NAT‑PMP) to forward the port. |
 | `EnableLanDiscovery` | `CUPRINET_LODESTAR_EnableLanDiscovery` | `false` | Announce/discover peers on the LAN. |
 | `EnableCoverTraffic` | `CUPRINET_LODESTAR_EnableCoverTraffic` | `false` | Run anonymity cover traffic (extra bandwidth). |

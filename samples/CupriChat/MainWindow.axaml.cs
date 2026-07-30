@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.Net;
 using System.Net.Http;
+using CupriNet.Hosting;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Documents;
@@ -137,6 +138,8 @@ public partial class MainWindow : Window
 
         _chat.MessageArrived += OnMessage;
         _chat.Status += OnStatus;
+        // When a connection needs a relay we don't yet trust, show a confirm-and-explain dialog on the UI thread.
+        _chat.RelayApprovalRequested = req => Dispatcher.UIThread.InvokeAsync(() => ConfirmRelayAsync(req));
         _chat.SystemMessage += OnSystem;
         _chat.UsersChanged += OnUsers;
         _chat.FileOfferReceived += OnFileOffer;
@@ -257,6 +260,26 @@ public partial class MainWindow : Window
         "IP' button can discover your public IP for you (it asks a third-party service, with a confirmation first).");
 
     /// <summary>A simple modal yes/no dialog (Avalonia has no built-in message box).</summary>
+    /// <summary>Confirm-and-explain dialog for using a Ferryman relay: what it can/can't see, its fingerprint, and (if the key changed) an impersonation warning.</summary>
+    private async Task<bool> ConfirmRelayAsync(RelayApprovalRequest req)
+    {
+        var changed = req.Verdict == RelayTrust.NameConflict;
+        var body =
+            (changed
+                ? "A relay is presenting a DIFFERENT key than one you approved before — this could be an impersonation. Only continue if you understand why it changed.\n\n"
+                : "This peer isn't directly reachable, but a public relay can broker a direct connection between the two of you.\n\n")
+            + "What the relay does — and doesn't:\n"
+            + "• It only helps you find each other, then drops out; your chat is direct, peer-to-peer.\n"
+            + "• It can see THAT you're connecting (and both IP addresses), but NOT your messages — the chat is end-to-end encrypted, and the relay can't impersonate the peer.\n\n"
+            + "Relay fingerprint (compare it out-of-band if you can):\n" + req.Fingerprint + "\n\n"
+            + "Trust this relay and connect?";
+        return await ConfirmAsync(
+            changed ? "⚠ Relay key changed" : "Connect via a public relay?",
+            body,
+            ok: changed ? "Connect anyway" : "Trust & connect",
+            cancel: "Cancel");
+    }
+
     private async Task<bool> ConfirmAsync(string title, string message, string ok, string cancel)
     {
         var result = false;

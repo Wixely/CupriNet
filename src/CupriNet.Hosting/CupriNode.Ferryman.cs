@@ -168,7 +168,7 @@ public sealed partial class CupriNode
     /// </summary>
     public async Task<PairedPeer> ConjoinViaFerrymanAsync(
         Beacon relayBeacon, Sigil targetSigil, DateTimeOffset now,
-        Func<Sigil, bool>? approveRelay = null, CancellationToken cancellationToken = default)
+        Func<Sigil, Task<bool>>? approveRelay = null, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(relayBeacon);
 
@@ -181,7 +181,7 @@ public sealed partial class CupriNode
             var (vessel, relaySigil) = await DialFerrymanAsync(relayBeacon, cancellationToken).ConfigureAwait(false);
             try
             {
-                if (approveRelay is not null && !approveRelay(relaySigil))
+                if (approveRelay is not null && !await approveRelay(relaySigil).ConfigureAwait(false))
                     throw new CupriNodeException("The relay was not approved.");
 
                 await vessel.SendAsync(OverlayControl.Stream, FerrymanProtocol.Rendezvous(handle, candidates), cancellationToken).ConfigureAwait(false);

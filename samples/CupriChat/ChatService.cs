@@ -42,6 +42,10 @@ public sealed record FileOffer(string TransferId, string FromDisplay, string Fil
 /// <summary>A completed incoming file.</summary>
 public sealed record FileReceipt(string FileName, string SavePath);
 
+/// <summary>A request to approve a Ferryman relay: its <paramref name="Fingerprint"/> (compare out-of-band) and the
+/// TOFU verdict (<see cref="RelayTrust.New"/> = first use; <see cref="RelayTrust.NameConflict"/> = a changed key).</summary>
+public sealed record RelayApprovalRequest(string Fingerprint, RelayTrust Verdict);
+
 /// <summary>
 /// The wire form inside an Epistle payload: the author's chosen display name and the message text. The
 /// author's cryptographic identity is NOT carried here — it rides the Epistle's authenticated-authorship
@@ -100,6 +104,15 @@ public sealed class ChatService : IAsyncDisposable
     private CupriNode? _node;
     private ISecretStore? _store;
     private KindredBook? _kindred;
+    private KnownRelays _knownRelays = new();
+    private Beacon? _relayBeacon;
+    private const string KnownRelaysKey = "ferryman/known-relays";
+
+    /// <summary>
+    /// Raised when connecting needs a relay this node hasn't already approved. The UI shows a confirm-and-explain
+    /// dialog (with the relay's fingerprint) and returns whether to trust and use it; approved relays are remembered.
+    /// </summary>
+    public Func<RelayApprovalRequest, Task<bool>>? RelayApprovalRequested;
     private RiteIdentity? _persona;
     private IReadOnlyList<Beacon> _selfBeacons = [];
     private string _username = "anon";
@@ -199,7 +212,7 @@ public sealed class ChatService : IAsyncDisposable
         // Optional operator-supplied public address to advertise (bootstrapping). Binding the same port locally means
         // a 1:1 public IP or a matching port-forward lines up; we advertise both it and the LAN host so peers on
         // either side of the NAT can pick a beacon that works for them.
-        Beacon[]? advertised = null;
+        var beacons = new List<Beacon>();
         var listenPort = 0; // 0 = OS-assigned ephemeral (the normal case)
         if (!tor && !string.IsNullOrWhiteSpace(advertiseAddress))
         {
@@ -207,8 +220,21 @@ public sealed class ChatService : IAsyncDisposable
                 throw new FormatException(
                     $"'{advertiseAddress}' isn't a valid address to advertise. Use host:port, e.g. 203.0.113.5:43820 or seed.example.net:43820.");
             listenPort = advPort;
-            advertised = [new Beacon(EndpointKind.Manual, advHost, advPort), new Beacon(EndpointKind.Host, localIp, advPort)];
+            beacons.Add(new Beacon(EndpointKind.Manual, advHost, advPort));
+            beacons.Add(new Beacon(EndpointKind.Host, localIp, advPort));
         }
+
+        // Optional Ferryman relay (for a home user behind NAT with no port-forward): reserve with it and put a
+        // Relay beacon in our link so peers who can't reach us directly can broker a connection. host:port via env.
+        _relayBeacon = null;
+        var relayEnv = Environment.GetEnvironmentVariable("CUPRICHAT_RELAY");
+        if (!tor && !string.IsNullOrWhiteSpace(relayEnv) && TryParseHostPort(relayEnv!, out var relHost, out var relPort))
+        {
+            _relayBeacon = new Beacon(EndpointKind.Relay, relHost, relPort);
+            beacons.Add(_relayBeacon);
+        }
+
+        Beacon[]? advertised = beacons.Count > 0 ? beacons.ToArray() : null;
 
         // Per-MODE profile: clearnet and Tor get entirely separate identities + state under distinct folders, so a
         // Tor identity can never be correlated with a clearnet one (different Sigil, cache, history, keys). CUPRICHAT_HOME
@@ -220,6 +246,7 @@ public sealed class ChatService : IAsyncDisposable
         var suite = new BouncyCastleSuite();
         var masterKey = KeyFileMasterKey.LoadOrCreate(Path.Combine(home, "master.key"));
         _store = new FileSecretStore(Path.Combine(home, "secrets"), new AeadDataProtector(suite, masterKey));
+        _knownRelays = KnownRelays.Decode(await _store.LoadAsync(KnownRelaysKey, _cts.Token).ConfigureAwait(false) ?? []);
 
         IOnionTransport? onion = null;
         if (tor)
@@ -259,6 +286,15 @@ public sealed class ChatService : IAsyncDisposable
         if (!tor)
             _node.LanPeerDiscovered += OnLanPeerDiscovered;
         _kindred = await KindredBook.LoadAsync(_store, _cts.Token);
+
+        // If a relay is configured, keep a reservation live so peers can reach us through it (we dial the relay
+        // as an ordinary address; our link advertised it as a Relay beacon above).
+        if (_relayBeacon is not null)
+        {
+            var relayDial = new Beacon(EndpointKind.Manual, _relayBeacon.Host, _relayBeacon.Port);
+            _ = Task.Run(() => _node.MaintainFerrymanReservationAsync(relayDial, _cts.Token));
+            Status?.Invoke($"Reachable via relay {_relayBeacon.Host}:{_relayBeacon.Port}.");
+        }
 
         _selfId = Convert.ToHexStringLower(_node.Identity.Sigil.Span);
         // Clearnet advertises its host address (plus any operator-supplied public address); Tor advertises its
@@ -342,9 +378,74 @@ public sealed class ChatService : IAsyncDisposable
             return;
         }
 
-        var peer = await _node.ConjoinAsync(intonation, DateTimeOffset.UtcNow, _cts.Token);
-        Status?.Invoke("Paired with a peer.");
-        await OnPeerPairedAsync(peer);
+        try
+        {
+            var peer = await _node.ConjoinAsync(intonation, DateTimeOffset.UtcNow, _cts.Token);
+            Status?.Invoke("Paired with a peer.");
+            await OnPeerPairedAsync(peer);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // Direct connection failed. If the link offers a Ferryman relay, broker one (with the user's consent).
+            var relay = intonation.Beacons.FirstOrDefault(b => b.Kind == EndpointKind.Relay);
+            if (relay is null)
+            {
+                Status?.Invoke($"Couldn't connect directly: {ex.Message}");
+                return;
+            }
+            await ConnectViaRelayAsync(relay, intonation.InviterSigil);
+        }
+    }
+
+    /// <summary>Reaches a peer that isn't directly reachable by brokering a hole punch through the relay it advertised.</summary>
+    private async Task ConnectViaRelayAsync(Beacon relay, Sigil target)
+    {
+        if (_node is null)
+            return;
+        try
+        {
+            Status?.Invoke("Peer isn't directly reachable — a public relay can broker a direct connection…");
+            var relayDial = new Beacon(EndpointKind.Manual, relay.Host, relay.Port);
+            var peer = await _node.ConjoinViaFerrymanAsync(relayDial, target, DateTimeOffset.UtcNow, ApproveRelayAsync, _cts.Token);
+            Status?.Invoke("Paired via relay.");
+            await OnPeerPairedAsync(peer);
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            Status?.Invoke($"Relay connection failed: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// The relay-trust gate (TOFU): approve silently if we already trust this relay, otherwise ask the UI (which
+    /// shows a confirm-and-explain dialog with the relay's fingerprint). Approved relays are remembered to disk.
+    /// </summary>
+    private async Task<bool> ApproveRelayAsync(Sigil relaySigil)
+    {
+        var verdict = _knownRelays.Evaluate(relaySigil);
+        if (verdict == RelayTrust.Known)
+            return true; // already approved — no prompt
+
+        var approved = RelayApprovalRequested is not null
+            && await RelayApprovalRequested(new RelayApprovalRequest(RelayFingerprint(relaySigil), verdict)).ConfigureAwait(false);
+        if (approved)
+        {
+            _knownRelays.Approve(relaySigil, null, DateTimeOffset.UtcNow);
+            if (_store is not null)
+            {
+                try { await _store.StoreAsync(KnownRelaysKey, _knownRelays.Encode(), _cts.Token).ConfigureAwait(false); }
+                catch { /* best-effort persistence */ }
+            }
+        }
+        return approved;
+    }
+
+    /// <summary>A human-comparable fingerprint of a relay's identity (grouped hex), for the trust prompt.</summary>
+    private static string RelayFingerprint(Sigil sigil)
+    {
+        var hex = Convert.ToHexStringLower(sigil.Span);
+        return string.Join(" ", Enumerable.Range(0, hex.Length / 4).Select(i => hex.Substring(i * 4, 4)));
     }
 
     public void SetIdentity(string username, string channelName)

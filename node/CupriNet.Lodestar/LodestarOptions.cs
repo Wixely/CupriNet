@@ -106,6 +106,13 @@ public sealed class LodestarOptions
     /// </summary>
     public bool TorOnly { get; set; }
 
+    /// <summary>
+    /// Act as a <b>Ferryman</b> — a public relay that brokers hole punches between NAT'd peers (signaling only,
+    /// never channel content). On by default: a reachable keep-alive node is the ideal relay, and it helps home
+    /// users behind NAT reach each other. No effect in onion-only mode (there is no clearnet path to broker).
+    /// </summary>
+    public bool EnableFerryman { get; set; } = true;
+
     /// <summary>Ask the home gateway (NAT-PMP) to forward the listen port. Off by default — servers usually have a public IP.</summary>
     public bool EnablePortMapping { get; set; }
 

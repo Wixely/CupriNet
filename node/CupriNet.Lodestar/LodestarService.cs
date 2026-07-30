@@ -147,6 +147,7 @@ public sealed class LodestarService : BackgroundService
             DeniedSubnets = _options.DeniedSubnets.Count > 0 ? _options.DeniedSubnets : null,
             EnableHotFuzz = _options.EnableCoverTraffic,   // cover traffic is opt-in for an infra node
             AllowCoverTrafficOverTor = onionOnly && _options.EnableCoverTraffic,   // this flag only affects TorOnly mode
+            EnableFerryman = !onionOnly && _options.EnableFerryman,   // broker clearnet hole punches (no clearnet path in onion-only)
             EnableEffigies = false,
             EnablePageants = false,
             MaxPageantsAsMember = _options.EnableCoverTraffic ? 4 : 0,
@@ -163,6 +164,8 @@ public sealed class LodestarService : BackgroundService
         _log.LogInformation("Node key (Sigil): {Sigil}", Hex(node.Identity.Sigil));
         _log.LogInformation("Listening on {Endpoint}.", node.LocalEndPoint);
         _log.LogInformation("Known peers loaded from hot path: {Count}", node.Constellation.Count);
+        if (_options.EnableFerryman && !_options.TorOnly)
+            _log.LogInformation("Ferryman relay: ON — brokering hole punches for NAT'd peers (signaling only, no channel content).");
 
         // Onion-only: the link has no reachable address until the onion publishes, so wait for it. Dual-stack:
         // the clearnet link works immediately, so log it now and just add the .onion to it once it publishes.

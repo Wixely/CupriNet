@@ -81,7 +81,7 @@ public class FerrymanBrokerTests
         var seen = default(Sigil);
         await Assert.ThrowsAsync<CupriNodeException>(async () => await requester.ConjoinViaFerrymanAsync(
             RelayBeacon(relay), NodeIdentity.Generate(requester.Suite).Sigil, DateTimeOffset.UtcNow,
-            approveRelay: s => { seen = s; return false; }, cancellationToken: ct));
+            approveRelay: s => { seen = s; return Task.FromResult(false); }, cancellationToken: ct));
 
         Assert.Equal(relay.Identity.Sigil, seen); // the callback saw the relay's real Sigil before refusing
     }
