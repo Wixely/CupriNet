@@ -126,6 +126,14 @@ public sealed partial class CupriNode : IAsyncDisposable
 
     /// <summary>Mints a fresh connection URL (Intonation) advertising this node's reachability and seed peers.</summary>
     public Intonation Intone(TimeSpan lifetime, DateTimeOffset now, byte[]? petition = null)
+        => Intone(lifetime, now, LinkTransports.All, petition);
+
+    /// <summary>
+    /// Mints a fresh Intonation restricted to a transport class. <see cref="LinkTransports.ClearnetOnly"/> and
+    /// <see cref="LinkTransports.OnionOnly"/> let a dual-stack node hand out a link that reveals only its clearnet
+    /// address or only its <c>.onion</c> — e.g. so a visitor reaching a status page over Tor is never shown the IP.
+    /// </summary>
+    public Intonation Intone(TimeSpan lifetime, DateTimeOffset now, LinkTransports transports, byte[]? petition = null)
     {
         List<Beacon> beacons;
         if (_options.Mode == ReachabilityMode.TorOnly)
@@ -142,6 +150,15 @@ public sealed partial class CupriNode : IAsyncDisposable
                     beacons.Add(mapped);
             beacons = RemoteFacingBeacons(beacons); // don't leak a private/LAN address to whoever gets this link
         }
+
+        // Restrict to the requested transport class (a dual-stack node can hand out clearnet-only / onion-only links).
+        beacons = transports switch
+        {
+            LinkTransports.ClearnetOnly => beacons.Where(b => b.Kind != EndpointKind.Onion).ToList(),
+            LinkTransports.OnionOnly => beacons.Where(b => b.Kind == EndpointKind.Onion).ToList(),
+            _ => beacons,
+        };
+
         var litany = Constellation.Sample(IntonationCodec.MaxLitany).Select(r => r.Sigil).ToList();
 
         return IntonationMint.Intone(Identity, Suite, new IntonationOptions
@@ -156,7 +173,11 @@ public sealed partial class CupriNode : IAsyncDisposable
 
     /// <summary>Renders an Intonation as its <c>cuprinet://intone/…</c> URL.</summary>
     public string IntoneUri(TimeSpan lifetime, DateTimeOffset now, byte[]? petition = null)
-        => IntonationUri.ToUri(Intone(lifetime, now, petition));
+        => IntonationUri.ToUri(Intone(lifetime, now, LinkTransports.All, petition));
+
+    /// <summary>Renders a transport-restricted Intonation as its <c>cuprinet://intone/…</c> URL.</summary>
+    public string IntoneUri(TimeSpan lifetime, DateTimeOffset now, LinkTransports transports, byte[]? petition = null)
+        => IntonationUri.ToUri(Intone(lifetime, now, transports, petition));
 
     /// <summary>
     /// Strips private/LAN addresses (RFC 1918, CGNAT, link-local) from beacons bound for a remote party — a link

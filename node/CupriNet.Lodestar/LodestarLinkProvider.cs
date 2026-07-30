@@ -18,7 +18,7 @@ public sealed class LodestarLinkProvider
     private readonly TimeSpan _refreshInterval;
     private readonly Func<DateTimeOffset> _clock;
     private readonly object _gate = new();
-    private LodestarLinkSnapshot? _cached;
+    private readonly Dictionary<LinkTransports, LodestarLinkSnapshot> _cache = new();
 
     public LodestarLinkProvider(CupriNode node, TimeSpan lifetime, TimeSpan refreshInterval, Func<DateTimeOffset>? clock = null)
     {
@@ -28,18 +28,22 @@ public sealed class LodestarLinkProvider
         _clock = clock ?? (() => DateTimeOffset.UtcNow);
     }
 
-    /// <summary>Returns the cached link, minting a new one only if the cache is empty or older than the refresh interval.</summary>
-    public LodestarLinkSnapshot Current()
+    /// <summary>
+    /// Returns the cached link (and QR) for a transport class, minting a new one only if that class's cache is empty
+    /// or older than the refresh interval. Each class (all / clearnet-only / onion-only) is cached independently.
+    /// </summary>
+    public LodestarLinkSnapshot Current(LinkTransports transports = LinkTransports.All)
     {
         var now = _clock();
         lock (_gate)
         {
-            if (_cached is { } c && now - c.GeneratedAt < _refreshInterval)
+            if (_cache.TryGetValue(transports, out var c) && now - c.GeneratedAt < _refreshInterval)
                 return c;
 
-            var link = _node.IntoneUri(_lifetime, now);
-            _cached = new LodestarLinkSnapshot(link, RenderQr(link), now);
-            return _cached;
+            var link = _node.IntoneUri(_lifetime, now, transports);
+            var snapshot = new LodestarLinkSnapshot(link, RenderQr(link), now);
+            _cache[transports] = snapshot;
+            return snapshot;
         }
     }
 

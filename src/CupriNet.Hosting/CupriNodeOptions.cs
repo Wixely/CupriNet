@@ -330,6 +330,20 @@ public enum ReachabilityMode
     TorOnly,
 }
 
+/// <summary>Which transport class a minted link advertises. Lets a dual-stack node hand out a link that
+/// exposes only its clearnet address or only its <c>.onion</c>. See <see cref="CupriNode.Intone(System.TimeSpan, System.DateTimeOffset, LinkTransports, byte[])"/>.</summary>
+public enum LinkTransports
+{
+    /// <summary>Advertise every reachable transport the node has (clearnet + onion).</summary>
+    All,
+
+    /// <summary>Advertise only clearnet beacons (Host/Mapped/Manual) — omit the onion.</summary>
+    ClearnetOnly,
+
+    /// <summary>Advertise only the onion beacon — omit clearnet, so no IP is revealed.</summary>
+    OnionOnly,
+}
+
 /// <summary>Power/connectivity profile, used to gate battery- and data-costly behaviour such as hot fuzz.</summary>
 public enum PowerProfile
 {

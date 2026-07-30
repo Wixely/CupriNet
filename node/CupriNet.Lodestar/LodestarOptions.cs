@@ -71,6 +71,15 @@ public sealed class LodestarOptions
     public int WebRefreshSeconds { get; set; } = 30;
 
     /// <summary>
+    /// When the node is dual-stack (<see cref="EnableTor"/> + <see cref="EnableWeb"/>), split the status page by
+    /// transport: the clearnet page shows a <em>clearnet-only</em> link, and the page is also published as its own
+    /// <c>.onion</c> that shows a <em>Tor-only</em> link — so a visitor reaching it over Tor is never handed the
+    /// node's clearnet IP. Effectively two links from one node, one per transport. On by default (a safety default:
+    /// prevents accidental deanonymisation). No effect without Tor + the web page.
+    /// </summary>
+    public bool WebSplit { get; set; } = true;
+
+    /// <summary>
     /// Subnets this node may connect to and accept from — CIDR (<c>10.0.0.0/8</c>), a netmask (<c>10.0.0.0/255.0.0.0</c>),
     /// or a bare IP. An allow-list match always beats the deny-list. Empty = LAN + WAN (no fence). For a private
     /// CupriNet or LAN-only node, set <see cref="DeniedSubnets"/> to <c>0.0.0.0/0</c> and list your subnets here.

@@ -26,6 +26,9 @@ public sealed class LodestarService : BackgroundService
     private readonly IHostApplicationLifetime _lifetime;
     private readonly string[] _commandLineArgs;
 
+    // The concrete onion transport (when Tor is enabled), kept so the status page can be published as its own onion.
+    private CupriTorOnionTransport? _onion;
+
     public LodestarService(
         IOptions<LodestarOptions> options,
         ILogger<LodestarService> log,
@@ -74,7 +77,7 @@ public sealed class LodestarService : BackgroundService
                 MaintenanceLoopAsync(node, startedAt, stoppingToken),
             };
             if (_options.EnableWeb)
-                loops.Add(WebLoopAsync(node, stoppingToken));
+                loops.Add(WebLoopAsync(node, dataDir, stoppingToken));
             await Task.WhenAll(loops).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
@@ -107,7 +110,7 @@ public sealed class LodestarService : BackgroundService
         var onionOnly = _options.TorOnly;
         var torEnabled = _options.EnableTor || onionOnly;   // onion-only implies Tor
 
-        IOnionTransport? onion = null;
+        CupriTorOnionTransport? onion = null;
         if (torEnabled)
         {
             _log.LogInformation(onionOnly
@@ -118,6 +121,7 @@ public sealed class LodestarService : BackgroundService
             if (onionOnly && (!string.IsNullOrWhiteSpace(_options.PublicHost) || _options.AdvertisedAddresses.Count > 0))
                 _log.LogInformation("PublicHost/AdvertisedAddresses are ignored in onion-only mode — the link advertises the .onion only.");
         }
+        _onion = onion; // kept so WebLoopAsync can publish the status page as its own onion
 
         // Clearnet reachability is dropped only in onion-only mode; dual-stack advertises it alongside the onion.
         var advertised = onionOnly ? null : BuildAdvertisedBeacons();
@@ -368,12 +372,26 @@ public sealed class LodestarService : BackgroundService
         return beacons.Count > 0 ? beacons : null;
     }
 
-    private async Task WebLoopAsync(CupriNode node, CancellationToken ct)
+    private async Task WebLoopAsync(CupriNode node, string dataDir, CancellationToken ct)
     {
         var refresh = Math.Max(5, _options.WebRefreshSeconds);
         var provider = new LodestarLinkProvider(
             node, TimeSpan.FromHours(_options.SelfLinkLifetimeHours), TimeSpan.FromSeconds(refresh));
-        var server = new LodestarWebServer(provider, node, _options.Concordium, refresh, _log);
+
+        // Split only makes sense for a dual-stack node (clearnet + onion). It serves the clearnet page a
+        // clearnet-only link and publishes a separate onion that serves a Tor-only link — so a Tor visitor is
+        // never shown the clearnet IP. On by default (safety); off falls back to a single all-transports page.
+        var dualStack = _options.EnableTor && !_options.TorOnly && _onion is not null;
+        var split = dualStack && _options.WebSplit;
+
+        var clearnetFace = split ? LinkTransports.ClearnetOnly : LinkTransports.All;
+        int? torFacePort = split ? FreeLocalPort() : null;
+
+        var server = new LodestarWebServer(provider, node, _options.Concordium, refresh, clearnetFace, torFacePort, _log);
+
+        if (split && torFacePort is int tfp)
+            _ = Task.Run(() => PublishWebOnionAsync(node, server, dataDir, tfp, ct), ct);
+
         try
         {
             await server.RunAsync(_options.WebListenAddress, _options.WebPort, ct).ConfigureAwait(false);
@@ -387,6 +405,42 @@ public sealed class LodestarService : BackgroundService
             // The status page is auxiliary: never let it bring the node down.
             _log.LogError(ex, "Status page stopped unexpectedly; the node keeps running.");
         }
+    }
+
+    /// <summary>
+    /// Once Tor is up, publishes the status page as its own onion (forwarding to the local tor-face port the web
+    /// server already listens on) and surfaces the address — logs it, writes <c>web.onion</c>, and shows it on the
+    /// clearnet page. Best-effort: if it fails, the clearnet page still works.
+    /// </summary>
+    private async Task PublishWebOnionAsync(CupriNode node, LodestarWebServer server, string dataDir, int torFacePort, CancellationToken ct)
+    {
+        try
+        {
+            while (!ct.IsCancellationRequested && node.OnionBeacon is null)
+                await Task.Delay(TimeSpan.FromSeconds(2), ct).ConfigureAwait(false);
+            if (ct.IsCancellationRequested || _onion is null)
+                return;
+
+            var address = await _onion.PublishAuxiliaryOnionAsync("tor/web-onion-service-key", torFacePort, ct).ConfigureAwait(false);
+            server.TorPageAddress = address;
+            _log.LogInformation("Status page also reachable over Tor at: http://{Onion}/ (serves an onion-only link).", address);
+            try { File.WriteAllText(Path.Combine(dataDir, "web.onion"), address + Environment.NewLine); }
+            catch (Exception ex) { _log.LogDebug(ex, "Could not write web.onion."); }
+        }
+        catch (OperationCanceledException) { /* shutting down */ }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "Could not publish the status page's Tor onion; the clearnet page still works.");
+        }
+    }
+
+    private static int FreeLocalPort()
+    {
+        var probe = new System.Net.Sockets.TcpListener(IPAddress.Loopback, 0);
+        probe.Start();
+        var port = ((IPEndPoint)probe.LocalEndpoint).Port;
+        probe.Stop();
+        return port;
     }
 
     /// <summary>Parses <c>host</c> or <c>host:port</c> (bracket IPv6). A bare host uses <paramref name="defaultPort"/>.</summary>

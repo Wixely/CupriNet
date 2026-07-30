@@ -36,6 +36,7 @@ Settings bind from `appsettings.json` (the `Lodestar` section), then environment
 | `WebListenAddress` | `CUPRINET_LODESTAR_WebListenAddress` | `0.0.0.0` | Interface the status page binds to. |
 | `WebPort` | `CUPRINET_LODESTAR_WebPort` | `8080` | Status-page TCP port. |
 | `WebRefreshSeconds` | `CUPRINET_LODESTAR_WebRefreshSeconds` | `30` | How often the link is regenerated and the browser re-polls (cached between regenerations). |
+| `WebSplit` | `CUPRINET_LODESTAR_WebSplit` | `true` | Dual‑stack only: serve a **clearnet‑only** link on the clearnet page and publish the page as its own `.onion` that serves a **Tor‑only** link, so a Tor visitor is never shown the clearnet IP. On by default (anti‑deanonymisation). Set `false` for a single all‑transports page. |
 | `DataDirectory` | `CUPRINET_LODESTAR_DataDirectory` | per‑OS | Hot path: identity, master key, known peers. |
 | `SeedLinks` | `CUPRINET_LODESTAR_SeedLinks__0`, … | `[]` | Seed links (array). |
 | `SeedsFile` | `CUPRINET_LODESTAR_SeedsFile` | *(none)* | File of seed links, one per line (`#` comments ok). |
@@ -139,6 +140,18 @@ With `EnableWeb=true` (and the web port published, e.g. `-p 8080:8080`) the node
 a tiny JSON endpoint — no manual reload, no client-side libraries — and the link is **cached** (regenerated at most
 once per `WebRefreshSeconds`, not on every request). It is **HTTP only** by design; terminate TLS with a reverse
 proxy (nginx/Caddy/Traefik) if you want HTTPS. The QR is rendered server-side (pure-managed, no native deps).
+
+**Split faces over Tor (dual-stack).** When Tor is enabled, `WebSplit` (on by default) turns the page into two
+faces so a single Lodestar effectively hands out two links, one per transport — and, importantly, a Tor visitor is
+never shown the node's clearnet IP:
+
+- the **clearnet** page (`http://<host>:8080/`) shows a **clearnet-only** link;
+- the page is *also* published as its **own `.onion`** that shows a **Tor-only** link.
+
+The status page's `.onion` address is surfaced three ways: it's **logged** (`Status page also reachable over Tor at:
+http://<addr>.onion/`) once Tor finishes bootstrapping, written to **`<DataDirectory>/web.onion`**, and shown on the
+clearnet page itself (a "This page over Tor" box). Open that `.onion` in Tor Browser to get the Tor-only link. Set
+`WebSplit=false` to instead serve one page with an all-transports link.
 
 ### Ready-made compose files
 

@@ -115,6 +115,24 @@ public class CupriNodeReachabilityTests
         Assert.Equal(allowed.Identity.Sigil, pairedFromHost.PeerSigil);
     }
 
+    [Fact]
+    public async Task Intone_TransportFilter_SplitsClearnetAndOnion()
+    {
+        using var cts = new CancellationTokenSource(Timeout);
+        var ct = cts.Token;
+
+        var wan = new Beacon(EndpointKind.Manual, "203.0.113.5", 51000); // public clearnet address
+        await using var node = await CupriNode.CreateAsync(new CupriNodeOptions
+        {
+            Concordium = "example.chat", EnableOverlayGossip = false, AdvertisedBeacons = [wan],
+        }, ct);
+
+        // All + ClearnetOnly both carry the clearnet beacon; OnionOnly carries none (this node has no onion).
+        Assert.Contains(node.Intone(TimeSpan.FromHours(1), Now, LinkTransports.All).Beacons, b => b.Host == "203.0.113.5");
+        Assert.Contains(node.Intone(TimeSpan.FromHours(1), Now, LinkTransports.ClearnetOnly).Beacons, b => b.Host == "203.0.113.5");
+        Assert.Empty(node.Intone(TimeSpan.FromHours(1), Now, LinkTransports.OnionOnly).Beacons);
+    }
+
     private static Sigil Sig(byte seed)
     {
         var bytes = new byte[Sigil.Size];
