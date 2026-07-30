@@ -40,17 +40,18 @@ decision (below) is framed as *metadata exposure*, not content security.
 ## End‑to‑end flow
 
 1. **D reserves.** D (behind NAT) dials out to Ferryman B, opens a persistent control connection, and asks B for
-   a **rendezvous reservation**. B observes D's reflexive (public) address (STUN role) and agrees to notify D of
-   incoming rendezvous requests.
+   a **rendezvous reservation** under a **blinded, rotating handle** derived from D's key (not its raw Sigil). B
+   observes D's reflexive (public) address (STUN role) and agrees to notify D of incoming requests for that handle.
 2. **D advertises.** D's intonation carries a **`Brokered` beacon** — "reach me by asking Ferryman B (Sigil +
-   address) to broker" — plus B's reachable record (B is public, so this is fine). D's own private/unreachable
-   beacons are still stripped as today.
+   address) to broker handle #abc" — plus B's reachable record (B is public, so this is fine). D's own
+   private/unreachable beacons are still stripped as today.
 3. **E gets D's link, can't dial D directly**, but sees the `Brokered(via B)` beacon.
 4. **E consents (TOFU).** The app notices D is only reachable via a relay and prompts the user to **trust
    Ferryman B** (see UX below). On approval, E connects to B.
-5. **Rendezvous.** E sends B a `RENDEZVOUS_REQUEST` for D (with E's candidates + a nonce, priced by a small
-   Tribute). B relays it to D as `RENDEZVOUS_NOTIFY`; D answers with its candidates (`RENDEZVOUS_ANSWER`),
-   relayed back to E. B, having observed both public addresses, also supplies each side's reflexive candidate.
+5. **Rendezvous.** E connects to B with an **ephemeral, throwaway identity** (never E's long‑term Sigil) and
+   sends a `RENDEZVOUS_REQUEST` for D's **handle** (with E's candidates + a nonce, priced by a small Tribute). B
+   relays it to D as `RENDEZVOUS_NOTIFY`; D answers with its candidates (`RENDEZVOUS_ANSWER`), relayed back to E.
+   B, having observed both public addresses, also supplies each side's reflexive candidate.
 6. **Coordinated hole punch.** B signals both "punch now" (timing sync); D and E simultaneously send UDP to each
    other's candidate addresses → NAT holes open → a direct path forms.
 7. **Direct, encrypted session.** Over that path D and E run the ordinary **Conjunction** handshake (Noise XX +
@@ -63,8 +64,8 @@ decision (below) is framed as *metadata exposure*, not content security.
 
 - **Ferryman capability flag** on the signed **PeerRecord**: "I broker rendezvous" (+ optional Wards: max
   sessions, reservation TTL). Propagated by gossip so relays are discoverable overlay‑wide, not only via a link.
-- **`EndpointKind.Brokered`** beacon: `{ ferrymanSigil, ferrymanAddress }` — "ask this Ferryman to reach me."
-  Advertised by D; interpreted by E.
+- **`EndpointKind.Brokered`** beacon: `{ ferrymanSigil, ferrymanAddress, reservationHandle }` — "ask this
+  Ferryman to broker this (blinded) handle." Advertised by D; interpreted by E.
 - **Reachable relay records in the Intonation Litany.** Today the Litany is Sigils only; extend it to optionally
   carry the **full records of public Ferrymen** the inviter knows (addresses included). Only nodes flagged public
   Ferrymen are included — ordinary peers' addresses are never dumped. (This is the "opt‑in, and their IP is
@@ -140,11 +141,23 @@ connection metadata to** — a deliberate, low‑stakes, one‑time choice per r
 3. **Names** — integrate the alias/fingerprint layer so relays (and targets) can be shown/pinned by name, and
    the changed‑key warning becomes meaningful.
 
-## Open questions
+## Decisions
 
-- **Symmetric‑NAT pairs** can't be punched at all — confirm the UX is "fall back to Tor," and whether a Ferryman
-  ever offers to relay *L1 only* to keep the pair discoverable (still never L2).
-- **Reservation cost/liveness** — how many Ferrymen should D reserve with, and the keep‑alive interval vs load.
-- **Relay selection** when several are known — nearest / lowest‑load / user‑pinned?
-- **Metadata minimisation** — can the request hide the *target* from the relay (it must route to D, so probably
-  not fully), or at least avoid revealing E's long‑term Sigil to the relay?
+- **Symmetric‑NAT pairs → Tor‑or‑bust (strict).** When both peers are behind symmetric NAT the punch is
+  impossible; the app falls back to **Tor**, or tells the user plainly. A Ferryman **never relays L2 content**
+  (no TURN) — that invariant is absolute. It *may* relay **L1 signaling/metadata** (the Courier role), a separate
+  allowed capability; the crisp line is **L1 yes, L2 never**.
+- **Reservations: 2–3 diverse Ferrymen.** D reserves with 2–3 relays chosen for diversity (different
+  operators/subnets, via the Temperance logic). **Keep‑alive ~30 s** (holds the NAT mapping open); **reservation
+  TTL ~90 s** (≈3× keep‑alive; the relay drops stale ones). Relay‑side **Wards** cap reservations per relay and
+  per source subnet.
+- **Relay selection: trust/pin → nearest → spread.** E prefers a relay already in `known_relays`, then a
+  **user‑pinned** relay, then the lowest‑RTT one (with light randomisation to avoid centralising). **Best
+  practice for a private group: run your own public Lodestar with `EnableFerryman` and pin it**, so brokering
+  metadata never leaves your trust domain — this is the recommended pattern.
+- **Metadata minimisation.** D reserves under a **blinded, rotating handle derived from its key (not its raw
+  Sigil)** — onion‑service style — so the relay sees "connections to handle #abc," not "to D's Sigil." E connects
+  to the relay with an **ephemeral, throwaway identity** (never its long‑term Sigil) and just pays the Tribute; E
+  reveals its real identity **only to D**, in the direct handshake the relay never sees. **IPs are unavoidably
+  exposed to the relay in clearnet** (it brokered both) — for IP privacy use **Tor** (no Ferryman needed). Net:
+  the relay learns *"IP X ↔ IP Y at handle Z, time T,"* not *"E's Sigil ↔ D's Sigil."*
