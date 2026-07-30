@@ -71,9 +71,41 @@ CupriNet's **"L2 content is never relayed"** invariant is about the **CupriNet o
 carries your channel bytes. When you run CupriNet **over Tor**, those bytes still traverse **Tor's** circuits
 (Tor relays carry the onion-encrypted, then Noise-encrypted, stream). That's not a contradiction: no third
 *CupriNet* participant relays or can confirm your session; Tor is an orthogonal transport you opted into for IP
-anonymity. If you run CupriNet on **clearnet**, a direct peer sees your IP — CupriNet's native anonymity is about
-*unlinkability and metadata*, not hiding your address. **Hiding your address is Tor's job**, and CupriNet's
-answer is to use Tor for it.
+anonymity.
+
+## Clearnet CupriNet ≠ "no privacy"
+
+CupriNet runs on **clearnet by default** — no Tor required. Clearnet does reveal your IP to a peer you connect to
+directly, and hiding your IP is squarely **Tor's job**. But it would be wrong to read "no Tor" as "no privacy":
+CupriNet provides real, **non-IP** anonymity properties that Tor by itself does not.
+
+- **Pseudonymity.** Your identity is a *Sigil* (a public-key hash) — no account, no registration, nothing tied to
+  a real-world identity. The overlay never asks who you are.
+- **Unlinkability.** Your channel identities can be **cryptographically separate** from your overlay Sigil, so an
+  observer can't tie "this node on the network" to "a member of that channel."
+- **Opaque advertisements.** Channel adverts carry only a **rotating, per-epoch token (Glyph)** — never the
+  channel name or a stable id — so neither an observer nor the node storing the advert learns which channel it is.
+- **Cover traffic / fuzzing.** Optional decoys blur what is real: **gossip fuzzing** on the overlay, **hot fuzz**
+  (long-lived decoy connections), **effigies** (decoy channel sessions), and **pageants** (fake groups). To an
+  on-path observer, genuine connections and sessions are mixed in with plausible fakes.
+- **Direct-only content.** No CupriNet node relays your channel bytes, so no intermediary can record — or even
+  confirm — that a conversation happened.
+
+Together these give a form of **plausible deniability**. To be precise about *what kind*: this is **not** the
+cryptographic message-repudiation of OTR (CupriNet messages can be author-signed), but **traffic- and
+association-level** deniability:
+
+- an observer who watches your connections **can't tell which are real** and which are decoys (cover traffic), so
+  you can plausibly deny that any given connection carries real communication; and
+- an observer **can't prove which channels you belong to** (unlinkable identities + opaque, rotating adverts), so
+  you can plausibly deny association with a particular group.
+
+So on clearnet an observer may see your IP and *that* two addresses have a connection — but not **what** it is,
+**whether** it's real rather than a decoy, or **which channel** it belongs to. Add **Tor** (dual-stack or
+onion-only) and you additionally hide the IP/location; the two layers stack.
+
+*Caveat:* the cover-traffic machinery is real but **young and unproven** (pre-1.0, unaudited) and it costs
+bandwidth — treat its traffic-analysis resistance as a design goal still being hardened, not a guarantee.
 
 ## Maturity — Tor is vastly ahead here
 
