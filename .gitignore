@@ -14,6 +14,10 @@ plans/
 # CupriChat local persistence (identity + trusted-peer book)
 samples/CupriChat/.data/
 
+# Lodestar local debug hot path (VSCode launch configs)
+node/CupriNet.Lodestar/.debug-data/
+node/CupriNet.Lodestar/.debug-data-tor/
+
 # Security review report — deliverable, deliberately not checked in
 SECURITY-REVIEW.md
 

@@ -5,6 +5,7 @@ using CupriNet.Alembic.BouncyCastle;
 using CupriNet.Core;
 using CupriNet.Hosting;
 using CupriNet.Persistence;
+using CupriNet.Tor;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -63,7 +64,7 @@ public sealed class LodestarService : BackgroundService
         var startedAt = Stopwatch.GetTimestamp();
         try
         {
-            AnnounceSelf(node, dataDir);
+            AnnounceSelf(node, dataDir, stoppingToken);
             await BootstrapFromSeedsAsync(node, stoppingToken).ConfigureAwait(false);
 
             // Serve inbound overlay control forever, and keep the map fresh / persisted, until shutdown.
@@ -103,7 +104,20 @@ public sealed class LodestarService : BackgroundService
         var masterKey = KeyFileMasterKey.LoadOrCreate(Path.Combine(dataDir, "master.key"));
         var store = new FileSecretStore(Path.Combine(dataDir, "secrets"), new AeadDataProtector(suite, masterKey));
 
-        var advertised = BuildAdvertisedBeacons();
+        var tor = _options.EnableTor;
+
+        IOnionTransport? onion = null;
+        if (tor)
+        {
+            _log.LogInformation("Tor mode: building the onion transport (this starts a managed Tor client)…");
+            onion = await CupriTorOnionTransport.CreateAsync(store, ct).ConfigureAwait(false);
+            onion.Status += s => _log.LogInformation("Tor {Status}", s); // bootstrap/connect progress, e.g. "Tor [45%] …"
+            if (!string.IsNullOrWhiteSpace(_options.PublicHost) || _options.AdvertisedAddresses.Count > 0)
+                _log.LogInformation("PublicHost/AdvertisedAddresses are ignored in Tor mode — the link advertises the .onion only.");
+        }
+
+        // Clearnet reachability (PublicHost + AdvertisedAddresses) is meaningless in onion-only mode.
+        var advertised = tor ? null : BuildAdvertisedBeacons();
 
         var node = await CupriNode.CreateAsync(new CupriNodeOptions
         {
@@ -113,15 +127,18 @@ public sealed class LodestarService : BackgroundService
             Suite = suite,
             SecretStore = store,
             AdvertisedBeacons = advertised,
+            OnionTransport = onion,
+            Mode = tor ? ReachabilityMode.TorOnly : ReachabilityMode.Standard,
             PersistOverlay = true,               // warm start: reload known peers' keys from the hot path
             EnableOverlayGossip = true,          // keep the map fresh and re-check known peers
             OverlayGossipIntervalSeconds = _options.GossipIntervalSeconds,
             OverlayGossipFanout = _options.GossipFanout,
-            EnableLanDiscovery = _options.EnableLanDiscovery,
-            EnablePortMapping = _options.EnablePortMapping,
+            EnableLanDiscovery = !tor && _options.EnableLanDiscovery,   // TorOnly enforces these off anyway
+            EnablePortMapping = !tor && _options.EnablePortMapping,
             AllowedSubnets = _options.AllowedSubnets.Count > 0 ? _options.AllowedSubnets : null,
             DeniedSubnets = _options.DeniedSubnets.Count > 0 ? _options.DeniedSubnets : null,
             EnableHotFuzz = _options.EnableCoverTraffic,   // cover traffic is opt-in for an infra node
+            AllowCoverTrafficOverTor = tor && _options.EnableCoverTraffic,
             EnableEffigies = false,
             EnablePageants = false,
             MaxPageantsAsMember = _options.EnableCoverTraffic ? 4 : 0,
@@ -132,13 +149,41 @@ public sealed class LodestarService : BackgroundService
     }
 
     /// <summary>Log who we are and, importantly, our own connection link — the one operators share to grow the network.</summary>
-    private void AnnounceSelf(CupriNode node, string dataDir)
+    private void AnnounceSelf(CupriNode node, string dataDir, CancellationToken ct)
     {
         _log.LogInformation("Lodestar online for network '{Network}'.", _options.Concordium);
         _log.LogInformation("Node key (Sigil): {Sigil}", Hex(node.Identity.Sigil));
         _log.LogInformation("Listening on {Endpoint}.", node.LocalEndPoint);
         _log.LogInformation("Known peers loaded from hot path: {Count}", node.Constellation.Count);
 
+        // In Tor mode the link only carries a reachable address once the onion service is published, which
+        // happens after Tor bootstraps. Wait for it in the background rather than logging a useless empty link.
+        if (_options.EnableTor && node.OnionBeacon is null)
+        {
+            _log.LogInformation(
+                "Tor mode: the .onion connection link will appear here (and on the status page) once the onion " +
+                "service is published — Tor bootstrap can take a minute or two.");
+            _ = Task.Run(() => AnnounceWhenOnionReadyAsync(node, dataDir, ct), ct);
+            return;
+        }
+
+        WriteSelfLink(node, dataDir);
+    }
+
+    private async Task AnnounceWhenOnionReadyAsync(CupriNode node, string dataDir, CancellationToken ct)
+    {
+        try
+        {
+            while (!ct.IsCancellationRequested && node.OnionBeacon is null)
+                await Task.Delay(TimeSpan.FromSeconds(2), ct).ConfigureAwait(false);
+            if (!ct.IsCancellationRequested)
+                WriteSelfLink(node, dataDir);
+        }
+        catch (OperationCanceledException) { /* shutting down */ }
+    }
+
+    private void WriteSelfLink(CupriNode node, string dataDir)
+    {
         string link;
         try
         {
@@ -153,7 +198,8 @@ public sealed class LodestarService : BackgroundService
         // Prominent, easy to copy from console/journal — this is the link others use to join our network.
         _log.LogInformation("This node's connection link (share it so others can join / seed from us):");
         _log.LogInformation("    {Link}", link);
-        if (string.IsNullOrWhiteSpace(_options.PublicHost) && _options.AdvertisedAddresses.Count == 0 && !_options.EnablePortMapping)
+        if (!_options.EnableTor
+            && string.IsNullOrWhiteSpace(_options.PublicHost) && _options.AdvertisedAddresses.Count == 0 && !_options.EnablePortMapping)
             _log.LogWarning(
                 "No PublicHost / AdvertisedAddresses set and port mapping is off, so the link advertises the bind " +
                 "address only. Set 'Lodestar:PublicHost' (and PublicPort) or 'Lodestar:AdvertisedAddresses' to a " +

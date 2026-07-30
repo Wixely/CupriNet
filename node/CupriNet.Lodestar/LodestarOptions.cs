@@ -81,6 +81,14 @@ public sealed class LodestarOptions
     /// <summary>Subnets this node refuses (unless also in <see cref="AllowedSubnets"/>, which wins).</summary>
     public List<string> DeniedSubnets { get; set; } = new();
 
+    /// <summary>
+    /// Run onion-only over Tor: publish a v3 <c>.onion</c> service and reach peers only through Tor, hiding this
+    /// node's IP. Off by default. In Tor mode clearnet settings (<see cref="PublicHost"/>,
+    /// <see cref="AdvertisedAddresses"/>, <see cref="EnableLanDiscovery"/>, <see cref="EnablePortMapping"/>) do not
+    /// apply — the link advertises the <c>.onion</c>, which appears once Tor finishes bootstrapping.
+    /// </summary>
+    public bool EnableTor { get; set; }
+
     /// <summary>Ask the home gateway (NAT-PMP) to forward the listen port. Off by default — servers usually have a public IP.</summary>
     public bool EnablePortMapping { get; set; }
 

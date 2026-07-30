@@ -26,6 +26,9 @@
     <ProjectReference Include="..\..\src\CupriNet.Core\CupriNet.Core.csproj" />
     <ProjectReference Include="..\..\src\CupriNet.Persistence\CupriNet.Persistence.csproj" />
     <ProjectReference Include="..\..\src\CupriNet.Alembic.BouncyCastle\CupriNet.Alembic.BouncyCastle.csproj" />
+    <!-- Optional Tor transport (managed CupriTor, from the Wixely feed). A Lodestar can run onion-only,
+         keeping the network alive anonymously; enabled at runtime with EnableTor. -->
+    <ProjectReference Include="..\..\src\CupriNet.Tor\CupriNet.Tor.csproj" />
   </ItemGroup>
 
   <ItemGroup>

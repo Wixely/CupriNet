@@ -33,6 +33,41 @@
       "console": "internalConsole",
       "stopAtEntry": false,
       "env": { "CUPRICHAT_HOME": "${workspaceFolder}/samples/CupriChat/.data/c" }
+    },
+    {
+      "name": "Lodestar (clearnet + web)",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "build-lodestar",
+      "program": "${workspaceFolder}/node/CupriNet.Lodestar/bin/Debug/net10.0/cuprinet-lodestar.dll",
+      "cwd": "${workspaceFolder}/node/CupriNet.Lodestar",
+      "console": "integratedTerminal",
+      "stopAtEntry": false,
+      "env": {
+        "CUPRINET_LODESTAR_Concordium": "debug.local",
+        "CUPRINET_LODESTAR_EnableWeb": "true",
+        "CUPRINET_LODESTAR_WebListenAddress": "127.0.0.1",
+        "CUPRINET_LODESTAR_WebPort": "8080",
+        "CUPRINET_LODESTAR_DataDirectory": "${workspaceFolder}/node/CupriNet.Lodestar/.debug-data"
+      }
+    },
+    {
+      "name": "Lodestar (Tor + web)",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "build-lodestar",
+      "program": "${workspaceFolder}/node/CupriNet.Lodestar/bin/Debug/net10.0/cuprinet-lodestar.dll",
+      "cwd": "${workspaceFolder}/node/CupriNet.Lodestar",
+      "console": "integratedTerminal",
+      "stopAtEntry": false,
+      "env": {
+        "CUPRINET_LODESTAR_Concordium": "debug.local",
+        "CUPRINET_LODESTAR_EnableTor": "true",
+        "CUPRINET_LODESTAR_EnableWeb": "true",
+        "CUPRINET_LODESTAR_WebListenAddress": "127.0.0.1",
+        "CUPRINET_LODESTAR_WebPort": "8081",
+        "CUPRINET_LODESTAR_DataDirectory": "${workspaceFolder}/node/CupriNet.Lodestar/.debug-data-tor"
+      }
     }
   ],
   "compounds": [

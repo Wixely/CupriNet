@@ -12,6 +12,18 @@
         "Debug"
       ],
       "problemMatcher": "$msCompile"
+    },
+    {
+      "label": "build-lodestar",
+      "command": "dotnet",
+      "type": "process",
+      "args": [
+        "build",
+        "${workspaceFolder}/node/CupriNet.Lodestar/CupriNet.Lodestar.csproj",
+        "-c",
+        "Debug"
+      ],
+      "problemMatcher": "$msCompile"
     }
   ]
 }

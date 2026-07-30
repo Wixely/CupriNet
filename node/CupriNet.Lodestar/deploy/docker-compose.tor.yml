@@ -1,0 +1,37 @@
+# Tor Lodestar — onion-only. Hides the node's IP; peers reach it solely through its v3 .onion, so nothing
+# needs to be port-forwarded and no PublicHost is required. Uses the SAME image as clearnet — Tor is a
+# managed client baked into the binary, enabled by config.
+#
+#   docker compose -f docker-compose.tor.yml up -d
+#   docker compose -f docker-compose.tor.yml logs -f     # the .onion link appears once Tor finishes bootstrapping
+#
+# The status page shows the .onion link + QR; it is bound to localhost here since it reveals your onion —
+# view it on the host, or tunnel it (e.g. `ssh -L 8080:127.0.0.1:8080 <host>`).
+
+services:
+  lodestar:
+    image: ghcr.io/wixely/cuprinet-lodestar:latest
+    # build:
+    #   context: ../../..
+    #   dockerfile: node/CupriNet.Lodestar/Dockerfile
+    #   secrets: [packages_token]
+    container_name: cuprinet-lodestar-tor
+    restart: unless-stopped
+    # No overlay port is published — inbound arrives over the onion service, not a public TCP port.
+    ports:
+      - "127.0.0.1:8080:8080"   # status page, localhost-only (it reveals the .onion)
+    volumes:
+      - lodestar-tor-data:/data # hot path incl. the persistent onion key, so the .onion survives restarts
+    environment:
+      CUPRINET_LODESTAR_Concordium: "example.chat"
+      CUPRINET_LODESTAR_EnableTor: "true"    # onion-only; PublicHost/AdvertisedAddresses are ignored
+      CUPRINET_LODESTAR_EnableWeb: "true"
+      # CUPRINET_LODESTAR_EnableCoverTraffic: "true"   # optional decoy traffic over Tor (extra bandwidth)
+      # CUPRINET_LODESTAR_SEEDS: "cuprinet://intone/AAA…"
+
+volumes:
+  lodestar-tor-data:
+
+# secrets:
+#   packages_token:
+#     environment: PACKAGES_TOKEN

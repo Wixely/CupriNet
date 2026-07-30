@@ -41,6 +41,7 @@ Settings bind from `appsettings.json` (the `Lodestar` section), then environment
 | `SeedsFile` | `CUPRINET_LODESTAR_SeedsFile` | *(none)* | File of seed links, one per line (`#` comments ok). |
 | `AllowedSubnets` | `CUPRINET_LODESTAR_AllowedSubnets__0`, … | `[]` | CIDR/netmask/IP ranges this node may connect to and accept from. An allow match beats a deny. |
 | `DeniedSubnets` | `CUPRINET_LODESTAR_DeniedSubnets__0`, … | `[]` | Ranges to refuse (unless also allowed). |
+| `EnableTor` | `CUPRINET_LODESTAR_EnableTor` | `false` | Run onion‑only over Tor: publish a v3 `.onion` and reach peers only through Tor (hides the node's IP). Clearnet settings don't apply; the `.onion` link appears once Tor bootstraps. |
 | `EnablePortMapping` | `CUPRINET_LODESTAR_EnablePortMapping` | `false` | Ask the gateway (NAT‑PMP) to forward the port. |
 | `EnableLanDiscovery` | `CUPRINET_LODESTAR_EnableLanDiscovery` | `false` | Announce/discover peers on the LAN. |
 | `EnableCoverTraffic` | `CUPRINET_LODESTAR_EnableCoverTraffic` | `false` | Run anonymity cover traffic (extra bandwidth). |
@@ -137,6 +138,22 @@ With `EnableWeb=true` (and the web port published, e.g. `-p 8080:8080`) the node
 a tiny JSON endpoint — no manual reload, no client-side libraries — and the link is **cached** (regenerated at most
 once per `WebRefreshSeconds`, not on every request). It is **HTTP only** by design; terminate TLS with a reverse
 proxy (nginx/Caddy/Traefik) if you want HTTPS. The QR is rendered server-side (pure-managed, no native deps).
+
+### Ready-made compose files
+
+Two sample stacks live in [`deploy/`](deploy/) — both use the **same image**, differing only by config:
+
+```bash
+docker compose -f deploy/docker-compose.clearnet.yml up -d   # fast, IP-visible; set PublicHost
+docker compose -f deploy/docker-compose.tor.yml      up -d   # onion-only; hides the node's IP
+```
+
+- **Clearnet** publishes the overlay port (`43820`) and the status page (`8080`); set `PublicHost`/`AdvertisedAddresses` to a reachable address.
+- **Tor** (`EnableTor=true`) publishes nothing but the status page (bound to localhost) — inbound arrives over the node's `.onion`, which is minted from the persistent onion key in the data volume and appears in the logs / status page once Tor bootstraps. Tor is a managed client baked into the binary, so no extra packages or native Tor daemon are needed.
+
+### Run in the debugger (VS Code)
+
+The workspace [`.vscode/launch.json`](../../.vscode/launch.json) has **Lodestar (clearnet + web)** and **Lodestar (Tor + web)** configurations. Pick one from the Run and Debug panel and press F5: it builds the project, starts a genesis node on network `debug.local`, and serves the status page on `http://127.0.0.1:8080/` (clearnet) or `:8081` (Tor). Each writes its hot path to a gitignored `.debug-data*` folder beside the project.
 
 The `/data` volume is the hot path — keep it to preserve the node's identity and known peers across restarts.
 

@@ -1,0 +1,43 @@
+# Clearnet Lodestar — fast, IP-visible. Reachable directly, so set a reachable address (PublicHost and/or
+# AdvertisedAddresses) that goes into the link others seed from.
+#
+#   docker compose -f docker-compose.clearnet.yml up -d
+#   docker compose -f docker-compose.clearnet.yml logs -f      # copy this node's link from the logs
+#
+# The status page (link + QR) is at http://<host>:8080/. HTTP only — front with a reverse proxy for TLS.
+
+services:
+  lodestar:
+    # Pull the published image…
+    image: ghcr.io/wixely/cuprinet-lodestar:latest
+    # …or build it locally instead (needs a read:packages token for the Wixely feed):
+    #   PACKAGES_TOKEN=<pat> docker compose -f docker-compose.clearnet.yml build
+    # build:
+    #   context: ../../..
+    #   dockerfile: node/CupriNet.Lodestar/Dockerfile
+    #   secrets: [packages_token]
+    container_name: cuprinet-lodestar
+    restart: unless-stopped
+    ports:
+      - "43820:43820"     # overlay (peers connect here) — must be reachable at your PublicHost
+      - "8080:8080"       # status page
+    volumes:
+      - lodestar-data:/data   # hot path: identity, master key, known peers, lodestar.link
+    environment:
+      CUPRINET_LODESTAR_Concordium: "example.chat"        # the network this node keeps alive
+      CUPRINET_LODESTAR_PublicHost: "lodestar.example.net" # <-- your reachable DNS name or public IP
+      # CUPRINET_LODESTAR_PublicPort: "43820"              # defaults to ListenPort
+      # Extra reachable addresses the node can't detect itself (cloud NAT/LB, second NIC):
+      # CUPRINET_LODESTAR_AdvertisedAddresses__0: "203.0.113.9"
+      # CUPRINET_LODESTAR_AdvertisedAddresses__1: "198.51.100.7:43820"
+      CUPRINET_LODESTAR_EnableWeb: "true"
+      # Seed from existing nodes (';'/','/newline separated). Omit to stand up a NEW network (genesis).
+      # CUPRINET_LODESTAR_SEEDS: "cuprinet://intone/AAA…;cuprinet://intone/BBB…"
+
+volumes:
+  lodestar-data:
+
+# Only needed if you uncomment the local build: block above.
+# secrets:
+#   packages_token:
+#     environment: PACKAGES_TOKEN
