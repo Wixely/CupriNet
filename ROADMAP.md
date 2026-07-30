@@ -69,14 +69,19 @@ Three features we've scoped but not started — captured here so the intent is o
   address to a fetch — the way you'd view a Tor onion site. **Live self-hosted** (reachable only while the host is
   online; nothing stored in the overlay); addressable by link, and later by a node **name** (below). Persistent /
   distributed hosting is explicitly *out of scope* for the first cut.
-- **L3 — optional in-channel end-to-end encryption (OpenPGP).** A *third* encryption layer **inside** an Arcanum
-  channel: a member encrypts a payload to specific recipients' **existing PGP keys** and posts the **ciphertext**
-  into the channel, so the channel — and every other member, even an untrusted or compromised one — sees only
-  ciphertext and **only key-holders decrypt**. With OpenPGP **hidden-recipient** ("throw key-ids") the message
-  carries no recipient key-id, so an observer **can't prove who it was for** — recipient **plausible deniability**
-  for a PM sent through a group. Purpose: private sub-conversations, and communicating in **a channel you no
-  longer trust**, using participants' own PGP identities — sitting on top of (and independent from) CupriNet's
-  transport crypto.
+- **L3 — optional in-channel end-to-end encryption (recipient-anonymous sealed messages).** A *third* encryption
+  layer **inside** an Arcanum channel: a member **seals** a payload to specific recipients' **portable public
+  keys** and posts the **ciphertext** into the channel, so the channel — and every other member, even an untrusted
+  or compromised one — sees only ciphertext and **only key-holders decrypt**. Built on a modern **age / HPKE-style**
+  sealed format (X25519 + ChaCha20-Poly1305, already in our BouncyCastle stack) **rather than OpenPGP**, because it
+  is **recipient-anonymous by construction** (no key-ids in the header → an observer can't prove *who* a message is
+  for) and **deniable by default** (no mandatory signature) — plausible deniability for a PM sent through a group,
+  without PGP's easy-to-misconfigure foot-guns. Recipients are **keys people already hold**, so it still works in a
+  channel you no longer trust — lead with **SSH ed25519 keys**, with **OpenPGP keys** accepted as an option for the
+  PGP-in-side-channels crowd. Sits on top of (and independent from) CupriNet's transport crypto. *Trade:*
+  long-term-key sealing means **no forward secrecy** (a later key leak reveals past L3 messages); real FS would need
+  a session/ratchet (MLS/Signal) that conflicts with the self-contained-blob-using-existing-keys model — an accepted
+  trade for this use.
 - **Named, out-of-band-verifiable node identities (L1).** Let a node advertise a **human-readable name** (e.g.
   "Wikipedia") so popular/infrastructure nodes are recognisable — but trust comes from the **fingerprint, not the
   name**. A node's **Sigil is already the cryptographic hash of its key**, and the pairing handshake already
