@@ -95,16 +95,17 @@ Three features we've scoped but not started — captured here so the intent is o
   long-term-key sealing means **no forward secrecy** (a later key leak reveals past L3 messages); real FS would need
   a session/ratchet (MLS/Signal) that conflicts with the self-contained-blob-using-existing-keys model — an accepted
   trade for this use.
-- **Named, out-of-band-verifiable node identities (L1).** Let a node advertise a **human-readable name** (e.g.
-  "Wikipedia") so popular/infrastructure nodes are recognisable — but trust comes from the **fingerprint, not the
-  name**. A node's **Sigil is already the cryptographic hash of its key**, and the pairing handshake already
-  supports **pinning an expected Sigil**, so a client that obtained the real node's fingerprint through a trusted
-  **side channel** (e.g. the entity's own website) can verify it isn't talking to an impostor. Scope: attach the
-  name label to published records/links; define a side-channel format for publishing a `name → Sigil` claim (and
-  optionally a domain/social **proof** for a "verified" badge). Fingerprints/Sigils shown to users render as
-  **bech32** (branded prefix + checksum), the same encoding as the site URLs above. Names are **self-asserted
-  labels, not a global namespace** — no registry, no squatting-by-fiat. (Pairs naturally with the websites item:
-  address a site by a verifiable node name.)
+- **Monikers — self-asserted node labels (L1).** Let a node advertise a **Moniker**: a human-readable name it
+  claims for itself (e.g. "Wikipedia"), so popular/infrastructure nodes are recognisable. **The protocol carries
+  the Moniker unverified** — it is a display hint, never a truth claim — and **validating it is the consuming
+  client's job**, however that client chooses: match the node's fingerprint against one it already trusts (a Sigil
+  pinned earlier, a side channel like the entity's own website, an allow-list, or a later domain/social proof).
+  Trust always rests on the **fingerprint, not the name**: a node's **Sigil is the hash of its key**, the handshake
+  already **pins an expected Sigil**, and fingerprints render as **bech32** (branded prefix + checksum). Monikers
+  are **self-asserted labels, not a global namespace** — no registry, no verification baked into the core, no
+  squatting-by-fiat. Scope: an optional signed `Moniker` field on the node's record/link + display helpers; the
+  `KnownRelays` TOFU store already demonstrates the client-side name↔fingerprint pattern this generalises. (Pairs
+  with the websites item: show a site's Moniker, validate by fingerprint.)
 
 ## 💤 Deferred / accepted (not bugs)
 
