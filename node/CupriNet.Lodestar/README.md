@@ -135,6 +135,11 @@ docker run -d --name lodestar \
 docker logs -f lodestar    # copy the node's own link from here
 ```
 
+The published image at `ghcr.io/wixely/cuprinet-lodestar` is a **multi-arch manifest** (`linux/amd64` + `linux/arm64`),
+so `docker pull` / `docker run` picks the right architecture automatically — the same tag runs on an x86-64 server or an
+arm64 box (Raspberry Pi 4/5, AWS Graviton, Apple-silicon containers). To build both locally: `docker buildx build
+--platform linux/amd64,linux/arm64 -f node/CupriNet.Lodestar/Dockerfile .`.
+
 ### Status page
 
 With `EnableWeb=true` (and the web port published, e.g. `-p 8080:8080`) the node serves a small read-only page at
@@ -185,5 +190,6 @@ dotnet publish node/CupriNet.Lodestar/CupriNet.Lodestar.csproj -c Release -r win
   --self-contained true -p:PublishSingleFile=true -o out/win
 ```
 
-CI (GitHub Actions, `.github/workflows/build.yml`) builds `win-x64` and `linux-x64` binaries and a Docker image
-on every push, and attaches the binaries to GitHub Releases on a `v*` tag.
+CI (GitHub Actions, `.github/workflows/build.yml`) builds `win-x64` and `linux-x64` binaries and a multi-arch
+(`amd64` + `arm64`) Docker image on every push, and on a `v*` tag pushes the image to GHCR and attaches the
+binaries to GitHub Releases.

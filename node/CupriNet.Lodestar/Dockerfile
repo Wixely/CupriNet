@@ -3,7 +3,10 @@
 #   docker build -f node/CupriNet.Lodestar/Dockerfile -t cuprinet-lodestar .
 
 # ---- build ----
-FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+# Pin the build stage to the BUILDPLATFORM (the runner's native arch) so a multi-arch build doesn't emulate the
+# whole SDK under QEMU. dotnet publish here produces portable IL (no RID, UseAppHost=false), which is arch-neutral —
+# the same /app runs on every target. Only the runtime stage below is resolved per target arch (amd64 + arm64).
+FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 COPY . .
 # The core now pulls CupriMark (version negotiation) from the Wixely GitHub Packages feed, so restore needs a
