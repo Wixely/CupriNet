@@ -41,7 +41,7 @@
       "preLaunchTask": "build-lodestar",
       "program": "${workspaceFolder}/node/CupriNet.Lodestar/bin/Debug/net10.0/cuprinet-lodestar.dll",
       "cwd": "${workspaceFolder}/node/CupriNet.Lodestar",
-      "console": "integratedTerminal",
+      "console": "internalConsole",
       "stopAtEntry": false,
       "env": {
         "CUPRINET_LODESTAR_Concordium": "debug.local",
@@ -49,6 +49,13 @@
         "CUPRINET_LODESTAR_WebListenAddress": "127.0.0.1",
         "CUPRINET_LODESTAR_WebPort": "8080",
         "CUPRINET_LODESTAR_DataDirectory": "${workspaceFolder}/node/CupriNet.Lodestar/.debug-data"
+      },
+      // Open the status page in the browser once the web server logs its URL. serverReadyAction watches the
+      // Debug Console output (hence console: internalConsole above) for the "Status page serving on <url>" line.
+      "serverReadyAction": {
+        "pattern": "Status page serving on (https?://\\S+)",
+        "uriFormat": "%s",
+        "action": "openExternally"
       }
     },
     {
@@ -58,7 +65,7 @@
       "preLaunchTask": "build-lodestar",
       "program": "${workspaceFolder}/node/CupriNet.Lodestar/bin/Debug/net10.0/cuprinet-lodestar.dll",
       "cwd": "${workspaceFolder}/node/CupriNet.Lodestar",
-      "console": "integratedTerminal",
+      "console": "internalConsole",
       "stopAtEntry": false,
       "env": {
         "CUPRINET_LODESTAR_Concordium": "debug.local",
@@ -67,6 +74,12 @@
         "CUPRINET_LODESTAR_WebListenAddress": "127.0.0.1",
         "CUPRINET_LODESTAR_WebPort": "8081",
         "CUPRINET_LODESTAR_DataDirectory": "${workspaceFolder}/node/CupriNet.Lodestar/.debug-data-tor"
+      },
+      // Same as the clearnet config: auto-open the clearnet-face status page when it starts serving.
+      "serverReadyAction": {
+        "pattern": "Status page serving on (https?://\\S+)",
+        "uriFormat": "%s",
+        "action": "openExternally"
       }
     }
   ],
