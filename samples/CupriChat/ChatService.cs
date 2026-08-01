@@ -107,6 +107,7 @@ public sealed class ChatService : IAsyncDisposable
     private long _inFlightBytes;
     private bool _discovering;
     private bool _discoveryAnnounced;
+    private bool _seedNoticeShown;   // "reached a keep-alive/relay node" info line shown once per session
     private CupriNode? _node;
     private ISecretStore? _store;
     private KindredBook? _kindred;
@@ -1204,6 +1205,17 @@ public sealed class ChatService : IAsyncDisposable
         {
             await peer.DisposeAsync();
         }
+        catch (ConsecrationException)
+        {
+            // The peer completed L1 (overlay) but is NOT a member of THIS channel: either a Lodestar / keep-alive
+            // relay node (L1-only, carries no L2 channel), or a client in a different channel. This is expected and
+            // fine on the shared network — we use such a node only to bootstrap the overlay and broker NAT hole
+            // punches, never to chat. So don't raise an error and don't sit waiting for someone to reach us: keep
+            // the peers it already gossiped to us (learned during the L1 handshake) and actively hunt for real
+            // members of this channel over the overlay.
+            await peer.DisposeAsync();
+            OnReachedNonMemberNode();
+        }
         catch (Exception ex)
         {
             Status?.Invoke($"Could not join channel with a peer: {ex.Message}");
@@ -1214,6 +1226,29 @@ public sealed class ChatService : IAsyncDisposable
             lock (_lock)
                 _consecrating.Remove(sigilHex);
         }
+    }
+
+    /// <summary>
+    /// Called when a peer we paired with at L1 turns out not to be a member of this channel (a Lodestar/relay, or a
+    /// client in another channel). Rather than erroring or waiting passively, switch on routed discovery so we
+    /// publish our own presence and look up the channel's real members through the overlay this node just seeded.
+    /// </summary>
+    private void OnReachedNonMemberNode()
+    {
+        bool announce;
+        lock (_lock)
+        {
+            announce = !_seedNoticeShown;
+            _seedNoticeShown = true;
+        }
+        if (announce)
+            SystemMessage?.Invoke(
+                "Reached a keep-alive/relay node (not a member of this channel) — using it to find people in this channel…");
+
+        // Actively seek members instead of waiting to be found. (Routed discovery reveals to routing nodes that we
+        // are looking for a channel; that is the accepted trade-off for bootstrapping a chat via a public relay.)
+        NetworkDiscovery = true;
+        EnsureDiscovery();
     }
 
     private async Task ReceiveLoopAsync(PeerSession peer, CancellationToken cancellationToken)
