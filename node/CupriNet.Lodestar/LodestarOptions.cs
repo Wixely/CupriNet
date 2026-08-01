@@ -9,8 +9,13 @@ public sealed class LodestarOptions
     /// <summary>Config section these options bind from.</summary>
     public const string SectionName = "Lodestar";
 
-    /// <summary>The network (Concordance) this node keeps alive. Required — a node must know which network it serves.</summary>
-    public string Concordium { get; set; } = "";
+    /// <summary>
+    /// The network (Concordance) this node keeps alive. Defaults to <c>cuprinet</c> — THE main, shared CupriNet, where
+    /// all clients and keep-alive nodes meet. Only change this to deliberately split off onto your OWN private CupriNet:
+    /// a different Concordium is enforced-isolated (nodes on different Concordia refuse to pair), so you'd be standing up
+    /// a separate network that can't reach the main one. It is a namespace/partition, not a security boundary.
+    /// </summary>
+    public string Concordium { get; set; } = "cuprinet";
 
     /// <summary>Address to bind the listener to. Defaults to all interfaces (a server is meant to be reachable).</summary>
     public string ListenAddress { get; set; } = "0.0.0.0";

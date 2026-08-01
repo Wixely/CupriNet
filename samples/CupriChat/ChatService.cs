@@ -67,7 +67,13 @@ public sealed record ChatWire(string User, string Text)
 /// <summary>Drives a CupriNet node for CupriChat: pairing, channel Consecration, authenticated chat, and file transfers.</summary>
 public sealed class ChatService : IAsyncDisposable
 {
-    private const string NetworkId = "cuprichat";
+    // The Concordium (overlay network) this app joins. "cuprinet" is THE main, shared network — CupriChat peers,
+    // Lodestar keep-alive nodes, and every other CupriNet client live here and can pair with each other's links.
+    // Only change this if you deliberately want to split off onto your OWN private CupriNet: a different Concordium
+    // is enforced-isolated (nodes on different Concordia refuse to pair), so you'd be starting a separate network
+    // that can't reach the main one. It is a namespace/partition, not a security boundary — trust always rests on
+    // each peer's Sigil, never on the network name.
+    private const string NetworkId = "cuprinet";
     private const uint ReliquaryProtocol = 1;
     private const uint HelloProtocol = 2;
     private const uint RosterProtocol = 3;

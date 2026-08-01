@@ -24,7 +24,8 @@ services:
     volumes:
       - lodestar-data:/data   # hot path: identity, master key, known peers, lodestar.link
     environment:
-      CUPRINET_LODESTAR_Concordium: "example.chat"        # the network this node keeps alive
+      CUPRINET_LODESTAR_Concordium: "cuprinet"            # the main shared network (default). Only change this to
+                                                          #   run your OWN private, isolated CupriNet.
       CUPRINET_LODESTAR_PublicHost: "lodestar.example.net" # <-- your reachable DNS name or public IP
       # CUPRINET_LODESTAR_PublicPort: "43820"              # defaults to ListenPort
       # Extra reachable addresses the node can't detect itself (cloud NAT/LB, second NIC):

@@ -26,7 +26,7 @@ Settings bind from `appsettings.json` (the `Lodestar` section), then environment
 
 | Setting | Env var | Default | Meaning |
 |---|---|---|---|
-| `Concordium` | `CUPRINET_LODESTAR_Concordium` | *(required)* | Which network this node serves. |
+| `Concordium` | `CUPRINET_LODESTAR_Concordium` | `cuprinet` | Which network this node serves. `cuprinet` is the main shared network — leave it to join the main CupriNet. Set a different value **only** to run your own private, isolated network (nodes on different Concordia refuse to pair). |
 | `ListenAddress` | `CUPRINET_LODESTAR_ListenAddress` | `0.0.0.0` | Interface to bind. |
 | `ListenPort` | `CUPRINET_LODESTAR_ListenPort` | `43820` | TCP port to listen on. |
 | `PublicHost` | `CUPRINET_LODESTAR_PublicHost` | *(none)* | Reachable DNS/IP to advertise in this node's link. |
@@ -70,21 +70,23 @@ and from repeated `--seed <link>` / `--seed=<link>` command‑line arguments.
 ### Console (Windows or Ubuntu)
 
 ```bash
-# from the repo root
+# from the repo root — joins the main "cuprinet" network by default (no Concordium needed)
 dotnet run --project node/CupriNet.Lodestar -- \
-  --Concordium example.chat --PublicHost lodestar.example.net \
+  --PublicHost lodestar.example.net \
   --seed "cuprinet://intone/AAA…" --seed "cuprinet://intone/BBB…"
 ```
 
 Or run a published binary directly (`cuprinet-lodestar` / `cuprinet-lodestar.exe`). The node prints its own
 connection link on startup — copy it to hand out to other nodes.
 
-### Genesis (start your own network)
+### Genesis (start your OWN private, isolated network)
 
-Just run it with a network name and no seeds:
+`Concordium` defaults to `cuprinet` (the main shared network). Only override it if you want a **separate** CupriNet:
+a different Concordium is enforced-isolated — nodes on it refuse to pair with the main network. Give it a name and
+run with no seeds to stand it up:
 
 ```bash
-CUPRINET_LODESTAR_Concordium=my.network dotnet run --project node/CupriNet.Lodestar
+CUPRINET_LODESTAR_Concordium=my.private.net dotnet run --project node/CupriNet.Lodestar
 ```
 
 It logs `standing up a NEW network (genesis)` and prints the link others should seed from (also written to
@@ -96,7 +98,7 @@ The Windows build (`lodestar-win-x64`) ships `install-service.ps1` / `uninstall-
 folder, in an **elevated** PowerShell:
 
 ```powershell
-.\install-service.ps1 -Concordium example.chat     # registers + starts the "CupriNetLodestar" service
+.\install-service.ps1 -Concordium cuprinet         # registers + starts the "CupriNetLodestar" service (main network)
 # ...set any other CUPRINET_LODESTAR_* machine env vars, e.g. PublicHost, then restart the service
 .\uninstall-service.ps1                            # stop + remove (keeps the data directory)
 ```
@@ -124,7 +126,7 @@ docker run -d --name lodestar \
   -p 43820:43820 \
   -p 8080:8080 \
   -v lodestar-data:/data \
-  -e CUPRINET_LODESTAR_Concordium=example.chat \
+  -e CUPRINET_LODESTAR_Concordium=cuprinet \
   -e CUPRINET_LODESTAR_PublicHost=lodestar.example.net \
   -e CUPRINET_LODESTAR_AdvertisedAddresses__0=203.0.113.9 \
   -e CUPRINET_LODESTAR_AdvertisedAddresses__1=198.51.100.7:43820 \
