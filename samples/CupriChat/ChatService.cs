@@ -1207,10 +1207,11 @@ public sealed class ChatService : IAsyncDisposable
         }
         catch (ConsecrationException)
         {
-            // The peer completed L1 (overlay) but is NOT a member of THIS channel: either a Lodestar / keep-alive
-            // relay node (L1-only, carries no L2 channel), or a client in a different channel. This is expected and
-            // fine on the shared network — we use such a node only to bootstrap the overlay and broker NAT hole
-            // punches, never to chat. So don't raise an error and don't sit waiting for someone to reach us: keep
+            // The peer completed L1 (overlay) but is NOT a member of THIS channel. This is keyed on the OUTCOME, not
+            // the kind of node, so it holds for ANY intermediary: a Lodestar, or — just as importantly — any ordinary
+            // node running the Ferryman relay to broker NAT hole punches (any node can, not only a Lodestar), or a
+            // client in a different channel. Such a node is L1-only for us: we use it to bootstrap the overlay and
+            // broker connectivity, never to chat. So don't raise an error and don't sit waiting to be reached: keep
             // the peers it already gossiped to us (learned during the L1 handshake) and actively hunt for real
             // members of this channel over the overlay.
             await peer.DisposeAsync();
@@ -1229,9 +1230,10 @@ public sealed class ChatService : IAsyncDisposable
     }
 
     /// <summary>
-    /// Called when a peer we paired with at L1 turns out not to be a member of this channel (a Lodestar/relay, or a
-    /// client in another channel). Rather than erroring or waiting passively, switch on routed discovery so we
-    /// publish our own presence and look up the channel's real members through the overlay this node just seeded.
+    /// Called when a peer we paired with at L1 turns out not to be a member of this channel — a Lodestar, ANY node
+    /// running the Ferryman relay (not just a Lodestar), or a client in another channel. Rather than erroring or
+    /// waiting passively, switch on routed discovery so we publish our own presence and look up the channel's real
+    /// members through the overlay this node just seeded.
     /// </summary>
     private void OnReachedNonMemberNode()
     {
