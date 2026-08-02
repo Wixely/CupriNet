@@ -33,10 +33,10 @@ Settings bind from `appsettings.json` (the `Lodestar` section), then environment
 | `PublicPort` | `CUPRINET_LODESTAR_PublicPort` | = `ListenPort` | Port advertised with `PublicHost`. |
 | `Moniker` | `CUPRINET_LODESTAR_Moniker` | *(none)* | Self-asserted display name advertised in this node's link + peer record (e.g. `Community Relay`). Carried **unverified** — a hint only; peers trust it solely by matching this node's fingerprint. |
 | `AdvertisedAddresses` | `CUPRINET_LODESTAR_AdvertisedAddresses__0`, … | `[]` | Extra reachable `host` / `host:port` addresses to put in the link — for a bootstrap where the service has public IPs it can't discover itself (cloud NAT/LB, second NIC, DNS name). Added alongside `PublicHost`. |
-| `EnableWeb` | `CUPRINET_LODESTAR_EnableWeb` | `false` | Serve a small read-only HTTP status page (link + QR, auto-refreshing). HTTP only — front with a reverse proxy for TLS. |
+| `EnableWeb` | `CUPRINET_LODESTAR_EnableWeb` | `false` | Serve a small read-only HTTP status page (link + QR). HTTP only — front with a reverse proxy for TLS. |
 | `WebListenAddress` | `CUPRINET_LODESTAR_WebListenAddress` | `0.0.0.0` | Interface the status page binds to. |
 | `WebPort` | `CUPRINET_LODESTAR_WebPort` | `8080` | Status-page TCP port. |
-| `WebRefreshSeconds` | `CUPRINET_LODESTAR_WebRefreshSeconds` | `30` | How often the link is regenerated and the browser re-polls (cached between regenerations). |
+| `WebRefreshSeconds` | `CUPRINET_LODESTAR_WebRefreshSeconds` | `30` | How often the cached link is regenerated server-side (a browser reload then shows the latest). |
 | `WebSplit` | `CUPRINET_LODESTAR_WebSplit` | `true` | Dual‑stack only: serve a **clearnet‑only** link on the clearnet page and publish the page as its own `.onion` that serves a **Tor‑only** link, so a Tor visitor is never shown the clearnet IP. On by default (anti‑deanonymisation). Set `false` for a single all‑transports page. |
 | `DataDirectory` | `CUPRINET_LODESTAR_DataDirectory` | per‑OS | Hot path: identity, master key, known peers. |
 | `SeedLinks` | `CUPRINET_LODESTAR_SeedLinks__0`, … | `[]` | Seed links (array). |
@@ -145,10 +145,10 @@ arm64 box (Raspberry Pi 4/5, AWS Graviton, Apple-silicon containers). To build b
 ### Status page
 
 With `EnableWeb=true` (and the web port published, e.g. `-p 8080:8080`) the node serves a small read-only page at
-`http://<host>:8080/` showing its current connection link and a QR code. The browser auto-refreshes them by polling
-a tiny JSON endpoint — no manual reload, no client-side libraries — and the link is **cached** (regenerated at most
-once per `WebRefreshSeconds`, not on every request). It is **HTTP only** by design; terminate TLS with a reverse
-proxy (nginx/Caddy/Traefik) if you want HTTPS. The QR is rendered server-side (pure-managed, no native deps).
+`http://<host>:8080/` showing its current connection link and a QR code. The page loads its values once (no
+auto-refresh) — **reload the browser** to pick up a regenerated link. The link is **cached** server-side (regenerated
+at most once per `WebRefreshSeconds`, not on every request). It is **HTTP only** by design; terminate TLS with a
+reverse proxy (nginx/Caddy/Traefik) if you want HTTPS. The QR is rendered server-side (pure-managed, no native deps).
 
 **Split faces over Tor (dual-stack).** When Tor is enabled, `WebSplit` (on by default) turns the page into two
 faces so a single Lodestar effectively hands out two links, one per transport — and, importantly, a Tor visitor is

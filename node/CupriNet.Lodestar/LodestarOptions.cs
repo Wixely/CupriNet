@@ -67,7 +67,7 @@ public sealed class LodestarOptions
 
     /// <summary>
     /// Serve a small read-only HTTP status page (HTTP only — front it with a reverse proxy for TLS) showing this
-    /// node's current connection link and a QR code, auto-refreshing in the browser. Off by default.
+    /// node's current connection link and a QR code. The page loads once (no auto-refresh; reload to update). Off by default.
     /// </summary>
     public bool EnableWeb { get; set; }
 
@@ -78,8 +78,8 @@ public sealed class LodestarOptions
     public int WebPort { get; set; } = 8080;
 
     /// <summary>
-    /// How often (seconds) the link is regenerated and the browser re-polls. The link is cached between
-    /// regenerations, so it is not minted on every request. Minimum 5.
+    /// How often (seconds) the cached link is regenerated server-side. The link is cached between regenerations, so
+    /// it is not minted on every request; the page loads once, so reload the browser to pick up the latest. Minimum 5.
     /// </summary>
     public int WebRefreshSeconds { get; set; } = 30;
 

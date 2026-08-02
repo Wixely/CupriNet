@@ -7,10 +7,11 @@ using Microsoft.Extensions.Logging;
 namespace CupriNet.Lodestar;
 
 /// <summary>
-/// A tiny read-only status page for a Lodestar: it shows the node's current connection link and a QR code, and
-/// the browser auto-refreshes them by polling a small JSON endpoint — no manual reload, no client-side library.
-/// Built on the BCL <see cref="HttpListener"/> (no ASP.NET Core). HTTP only by design; put a reverse proxy in
-/// front for TLS. The link is served from <see cref="LodestarLinkProvider"/>, so it is cached, not minted per request.
+/// A tiny read-only status page for a Lodestar: it shows the node's current connection link and a QR code. The
+/// page loads its values once from a small JSON endpoint (no auto-refresh, no client-side library) — reload the
+/// browser to pick up a regenerated link. Built on the BCL <see cref="HttpListener"/> (no ASP.NET Core). HTTP only
+/// by design; put a reverse proxy in front for TLS. The link is served from <see cref="LodestarLinkProvider"/>, so
+/// it is cached, not minted per request.
 ///
 /// When a Tor face is configured (<see cref="RunAsync"/> with a tor-face port that an onion forwards to), requests
 /// arriving on that port are served an ONION-ONLY link, while the clearnet port is served a CLEARNET-ONLY link — so
@@ -157,8 +158,7 @@ public sealed class LodestarWebServer
               radial-gradient(1200px 600px at 50% -10%, #1b2230 0, transparent 60%), var(--bg);
               color:var(--ink); font:15px/1.5 system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif; padding:24px; }
             .card { width:min(520px,100%); background:var(--card); border:1px solid var(--edge); border-radius:16px;
-              padding:28px; box-shadow:0 10px 40px rgba(0,0,0,.35); transition:box-shadow .4s; }
-            body.flash .card { box-shadow:0 0 0 2px var(--copper), 0 10px 40px rgba(0,0,0,.35); }
+              padding:28px; box-shadow:0 10px 40px rgba(0,0,0,.35); }
             .top { display:flex; align-items:center; justify-content:space-between; gap:10px; }
             h1 { margin:0; font-size:20px; font-weight:650; letter-spacing:.2px; }
             h1 .a { color:var(--copper); }
@@ -200,25 +200,22 @@ public sealed class LodestarWebServer
               <span class="lbl">This page over Tor (hands out an onion-only link):</span>
               <code id="toraddr"></code>
             </div>
-            <p class="foot">node <code id="sigil">…</code> · link refreshes every <span id="every">…</span>s</p>
+            <p class="foot">node <code id="sigil">…</code></p>
           </main>
           <script>
             const $ = id => document.getElementById(id);
-            let every = 30;
-            function pulse(){ document.body.classList.remove('flash'); void document.body.offsetWidth; document.body.classList.add('flash'); }
-            async function tick(){
+            async function load(){
               try {
                 const s = await (await fetch('state', { cache:'no-store' })).json();
                 if (s.qr) $('qr').src = s.qr;
-                if ($('link').textContent !== s.link) { $('link').textContent = s.link; pulse(); }
+                $('link').textContent = s.link;
                 $('net').textContent = s.network;
                 $('sigil').textContent = (s.sigil || '').slice(0,16) + '…';
                 const face = $('face'); face.textContent = s.face === 'tor' ? 'via Tor · onion-only' : 'clearnet';
                 face.className = 'badge ' + (s.face === 'tor' ? 'tor' : 'clearnet');
                 if (s.torAddress) { $('toraddr').textContent = 'http://' + s.torAddress + '/'; $('tor').classList.add('show'); }
                 else $('tor').classList.remove('show');
-                every = Math.max(5, s.refreshSeconds || 30); $('every').textContent = every;
-              } catch (e) { /* keep the last-shown values */ }
+              } catch (e) { /* keep the placeholder values */ }
             }
             $('copy').onclick = () => {
               const t = $('link').textContent, b = $('copy');
@@ -228,7 +225,7 @@ public sealed class LodestarWebServer
             };
             function fallback(t, done){ const a=document.createElement('textarea'); a.value=t; document.body.appendChild(a); a.select();
               try { document.execCommand('copy'); done(); } catch(e){} a.remove(); }
-            tick().then(() => setInterval(tick, every * 1000));
+            load();
           </script>
         </body>
         </html>
