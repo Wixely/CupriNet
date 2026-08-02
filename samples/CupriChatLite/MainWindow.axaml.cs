@@ -12,7 +12,7 @@ using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 
-namespace CupriChat;
+namespace CupriChatLite;
 
 public partial class MainWindow : Window
 {
@@ -209,7 +209,7 @@ public partial class MainWindow : Window
             "that simply echoes back the public IP address your connection appears to come from.\n\n" +
             "What this means for you:\n" +
             "• Amazon (and any network between you and them) sees a plain web request from your public IP.\n" +
-            "• Nothing about CupriChat, your identity, or your peers is sent — it's an ordinary HTTPS GET.\n" +
+            "• Nothing about CupriChatLite, your identity, or your peers is sent — it's an ordinary HTTPS GET.\n" +
             "• The result is only filled into the address box; nothing is published until you start Clearnet.\n\n" +
             "Continue?",
             ok: "Contact AWS", cancel: "Cancel");

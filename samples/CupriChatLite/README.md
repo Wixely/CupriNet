@@ -1,10 +1,10 @@
-# CupriChat
+# CupriChatLite
 
 A small [Avalonia](https://avaloniaui.net/) desktop chat app built on the CupriNet library.
 
 ## What it does
 
-- Runs a CupriNet node and joins a built-in public channel, **`CupriChat#Public`**
+- Runs a CupriNet node and joins a built-in public channel, **`CupriChatLite#Public`**
   (a deterministic Watchword every client derives from the same name).
 - **Generate link** mints an invite link (`cuprinet://intone/…`) and renders it as a **QR code**.
 - **Connect** takes someone else's link, pairs over the encrypted Noise transport, and Consecrates
@@ -17,7 +17,7 @@ A small [Avalonia](https://avaloniaui.net/) desktop chat app built on the CupriN
 ## Run
 
 ```bash
-dotnet run --project samples/CupriChat
+dotnet run --project samples/CupriChatLite
 ```
 
 Start two instances (on one machine, or two on the same LAN):

@@ -20,7 +20,7 @@ network so apps run "with no servers behind them." You publish state into the ne
 live. CupriNet is the opposite data philosophy: **no shared datastore** — **direct, ephemeral, member-to-member**
 sessions where content is never stored in or relayed through the network. **Freenet is a decentralized web/OS;
 CupriNet is a private-messaging fabric.** Both even ship a group-chat example — Freenet's **River**, CupriNet's
-**CupriChat** — but what's underneath is opposite: shared contract-governed state vs direct private transport.
+**CupriChatLite** — but what's underneath is opposite: shared contract-governed state vs direct private transport.
 
 ## What the new Freenet is
 
@@ -88,7 +88,7 @@ in proprietary .NET apps. For *embedding a comms feature in a closed-source prod
 - **P2P and serverless**, no central authority, self-generated **key identities**, no phone/email registration.
 - **Small-world / non-classical-DHT routing** rather than a global identity DHT (Freenet routes by location on a
   ring; CupriNet uses relationships + an opt-in referral lookup).
-- **FOSS**, and both ship a **decentralized group-chat** example (River / CupriChat) — a convenient head-to-head
+- **FOSS**, and both ship a **decentralized group-chat** example (River / CupriChatLite) — a convenient head-to-head
   for the "how do you do decentralized chat?" question, with opposite answers underneath.
 
 ## Maturity

@@ -1,7 +1,7 @@
 using Avalonia.Media.Imaging;
 using QRCoder;
 
-namespace CupriChat;
+namespace CupriChatLite;
 
 /// <summary>Renders a string (the invite link) as a QR-code bitmap for display.</summary>
 public static class QrCodeGenerator

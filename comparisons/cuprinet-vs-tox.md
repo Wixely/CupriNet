@@ -2,7 +2,7 @@
 
 **[Tox](https://tox.chat/)** is the closest thing here to a like-for-like: a **P2P instant messenger** with
 public-key identities, no account servers, and end-to-end encryption — the same space our sample app
-**[CupriChat](../samples/CupriChat/)** lives in. So this one is best read at the **application level**: *CupriChat
+**[CupriChatLite](../samples/CupriChatLite/)** lives in. So this one is best read at the **application level**: *CupriChatLite
 (on CupriNet) vs a Tox client like qTox (on toxcore)*.
 
 > *Fact-checked against the [Tox FAQ](https://tox.chat/faq.html) (checked 2026-07). Toxcore (the C reference
@@ -12,7 +12,7 @@ public-key identities, no account servers, and end-to-end encryption — the sam
 
 Tox is a **mature, shipping P2P messenger** — text, **voice and video calls**, file transfer, groups — where you
 are **globally findable by a static Tox ID** via a public **DHT**, and which **does not hide your IP** from
-contacts by design (Tor is a bolt-on workaround). CupriNet is a **younger library** whose sample **CupriChat**
+contacts by design (Tor is a bolt-on workaround). CupriNet is a **younger library** whose sample **CupriChatLite**
 does text/file/group chat with a **stricter privacy model**: **no DHT / not globally findable** (you're reached
 via an expiring link), **first-class Tor**, and native metadata resistance (unlinkability + cover traffic). Tox
 wins today on **features and maturity**; CupriNet leans harder into **privacy-by-design and embeddability**.
@@ -32,9 +32,9 @@ wins today on **features and maturity**; CupriNet leans harder into **privacy-by
   (VP8), file transfer, and group chats**. Reference core is **C** (`c-toxcore`, GPL-3.0); mature clients include
   qTox, aTox, Toxic.
 
-## Side by side (CupriChat/CupriNet vs Tox)
+## Side by side (CupriChatLite/CupriNet vs Tox)
 
-| | Tox (qTox / toxcore) | CupriChat (CupriNet) |
+| | Tox (qTox / toxcore) | CupriChatLite (CupriNet) |
 |---|---|---|
 | **Kind** | P2P messenger — text, **voice/video**, files, groups | P2P messenger — text, data, **files**, group channels (no A/V) |
 | **Discovery** | **Public DHT** + bootstrap nodes; findable by Tox ID | **No identity DHT** — reached via a signed, **expiring link** (or LAN / introductions); opt-in *channel* lookup only |
@@ -46,7 +46,7 @@ wins today on **features and maturity**; CupriNet leans harder into **privacy-by
 | **Encryption** | NaCl (curve25519/xsalsa20/poly1305), **PFS** | Noise XX/IK (Ed25519/X25519/ChaCha20-Poly1305), **PFS** |
 | **Groups** | Conferences / new group chats (ad-hoc) | Channels with **owner-signed membership** (Investiture), access modes, ownership transfer |
 | **Runtime / license** | **C** core, **GPL-3.0** | **100% managed C#** (.NET 10), **MIT** |
-| **Maturity** | ~2013, real clients + users, A/V shipping | Pre-1.0; **CupriChat is a sample/demo**; unaudited |
+| **Maturity** | ~2013, real clients + users, A/V shipping | Pre-1.0; **CupriChatLite is a sample/demo**; unaudited |
 
 ## Where they diverge
 
@@ -157,7 +157,7 @@ philosophy split you see everywhere else in this comparison.
 ## Maturity — Tox is the shipping product
 
 Be clear-eyed: **Tox is a real, years-old messenger** with multiple mature clients, a user base, and **working
-voice/video** — things CupriNet does **not** have. **CupriChat is a sample app**, CupriNet is pre-1.0 and
+voice/video** — things CupriNet does **not** have. **CupriChatLite is a sample app**, CupriNet is pre-1.0 and
 unaudited, and there's **no A/V** and no public network yet. Tox has its own history of uneven development and
 security scrutiny, but as *something you can install and talk on today*, it's far ahead. CupriNet's bet is a
 **stricter privacy model** (no DHT, integrated Tor, cover traffic, unlinkability) delivered as an **MIT,
@@ -167,6 +167,6 @@ fully-managed, embeddable** library — promising for private/closed-group use, 
 
 - **Pick Tox** if you want a **ready-to-use P2P messenger with voice/video**, to be **reachable by an ID** anyone
   can add, and you're fine with your IP being visible to contacts (or you'll tunnel it yourself).
-- **Pick CupriNet/CupriChat** if you're **building** a messaging feature into a .NET app, want **non-discoverable,
+- **Pick CupriNet/CupriChatLite** if you're **building** a messaging feature into a .NET app, want **non-discoverable,
   link-gated** private groups, **integrated Tor** and metadata resistance out of the box, and an **MIT** dependency
   — accepting that it's younger, text/file only (no A/V yet), and not audited.

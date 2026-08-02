@@ -1,6 +1,6 @@
 using Avalonia;
 
-namespace CupriChat;
+namespace CupriChatLite;
 
 internal static class Program
 {

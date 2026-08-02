@@ -2,12 +2,12 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "build-cuprichat",
+      "label": "build-cuprichatlite",
       "command": "dotnet",
       "type": "process",
       "args": [
         "build",
-        "${workspaceFolder}/samples/CupriChat/CupriChat.csproj",
+        "${workspaceFolder}/samples/CupriChatLite/CupriChatLite.csproj",
         "-c",
         "Debug"
       ],

@@ -15,7 +15,7 @@ using CupriNet.Persistence;
 using CupriNet.Rites;
 using CupriNet.Traversal;
 
-namespace CupriChat;
+namespace CupriChatLite;
 
 /// <summary>The network the user picks at startup. Each maps to a fully separate, isolated profile.</summary>
 public enum ReachabilityChoice
@@ -64,10 +64,10 @@ public sealed record ChatWire(string User, string Text)
     }
 }
 
-/// <summary>Drives a CupriNet node for CupriChat: pairing, channel Consecration, authenticated chat, and file transfers.</summary>
+/// <summary>Drives a CupriNet node for CupriChatLite: pairing, channel Consecration, authenticated chat, and file transfers.</summary>
 public sealed class ChatService : IAsyncDisposable
 {
-    // The Concordium (overlay network) this app joins. "cuprinet" is THE main, shared network — CupriChat peers,
+    // The Concordium (overlay network) this app joins. "cuprinet" is THE main, shared network — CupriChatLite peers,
     // Lodestar keep-alive nodes, and every other CupriNet client live here and can pair with each other's links.
     // Only change this if you deliberately want to split off onto your OWN private CupriNet: a different Concordium
     // is enforced-isolated (nodes on different Concordia refuse to pair), so you'd be starting a separate network
@@ -102,7 +102,7 @@ public sealed class ChatService : IAsyncDisposable
     private readonly HashSet<string> _connecting = new(StringComparer.Ordinal);     // overlay ids we are dialing (dedup)
     private readonly HashSet<string> _consecrating = new(StringComparer.Ordinal);   // overlay ids mid-Consecration (one session per node)
     private readonly CancellationTokenSource _cts = new();
-    private readonly string _scratchDir = Path.Combine(Path.GetTempPath(), "cuprichat", Guid.NewGuid().ToString("N"));
+    private readonly string _scratchDir = Path.Combine(Path.GetTempPath(), "cuprichatlite", Guid.NewGuid().ToString("N"));
 
     private long _inFlightBytes;
     private bool _discovering;
@@ -128,7 +128,7 @@ public sealed class ChatService : IAsyncDisposable
     private string _selfId = string.Empty;
     private bool _joined;
 
-    public const string DefaultChannelName = "CupriChat#Public";
+    public const string DefaultChannelName = "CupriChatLite#Public";
 
     public event Action<ChatMessage>? MessageArrived;
     public event Action<string>? Status;
@@ -234,7 +234,7 @@ public sealed class ChatService : IAsyncDisposable
         // Optional Ferryman relay (for a home user behind NAT with no port-forward): reserve with it and put a
         // Relay beacon in our link so peers who can't reach us directly can broker a connection. host:port via env.
         _relayBeacon = null;
-        var relayEnv = Environment.GetEnvironmentVariable("CUPRICHAT_RELAY");
+        var relayEnv = Environment.GetEnvironmentVariable("CUPRICHATLITE_RELAY");
         if (!tor && !string.IsNullOrWhiteSpace(relayEnv) && TryParseHostPort(relayEnv!, out var relHost, out var relPort))
         {
             _relayBeacon = new Beacon(EndpointKind.Relay, relHost, relPort);
@@ -244,10 +244,10 @@ public sealed class ChatService : IAsyncDisposable
         Beacon[]? advertised = beacons.Count > 0 ? beacons.ToArray() : null;
 
         // Per-MODE profile: clearnet and Tor get entirely separate identities + state under distinct folders, so a
-        // Tor identity can never be correlated with a clearnet one (different Sigil, cache, history, keys). CUPRICHAT_HOME
+        // Tor identity can never be correlated with a clearnet one (different Sigil, cache, history, keys). CUPRICHATLITE_HOME
         // still lets two instances on one machine stay distinct.
-        var baseHome = Environment.GetEnvironmentVariable("CUPRICHAT_HOME")
-                       ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "CupriChat");
+        var baseHome = Environment.GetEnvironmentVariable("CUPRICHATLITE_HOME")
+                       ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "CupriChatLite");
         var home = Path.Combine(baseHome, tor ? "tor" : "clearnet");
         Directory.CreateDirectory(home);
         var suite = new BouncyCastleSuite();
@@ -276,14 +276,14 @@ public sealed class ChatService : IAsyncDisposable
             PersistOverlay = true,            // warm-start: reconnect to known nodes directly, keep gossip fresh
             EnableLanDiscovery = !tor,        // clearnet only (TorOnly enforces this off anyway)
             EnablePortMapping = !tor,
-            // A clearnet CupriChat link is handed directly to the one person you want to reach — not gossiped to
+            // A clearnet CupriChatLite link is handed directly to the one person you want to reach — not gossiped to
             // the overlay — so it must carry this node's local address, otherwise a LAN-only node (no NAT-PMP /
             // public route) produces a beaconless, unusable link. This is a deliberate app opt-in on top of the
             // library default (which strips private/LAN addresses so the overlay never learns your internal IP).
             AdvertiseLocalAddresses = !tor,
             Mode = tor ? ReachabilityMode.TorOnly : ReachabilityMode.Standard,
             OnionTransport = onion,
-            // CupriChat opts into cover traffic over Tor: run the connection-fuzz (hot fuzz) and L2-shaped decoy
+            // CupriChatLite opts into cover traffic over Tor: run the connection-fuzz (hot fuzz) and L2-shaped decoy
             // sessions (effigies) over the onion overlay in Tor mode. This is a deliberate app choice on top of the
             // library default (which keeps cover traffic off on Tor to save relay bandwidth); it routes over onion
             // and never touches clearnet.
@@ -381,7 +381,7 @@ public sealed class ChatService : IAsyncDisposable
             return;
         if (!IntonationUri.TryParse(link.Trim(), out var intonation, out _))
         {
-            Status?.Invoke("That does not look like a CupriChat link.");
+            Status?.Invoke("That does not look like a CupriChatLite link.");
             return;
         }
 
@@ -1381,7 +1381,7 @@ public sealed class ChatService : IAsyncDisposable
 
     private static Watchword ChannelFromName(string name)
     {
-        var seed = Encoding.UTF8.GetBytes("cuprichat/channel/" + name.ToLowerInvariant());
+        var seed = Encoding.UTF8.GetBytes("cuprichatlite/channel/" + name.ToLowerInvariant());
         var salt = SHA256.HashData(seed).AsSpan(0, 16).ToArray();
         var code = $"channel#{Base64Url.EncodeToString(salt)}";
         if (!Watchword.TryParse(code, out var watchword))

@@ -1,6 +1,6 @@
 using Avalonia.Controls;
 
-namespace CupriChat;
+namespace CupriChatLite;
 
 /// <summary>The receiver's decision on an incoming file offer. Default (window closed) is Dismiss.</summary>
 public enum FileOfferResult

@@ -9,7 +9,7 @@ on:
 
 permissions:
   contents: write   # needed to attach assets to a release on tag builds
-  packages: read    # read CupriMark (core) + CupriTor (CupriChat) from the Wixely GitHub Packages feed
+  packages: read    # read CupriMark (core) + CupriTor (CupriChatLite) from the Wixely GitHub Packages feed
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -96,8 +96,8 @@ jobs:
           path: artifacts/lib
 
   # ---------------------------------------------------------------------------
-  # Downloadable CupriChat executables: one self-contained single file per OS.
-  # CupriChat depends on the CupriTor package (private Wixely feed), so this job
+  # Downloadable CupriChatLite executables: one self-contained single file per OS.
+  # CupriChatLite depends on the CupriTor package (private Wixely feed), so this job
   # is BEST-EFFORT: it authenticates with the workflow token (or a PACKAGES_TOKEN
   # secret) and does not fail the pipeline if that feed access isn't configured.
   # ---------------------------------------------------------------------------
@@ -128,10 +128,10 @@ jobs:
           --store-password-in-clear-text
           --configfile nuget.config
 
-      - name: Publish CupriChat (self-contained single file)
+      - name: Publish CupriChatLite (self-contained single file)
         shell: bash
         run: >
-          dotnet publish samples/CupriChat/CupriChat.csproj -c Release -r ${{ matrix.rid }}
+          dotnet publish samples/CupriChatLite/CupriChatLite.csproj -c Release -r ${{ matrix.rid }}
           --self-contained true
           -p:PublishSingleFile=true
           -p:IncludeNativeLibrariesForSelfExtract=true
@@ -143,12 +143,12 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: sudo apt-get update && sudo apt-get install -y clang zlib1g-dev
 
-      - name: Publish CupriChat (NativeAOT, best-effort)
+      - name: Publish CupriChatLite (NativeAOT, best-effort)
         id: aot
         continue-on-error: true
         shell: bash
         run: >
-          dotnet publish samples/CupriChat/CupriChat.csproj -c Release -r ${{ matrix.rid }}
+          dotnet publish samples/CupriChatLite/CupriChatLite.csproj -c Release -r ${{ matrix.rid }}
           -p:PublishAot=true
           -p:TreatWarningsAsErrors=false
           -p:DebugType=none
@@ -157,14 +157,14 @@ jobs:
       - name: Upload single-file app
         uses: actions/upload-artifact@v4
         with:
-          name: cuprichat-${{ matrix.rid }}
+          name: cuprichatlite-${{ matrix.rid }}
           path: out/app
 
       - name: Upload NativeAOT app (only if it built)
         if: steps.aot.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
-          name: cuprichat-aot-${{ matrix.rid }}
+          name: cuprichatlite-aot-${{ matrix.rid }}
           path: out/aot
 
   # ---------------------------------------------------------------------------
@@ -291,7 +291,7 @@ jobs:
         run: |
           mkdir -p assets
           cp dist/nuget-packages/*.nupkg assets/ 2>/dev/null || true
-          for d in dist/cuprichat-* dist/lodestar-* dist/cuprinet-library; do
+          for d in dist/cuprichatlite-* dist/lodestar-* dist/cuprinet-library; do
             [ -d "$d" ] && (cd "$d" && zip -r "$GITHUB_WORKSPACE/assets/$(basename "$d").zip" .)
           done
           ls -la assets

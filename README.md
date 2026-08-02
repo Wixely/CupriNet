@@ -65,7 +65,7 @@ Transport (Vessel)   TCP + length-prefixed framing + stream multiplexing · Nois
 | `src/CupriNet.Marks` | CupriMark version negotiation — the [catalogue](src/CupriNet.Marks/README.md) & floors |
 | `src/CupriNet.Tor` | CupriTor onion transport binding (needs the CupriTor feed) |
 | `node/CupriNet.Lodestar` | headless "keep the network alive" overlay node — see its [README](node/CupriNet.Lodestar/README.md) |
-| `samples/CupriChat` | Avalonia sample chat app — see its [README](samples/CupriChat/README.md) |
+| `samples/CupriChatLite` | Avalonia sample chat app — see its [README](samples/CupriChatLite/README.md) |
 | `tests/CupriNet.UnitTests` | the test suite |
 
 ## Quick start
@@ -115,7 +115,7 @@ bits on CupriTor) from the Wixely feed, the build jobs authenticate it with a `P
 - **pack** — packs the core NuGet packages.
 - **publish-lodestar / docker-lodestar** — `win-x64` + `linux-x64` Lodestar binaries and a container image
   (the Docker build takes the feed token as a BuildKit secret).
-- **publish-app (CupriChat)** — the Tor-enabled sample (best-effort).
+- **publish-app (CupriChatLite)** — the Tor-enabled sample (best-effort).
 
 On a `v*` tag, artifacts are attached to a GitHub Release and the Lodestar image is pushed to GHCR.
 

@@ -1,6 +1,6 @@
 using Avalonia.Media;
 
-namespace CupriChat;
+namespace CupriChatLite;
 
 /// <summary>Assigns each identity a stable, distinguishable colour (within a fixed palette).</summary>
 public static class Palette

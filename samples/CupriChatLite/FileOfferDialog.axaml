@@ -1,6 +1,6 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        x:Class="CupriChat.FileOfferDialog"
+        x:Class="CupriChatLite.FileOfferDialog"
         Width="440" Height="210"
         CanResize="False"
         WindowStartupLocation="CenterOwner"

@@ -3,7 +3,7 @@
     <Project Path="node/CupriNet.Lodestar/CupriNet.Lodestar.csproj" />
   </Folder>
   <Folder Name="/samples/">
-    <Project Path="samples/CupriChat/CupriChat.csproj" />
+    <Project Path="samples/CupriChatLite/CupriChatLite.csproj" />
   </Folder>
   <Folder Name="/src/">
     <Project Path="src/CupriNet.Abstractions/CupriNet.Abstractions.csproj" />

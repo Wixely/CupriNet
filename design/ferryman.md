@@ -129,13 +129,13 @@ connection metadata to** — a deliberate, low‑stakes, one‑time choice per r
   consent; execute the punch.
 - **Requester (E):** detect the `Brokered` beacon; the TOFU trust hook + `known_relays`; drive
   `RENDEZVOUS_REQUEST` and the punch; on failure, offer Tor.
-- **App (CupriChat):** the consent prompt, fingerprint display, `known_relays` management.
+- **App (CupriChatLite):** the consent prompt, fingerprint display, `known_relays` management.
 
 ## Implementation status (v1) & deferred hardening
 
-**Implemented & tested** (`CupriNode.Ferryman.cs`, `FerrymanProtocol.cs`, `KnownRelays.cs`, CupriChat, Lodestar):
+**Implemented & tested** (`CupriNode.Ferryman.cs`, `FerrymanProtocol.cs`, `KnownRelays.cs`, CupriChatLite, Lodestar):
 the relay/reserve/rendezvous protocol, the ephemeral-identity requester flow, the direct Sigil-pinned pairing,
-the `KnownRelays` TOFU store + CupriChat confirm-and-explain dialog, and Lodestar-as-Ferryman by default.
+the `KnownRelays` TOFU store + CupriChatLite confirm-and-explain dialog, and Lodestar-as-Ferryman by default.
 **Reservations are authenticated** — the target signs the reservation with its Seal and the relay verifies the
 signature *and* that `handle == hash(Sigil)`, so a handle (a hash of a public Sigil) **cannot be squatted or
 hijacked**. NOTIFY pushes to a reserved target are serialized (a per-reservation gate), and a global

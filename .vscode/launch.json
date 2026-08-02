@@ -2,37 +2,37 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "CupriChat",
+      "name": "CupriChatLite",
       "type": "coreclr",
       "request": "launch",
-      "preLaunchTask": "build-cuprichat",
-      "program": "${workspaceFolder}/samples/CupriChat/bin/Debug/net10.0/CupriChat.dll",
-      "cwd": "${workspaceFolder}/samples/CupriChat",
+      "preLaunchTask": "build-cuprichatlite",
+      "program": "${workspaceFolder}/samples/CupriChatLite/bin/Debug/net10.0/CupriChatLite.dll",
+      "cwd": "${workspaceFolder}/samples/CupriChatLite",
       "console": "internalConsole",
       "stopAtEntry": false,
-      "env": { "CUPRICHAT_HOME": "${workspaceFolder}/samples/CupriChat/.data/a" }
+      "env": { "CUPRICHATLITE_HOME": "${workspaceFolder}/samples/CupriChatLite/.data/a" }
     },
     {
-      "name": "CupriChat (2nd instance)",
+      "name": "CupriChatLite (2nd instance)",
       "type": "coreclr",
       "request": "launch",
-      "preLaunchTask": "build-cuprichat",
-      "program": "${workspaceFolder}/samples/CupriChat/bin/Debug/net10.0/CupriChat.dll",
-      "cwd": "${workspaceFolder}/samples/CupriChat",
+      "preLaunchTask": "build-cuprichatlite",
+      "program": "${workspaceFolder}/samples/CupriChatLite/bin/Debug/net10.0/CupriChatLite.dll",
+      "cwd": "${workspaceFolder}/samples/CupriChatLite",
       "console": "internalConsole",
       "stopAtEntry": false,
-      "env": { "CUPRICHAT_HOME": "${workspaceFolder}/samples/CupriChat/.data/b" }
+      "env": { "CUPRICHATLITE_HOME": "${workspaceFolder}/samples/CupriChatLite/.data/b" }
     },
     {
-      "name": "CupriChat (3rd instance)",
+      "name": "CupriChatLite (3rd instance)",
       "type": "coreclr",
       "request": "launch",
-      "preLaunchTask": "build-cuprichat",
-      "program": "${workspaceFolder}/samples/CupriChat/bin/Debug/net10.0/CupriChat.dll",
-      "cwd": "${workspaceFolder}/samples/CupriChat",
+      "preLaunchTask": "build-cuprichatlite",
+      "program": "${workspaceFolder}/samples/CupriChatLite/bin/Debug/net10.0/CupriChatLite.dll",
+      "cwd": "${workspaceFolder}/samples/CupriChatLite",
       "console": "internalConsole",
       "stopAtEntry": false,
-      "env": { "CUPRICHAT_HOME": "${workspaceFolder}/samples/CupriChat/.data/c" }
+      "env": { "CUPRICHATLITE_HOME": "${workspaceFolder}/samples/CupriChatLite/.data/c" }
     },
     {
       "name": "Lodestar (clearnet + web)",
@@ -85,13 +85,13 @@
   ],
   "compounds": [
     {
-      "name": "CupriChat x2",
-      "configurations": ["CupriChat", "CupriChat (2nd instance)"],
+      "name": "CupriChatLite x2",
+      "configurations": ["CupriChatLite", "CupriChatLite (2nd instance)"],
       "stopAll": true
     },
     {
-      "name": "CupriChat x3",
-      "configurations": ["CupriChat", "CupriChat (2nd instance)", "CupriChat (3rd instance)"],
+      "name": "CupriChatLite x3",
+      "configurations": ["CupriChatLite", "CupriChatLite (2nd instance)", "CupriChatLite (3rd instance)"],
       "stopAll": true
     }
   ]

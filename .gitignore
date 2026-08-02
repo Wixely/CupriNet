@@ -11,8 +11,8 @@ chat.txt
 # Uncommitted working notes / design docs
 plans/
 
-# CupriChat local persistence (identity + trusted-peer book)
-samples/CupriChat/.data/
+# Sample-app local persistence (identity + trusted-peer book) — e.g. CupriChatLite, and the pre-rename CupriChat dir
+samples/*/.data/
 
 # Lodestar local debug hot path (VSCode launch configs)
 node/CupriNet.Lodestar/.debug-data/
