@@ -1,17 +1,22 @@
 using System.Net;
 using System.Text;
 using System.Text.Json;
+using CupriNet.Abstractions;
+using CupriNet.Core;
 using CupriNet.Hosting;
 using Microsoft.Extensions.Logging;
 
 namespace CupriNet.Lodestar;
 
 /// <summary>
-/// A tiny read-only status page for a Lodestar: it shows the node's current connection link and a QR code. The
-/// page loads its values once from a small JSON endpoint (no auto-refresh, no client-side library) — reload the
-/// browser to pick up a regenerated link. Built on the BCL <see cref="HttpListener"/> (no ASP.NET Core). HTTP only
-/// by design; put a reverse proxy in front for TLS. The link is served from <see cref="LodestarLinkProvider"/>, so
-/// it is cached, not minted per request.
+/// A tiny read-only status page for a Lodestar: it shows the node's current connection link and a QR code, and
+/// the browser auto-refreshes them by polling a small JSON endpoint — no manual reload, no client-side library.
+/// Built on the BCL <see cref="HttpListener"/> (no ASP.NET Core). HTTP only by design; put a reverse proxy in
+/// front for TLS. The link is served from <see cref="LodestarLinkProvider"/>, so it is cached, not minted per request.
+///
+/// An optional <b>debug panel</b> (off by default) breaks down exactly what fields are being put into the minted
+/// Intonation (link). When it is off the server does not compute or send that breakdown at all — it is simply absent
+/// from the JSON, not merely hidden in the page.
 ///
 /// When a Tor face is configured (<see cref="RunAsync"/> with a tor-face port that an onion forwards to), requests
 /// arriving on that port are served an ONION-ONLY link, while the clearnet port is served a CLEARNET-ONLY link — so
@@ -25,6 +30,7 @@ public sealed class LodestarWebServer
     private readonly int _refreshSeconds;
     private readonly LinkTransports _clearnetFace;
     private readonly int? _torFacePort;
+    private readonly bool _debug;
     private readonly ILogger _log;
 
     /// <summary>The status page's own <c>.onion</c> address, once published — shown on the clearnet page so operators can find it.</summary>
@@ -32,7 +38,7 @@ public sealed class LodestarWebServer
 
     public LodestarWebServer(
         LodestarLinkProvider links, CupriNode node, string network, int refreshSeconds,
-        LinkTransports clearnetFace, int? torFacePort, ILogger log)
+        LinkTransports clearnetFace, int? torFacePort, ILogger log, bool debug = false)
     {
         _links = links;
         _node = node;
@@ -40,6 +46,7 @@ public sealed class LodestarWebServer
         _refreshSeconds = Math.Max(5, refreshSeconds);
         _clearnetFace = clearnetFace;
         _torFacePort = torFacePort;
+        _debug = debug;
         _log = log;
     }
 
@@ -117,19 +124,44 @@ public sealed class LodestarWebServer
     private string StateJson(LinkTransports transports, bool overTor)
     {
         var snapshot = _links.Current(transports);
-        return JsonSerializer.Serialize(new
+        var payload = new Dictionary<string, object?>
         {
-            network = _network,
-            sigil = Convert.ToHexStringLower(_node.Identity.Sigil.Span),
-            link = snapshot.Link,
-            qr = snapshot.QrDataUri,
-            face = overTor ? "tor" : "clearnet",
+            ["network"] = _network,
+            ["sigil"] = Convert.ToHexStringLower(_node.Identity.Sigil.Span),
+            ["link"] = snapshot.Link,
+            ["qr"] = snapshot.QrDataUri,
+            ["face"] = overTor ? "tor" : "clearnet",
             // Only advertise the page's own .onion to the clearnet face — the Tor face is already on it.
-            torAddress = overTor ? null : TorPageAddress,
-            generatedAt = snapshot.GeneratedAt,
-            refreshSeconds = _refreshSeconds,
-        });
+            ["torAddress"] = overTor ? null : TorPageAddress,
+            ["generatedAt"] = snapshot.GeneratedAt,
+            ["refreshSeconds"] = _refreshSeconds,
+        };
+
+        // Debug breakdown of the minted Intonation — ONLY computed and sent when the debug panel is enabled. When
+        // it is off, the "debug" key is simply absent (the info is never put on the wire, not just hidden in CSS).
+        if (_debug && IntonationUri.TryParse(snapshot.Link, out var link, out _))
+            payload["debug"] = DescribeIntonation(link);
+
+        return JsonSerializer.Serialize(payload);
     }
+
+    /// <summary>Decodes the served link back into the exact fields carried in the Intonation, for the debug panel.</summary>
+    private static object DescribeIntonation(Intonation link) => new
+    {
+        version = link.Version,
+        concordium = link.Network.Value,
+        sigil = Convert.ToHexStringLower(link.InviterSigil.Span),
+        sealPublicKey = Convert.ToHexStringLower(link.InviterSealPublicKey),
+        fingerprint = Bech32.Fingerprint(link.InviterSigil),
+        beacons = link.Beacons.Select(b => new { kind = b.Kind.ToString(), host = b.Host, port = b.Port }).ToArray(),
+        litanyCount = link.Litany.Count,
+        litany = link.Litany.Select(s => Convert.ToHexStringLower(s.Span)).ToArray(),
+        issuedAt = DateTimeOffset.FromUnixTimeSeconds(link.IssuedAtUnix).UtcDateTime.ToString("u"),
+        severance = DateTimeOffset.FromUnixTimeSeconds(link.SeveranceUnix).UtcDateTime.ToString("u"),
+        nonce = Convert.ToHexStringLower(link.Nonce),
+        hasPetition = link.Petition is not null,   // presence only — never expose a capability secret
+        moniker = link.Moniker,
+    };
 
     private static async Task WriteAsync(HttpListenerContext context, int status, string contentType, string body)
     {
@@ -158,7 +190,8 @@ public sealed class LodestarWebServer
               radial-gradient(1200px 600px at 50% -10%, #1b2230 0, transparent 60%), var(--bg);
               color:var(--ink); font:15px/1.5 system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif; padding:24px; }
             .card { width:min(520px,100%); background:var(--card); border:1px solid var(--edge); border-radius:16px;
-              padding:28px; box-shadow:0 10px 40px rgba(0,0,0,.35); }
+              padding:28px; box-shadow:0 10px 40px rgba(0,0,0,.35); transition:box-shadow .4s; }
+            body.flash .card { box-shadow:0 0 0 2px var(--copper), 0 10px 40px rgba(0,0,0,.35); }
             .top { display:flex; align-items:center; justify-content:space-between; gap:10px; }
             h1 { margin:0; font-size:20px; font-weight:650; letter-spacing:.2px; }
             h1 .a { color:var(--copper); }
@@ -182,6 +215,13 @@ public sealed class LodestarWebServer
             .tor.show { display:block; }
             .tor .lbl { color:#cbb9ff; font-size:12px; }
             .tor code { display:block; overflow-wrap:anywhere; color:#dcd3f5; font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:12px; user-select:all; margin-top:3px; }
+            .debug { margin:16px 0 0; border-top:1px dashed var(--edge); padding-top:12px; display:none; }
+            .debug.show { display:block; }
+            .dbgttl { color:var(--dim); font-size:11px; text-transform:uppercase; letter-spacing:.08em; margin:0 0 8px; }
+            .debug dl { margin:0; display:grid; grid-template-columns:max-content 1fr; gap:5px 12px; }
+            .debug dt { color:var(--dim); font-size:11.5px; }
+            .debug dd { margin:0; color:#cdd3db; overflow-wrap:anywhere;
+              font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:11.5px; user-select:all; }
           </style>
         </head>
         <body>
@@ -190,7 +230,7 @@ public sealed class LodestarWebServer
               <h1>CupriNet <span class="a">Lodestar</span></h1>
               <span id="face" class="badge">…</span>
             </div>
-            <p class="net">network <b id="net">…</b></p>
+            <p class="net">concordium <b id="net">…</b></p>
             <div class="qrwrap"><img id="qr" class="qr" alt="connection QR code"></div>
             <div class="linkrow">
               <code id="link" class="link">generating…</code>
@@ -200,22 +240,56 @@ public sealed class LodestarWebServer
               <span class="lbl">This page over Tor (hands out an onion-only link):</span>
               <code id="toraddr"></code>
             </div>
-            <p class="foot">node <code id="sigil">…</code></p>
+            <section id="debug" class="debug">
+              <p class="dbgttl">debug · what goes into the intonation (link)</p>
+              <dl id="dbgbody"></dl>
+            </section>
+            <p class="foot">node <code id="sigil">…</code> · link refreshes every <span id="every">…</span>s</p>
           </main>
           <script>
             const $ = id => document.getElementById(id);
-            async function load(){
+            let every = 30;
+            function pulse(){ document.body.classList.remove('flash'); void document.body.offsetWidth; document.body.classList.add('flash'); }
+            function renderDebug(d){
+              const box = $('debug'), body = $('dbgbody');
+              if (!d) { box.classList.remove('show'); body.textContent = ''; return; }
+              const beacons = (d.beacons || []).map(b => b.kind + ' ' + b.host + ':' + b.port).join('  ·  ') || '(none)';
+              const rows = [
+                ['version', String(d.version)],
+                ['concordium', d.concordium],
+                ['sigil', d.sigil],
+                ['seal public key', d.sealPublicKey],
+                ['fingerprint', d.fingerprint],
+                ['beacons', beacons],
+                ['litany', d.litanyCount ? (d.litanyCount + ' — ' + d.litany.join(', ')) : '0'],
+                ['issued (UTC)', d.issuedAt],
+                ['severance (UTC)', d.severance],
+                ['nonce', d.nonce],
+                ['petition', d.hasPetition ? 'present' : 'none'],
+                ['moniker', d.moniker || '(none)'],
+              ];
+              body.textContent = '';
+              for (const [k, v] of rows) {
+                const dt = document.createElement('dt'); dt.textContent = k;
+                const dd = document.createElement('dd'); dd.textContent = v;
+                body.append(dt, dd);
+              }
+              box.classList.add('show');
+            }
+            async function tick(){
               try {
                 const s = await (await fetch('state', { cache:'no-store' })).json();
                 if (s.qr) $('qr').src = s.qr;
-                $('link').textContent = s.link;
+                if ($('link').textContent !== s.link) { $('link').textContent = s.link; pulse(); }
                 $('net').textContent = s.network;
                 $('sigil').textContent = (s.sigil || '').slice(0,16) + '…';
                 const face = $('face'); face.textContent = s.face === 'tor' ? 'via Tor · onion-only' : 'clearnet';
                 face.className = 'badge ' + (s.face === 'tor' ? 'tor' : 'clearnet');
                 if (s.torAddress) { $('toraddr').textContent = 'http://' + s.torAddress + '/'; $('tor').classList.add('show'); }
                 else $('tor').classList.remove('show');
-              } catch (e) { /* keep the placeholder values */ }
+                renderDebug(s.debug);   // absent unless the server has the debug panel enabled
+                every = Math.max(5, s.refreshSeconds || 30); $('every').textContent = every;
+              } catch (e) { /* keep the last-shown values */ }
             }
             $('copy').onclick = () => {
               const t = $('link').textContent, b = $('copy');
@@ -225,7 +299,7 @@ public sealed class LodestarWebServer
             };
             function fallback(t, done){ const a=document.createElement('textarea'); a.value=t; document.body.appendChild(a); a.select();
               try { document.execCommand('copy'); done(); } catch(e){} a.remove(); }
-            load();
+            tick().then(() => setInterval(tick, every * 1000));
           </script>
         </body>
         </html>

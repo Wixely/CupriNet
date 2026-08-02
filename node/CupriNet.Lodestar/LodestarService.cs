@@ -394,7 +394,7 @@ public sealed class LodestarService : BackgroundService
         var clearnetFace = split ? LinkTransports.ClearnetOnly : LinkTransports.All;
         int? torFacePort = split ? FreeLocalPort() : null;
 
-        var server = new LodestarWebServer(provider, node, _options.Concordium, refresh, clearnetFace, torFacePort, _log);
+        var server = new LodestarWebServer(provider, node, _options.Concordium, refresh, clearnetFace, torFacePort, _log, _options.WebDebug);
 
         if (split && torFacePort is int tfp)
             _ = Task.Run(() => PublishWebOnionAsync(node, server, dataDir, tfp, ct), ct);
