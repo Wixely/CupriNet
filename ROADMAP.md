@@ -36,7 +36,7 @@ The two-layer stack is real, wired end-to-end, and covered by the test suite (**
 - **Lodestar.** Headless keep-the-network-alive node: hot-path identity/peer cache, seed bootstrap, genesis,
   console / Windows Service / systemd / Docker, and an optional HTTP status page (link + QR, auto-refresh,
   clearnet/Tor transport split). See its [README](node/CupriNet.Lodestar/README.md).
-- **CupriChatLite.** Avalonia sample chat app (clearnet + Tor, bootstrap UI).
+- **CupriChatLite.** Barebones chat + file-transfer sample (Avalonia; clearnet + Tor, bootstrap UI) — a demo, not a product.
 
 ## 🔨 Near-term
 

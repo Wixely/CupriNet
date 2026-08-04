@@ -1,6 +1,7 @@
 # CupriChatLite
 
-A small [Avalonia](https://avaloniaui.net/) desktop chat app built on the CupriNet library.
+A barebones chat app and file-transfer **sample** for the CupriNet library — a small [Avalonia](https://avaloniaui.net/)
+desktop demo, nothing more. It exists to show the library working end to end; it is not a finished product.
 
 ## What it does
 

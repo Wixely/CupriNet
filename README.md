@@ -65,7 +65,7 @@ Transport (Vessel)   TCP + length-prefixed framing + stream multiplexing · Nois
 | `src/CupriNet.Marks` | CupriMark version negotiation — the [catalogue](src/CupriNet.Marks/README.md) & floors |
 | `src/CupriNet.Tor` | CupriTor onion transport binding (needs the CupriTor feed) |
 | `node/CupriNet.Lodestar` | headless "keep the network alive" overlay node — see its [README](node/CupriNet.Lodestar/README.md) |
-| `samples/CupriChatLite` | Avalonia sample chat app — see its [README](samples/CupriChatLite/README.md) |
+| `samples/CupriChatLite` | Barebones chat + file-transfer sample (Avalonia) — see its [README](samples/CupriChatLite/README.md) |
 | `tests/CupriNet.UnitTests` | the test suite |
 
 ## Quick start
