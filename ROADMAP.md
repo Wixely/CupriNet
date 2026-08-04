@@ -66,7 +66,7 @@ The two-layer stack is real, wired end-to-end, and covered by the test suite (**
 
 ### Explored ideas (shaping)
 
-Three features we've scoped but not started — captured here so the intent is on record:
+Ideas we've scoped but not started — captured here so the intent is on record:
 
 - **Websites over CupriNet + a browser bridge.** Serve HTTP-style request/response **directly from a node** over
   the Rites layer, viewed through a **browser extension / local gateway** that maps a `cuprinet://…` address to a
@@ -106,6 +106,20 @@ Three features we've scoped but not started — captured here so the intent is o
   squatting-by-fiat. Scope: an optional signed `Moniker` field on the node's record/link + display helpers; the
   `KnownRelays` TOFU store already demonstrates the client-side name↔fingerprint pattern this generalises. (Pairs
   with the websites item: show a site's Moniker, validate by fingerprint.)
+- **Browser-based clients over WebRTC (short-lived clients).** Investigate letting a node run **in a web browser**
+  with no native install, connecting via **WebRTC DataChannels** (the browser's only P2P primitive — ICE/DTLS/SCTP;
+  a browser can't open raw TCP, which our Noise-over-TCP transport assumes). This is a **new transport binding**, not
+  a change to L1/L2: run our **Noise handshake over the DataChannel** as usual, so identity (Sigil), Consecration and
+  the no-relay-of-L2 guarantee are unchanged; the browser's DTLS is just the pipe. WebRTC needs **out-of-band
+  signalling** to set up (SDP/ICE candidate exchange) — a natural new job for a **Lodestar / Ferryman-style
+  rendezvous** (it already brokers hole punches; here it brokers the WebRTC offer/answer). Frame these as
+  **short-lived clients**: a browser tab is ephemeral, so such a node is a **transient participant, not
+  infrastructure** — it likely uses a **throwaway per-session identity**, does **not persist overlay state** or carry
+  routing/relay duty, and leans on always-on nodes for reachability (same posture as the "mobile nodes are unreliable
+  routers" stance, taken further). *Open problems:* a **pure-managed / WASM WebRTC + Noise** story for the C# core (or
+  a thin JS shim at the edge) without pulling in a native stack; and how a short-lived browser identity earns any
+  trust (fingerprint pinning still applies, but there's no long-lived key to pin). Scope for a first cut: a **read/chat
+  client** that joins a channel via a rendezvous and talks to native peers — not a full overlay participant.
 
 ## 💤 Deferred / accepted (not bugs)
 
