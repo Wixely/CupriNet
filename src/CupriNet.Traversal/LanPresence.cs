@@ -2,6 +2,7 @@ using CupriNet.Abstractions;
 using CupriNet.Alembic;
 using CupriNet.Codex;
 using CupriNet.Core;
+using CupriNet.Marks;
 
 namespace CupriNet.Traversal;
 
@@ -88,7 +89,9 @@ public static class LanPresenceSigner
 
         var draft = new LanPresence
         {
-            Version = LanPresenceCodec.CurrentVersion,
+            // Stamp the highest LanPresence version this build supports (per the CupriMark catalogue); a receiver
+            // accepts it via CupriMarks.Accepts, so a future format bump range-negotiates rather than being dropped.
+            Version = checked((byte)CupriMarks.Supported(CupriMarks.LanPresence).Max),
             Network = network,
             SealPublicKey = identity.PublicKey.ToArray(),
             ListenPort = listenPort,

@@ -20,6 +20,9 @@ definitions).
 | `intonation` | signed connection link (`Intonation`) | accept |
 | `channel-descriptor` | owner-signed channel root (`ChannelDescriptor`) | accept |
 | `investiture` | owner-signed membership credential (`Investiture`) | accept |
+| `toll` | pre-handshake anti-DoS cookie exchange (`Toll`) | negotiate |
+| `lan-presence` | signed LAN discovery announcement (`LanPresence`) | accept |
+| `known-peer` | persisted trusted-contact record (`KnownPeer`) | accept |
 
 ## Two patterns
 

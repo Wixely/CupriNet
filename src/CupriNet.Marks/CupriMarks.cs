@@ -30,6 +30,15 @@ public static class CupriMarks
     /// <summary>The Investiture (owner-signed membership credential) document component.</summary>
     public const string Investiture = "investiture";
 
+    /// <summary>The Toll (pre-handshake stateless anti-DoS cookie exchange) protocol component.</summary>
+    public const string Toll = "toll";
+
+    /// <summary>The LanPresence (signed LAN discovery announcement) document component.</summary>
+    public const string LanPresence = "lan-presence";
+
+    /// <summary>The KnownPeer (persisted trusted-contact record) document component.</summary>
+    public const string KnownPeer = "known-peer";
+
     /// <summary>
     /// The single built-in catalogue for the CupriNet protocol suite. Frozen at first access; its
     /// SHA-256 <see cref="Catalogue.Id"/> identifies exactly this set of definitions, so two builds that
@@ -69,6 +78,21 @@ public static class CupriMarks
         new Component(Investiture,
         [
             // v1 — the owner-signed membership credential.
+            new ComponentVersion(1, BumpReason.Functionality, VersionStatus.Active),
+        ]),
+        new Component(Toll,
+        [
+            // v1 — the address-bound HMAC cookie challenge/echo issued before any Noise state is allocated.
+            new ComponentVersion(1, BumpReason.Functionality, VersionStatus.Active),
+        ]),
+        new Component(LanPresence,
+        [
+            // v1 — the signed LAN broadcast advertising identity, network, and listen port.
+            new ComponentVersion(1, BumpReason.Functionality, VersionStatus.Active),
+        ]),
+        new Component(KnownPeer,
+        [
+            // v1 — the persisted trusted-contact record (Sigil, Seal key, cached beacons, last-seen).
             new ComponentVersion(1, BumpReason.Functionality, VersionStatus.Active),
         ]),
     ]);

@@ -1,5 +1,6 @@
 using CupriNet.Abstractions;
 using CupriNet.Codex;
+using CupriNet.Marks;
 
 namespace CupriNet.Core;
 
@@ -20,8 +21,6 @@ public sealed record KnownPeer
 /// <summary>Canonical serialization for <see cref="KnownPeer"/>.</summary>
 public static class KnownPeerCodec
 {
-    private const byte Version = 1;
-
     /// <summary>Maximum beacons cached per known peer.</summary>
     public const int MaxBeacons = 16;
 
@@ -29,7 +28,9 @@ public static class KnownPeerCodec
     {
         ArgumentNullException.ThrowIfNull(peer);
         var w = new CodexWriter();
-        w.WriteByte(Version);
+        // Stamp the highest KnownPeer version this build supports (per the CupriMark catalogue); a reader accepts
+        // it via CupriMarks.Accepts, so a future format bump range-negotiates instead of hard-failing on equality.
+        w.WriteByte(checked((byte)CupriMarks.Supported(CupriMarks.KnownPeer).Max));
         w.WriteBytes(peer.SealPublicKey);
         BeaconCodec.Write(w, peer.Beacons, MaxBeacons);
         w.WriteUInt64((ulong)peer.LastSeenUnix);
@@ -39,8 +40,9 @@ public static class KnownPeerCodec
     public static KnownPeer Decode(ReadOnlySpan<byte> data)
     {
         var r = new CodexReader(data);
-        if (r.ReadByte() != Version)
-            throw new CodexFormatException("Unsupported KnownPeer version.");
+        var version = r.ReadByte();
+        if (!CupriMarks.Accepts(CupriMarks.KnownPeer, version))
+            throw new CodexFormatException($"Unsupported KnownPeer version {version}.");
         var sealKey = r.ReadBytes().ToArray();
         if (sealKey.Length is 0 or > 64)
             throw new CodexFormatException("Invalid Seal public key length.");

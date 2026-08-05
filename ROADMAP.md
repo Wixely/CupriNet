@@ -40,7 +40,9 @@ The two-layer stack is real, wired end-to-end, and covered by the test suite (**
 
 ## 🔨 Near-term
 
-- **Finish CupriMark coverage** of the remaining low-value version points: `Toll`, `LanPresence`, `KnownPeer`.
+- ~~**Finish CupriMark coverage** of the remaining low-value version points: `Toll`, `LanPresence`, `KnownPeer`.~~
+  **Done** — all three now range-negotiate/accept through the catalogue (`toll` negotiates; `lan-presence` and
+  `known-peer` accept), so every versioned wire component is CupriMark-covered.
 - **Live-verify Tor on Lodestar** — confirm the overlay `.onion` and the status-page `.onion` both publish
   (two onion services on one Tor client) on a real network, end to end.
 - **Decouple the core build from the private feed, or accept it explicitly.** CupriMark is now a *core*

@@ -90,6 +90,20 @@ public class CupriMarksTests
     }
 
     [Fact]
+    public void LowValueComponents_AcceptV1_RejectUnknown()
+    {
+        // The remaining "low-value" version points now routed through CupriMark (Toll, LanPresence, KnownPeer).
+        foreach (var component in new[] { CupriMarks.Toll, CupriMarks.LanPresence, CupriMarks.KnownPeer })
+        {
+            Assert.NotNull(CupriMarks.Catalogue.Component(component));
+            Assert.Equal(1, (int)CupriMarks.Supported(component).Max);
+            Assert.True(CupriMarks.Accepts(component, 1));
+            Assert.False(CupriMarks.Accepts(component, 2));  // too new — not in our catalogue
+            Assert.False(CupriMarks.Accepts(component, 0));  // not a real version
+        }
+    }
+
+    [Fact]
     public void UnknownComponent_Throws()
     {
         Assert.Throws<ArgumentException>(() => CupriMarks.Supported("not-a-component"));

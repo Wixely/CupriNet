@@ -42,6 +42,16 @@ public class TrustedPeerTests
     }
 
     [Fact]
+    public void KnownPeer_Decode_RejectsUnsupportedVersion()
+    {
+        // The version byte is now gated through the CupriMark catalogue: a record stamped with a version this
+        // build doesn't speak is refused rather than silently mis-parsed.
+        var doc = KnownPeerCodec.Encode(Peer(3, new Beacon(EndpointKind.Host, "10.0.0.9", 1)));
+        doc[0] = 0x63; // 99 — not in our catalogue
+        Assert.Throws<CupriNet.Codex.CodexFormatException>(() => KnownPeerCodec.Decode(doc));
+    }
+
+    [Fact]
     public async Task KindredBook_Remembers_Lists_Forgets_AndPersists()
     {
         var store = new InMemorySecretStore();

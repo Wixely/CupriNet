@@ -4,6 +4,7 @@ using CupriNet.Abstractions;
 using CupriNet.Alembic;
 using CupriNet.Codex;
 using CupriNet.Core;
+using CupriNet.Marks;
 
 namespace CupriNet.Traversal;
 
@@ -74,8 +75,8 @@ public sealed class LanDiscovery : IDisposable
                 continue; // malformed datagram
             }
 
-            if (presence.Version != LanPresenceCodec.CurrentVersion)
-                continue;
+            if (!CupriMarks.Accepts(CupriMarks.LanPresence, presence.Version))
+                continue; // a version this build can't speak (too new / superseded) — ignore, don't crash the loop
             if (presence.Network != _network)
                 continue;
             if (presence.SealPublicKey.Length == 0 || !LanPresenceSigner.Verify(presence, _suite))

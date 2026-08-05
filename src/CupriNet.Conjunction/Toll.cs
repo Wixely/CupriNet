@@ -1,7 +1,9 @@
 using System.Buffers.Binary;
 using System.Net;
 using System.Security.Cryptography;
+using CupriMark;
 using CupriNet.Codex;
+using CupriNet.Marks;
 using CupriNet.Vessel;
 
 namespace CupriNet.Conjunction;
@@ -17,7 +19,6 @@ namespace CupriNet.Conjunction;
 public static class Toll
 {
     private const ushort TollStream = 0;
-    private const byte Version = 1;
 
     /// <summary>The size in bytes of a node's Toll secret.</summary>
     public const int SecretSize = 32;
@@ -41,15 +42,20 @@ public static class Toll
         var address = AddressBytes(clientAddress);
         var issuedAt = now.ToUnixTimeSeconds();
 
+        // Advertise the Toll version range this build speaks; the initiator range-negotiates against its own
+        // catalogue and echoes the agreed ordinal — so a future Toll bump degrades gracefully instead of hard-failing.
+        var mine = CupriMarks.Supported(CupriMarks.Toll);
         var challenge = new CodexWriter();
-        challenge.WriteByte(Version);
+        challenge.WriteVarUInt(mine.Min);
+        challenge.WriteVarUInt(mine.Max);
         challenge.WriteUInt64((ulong)issuedAt);
         challenge.WriteBytes(Compute(secret.Span, address, issuedAt));
         await vessel.SendAsync(TollStream, challenge.ToArray(), cancellationToken).ConfigureAwait(false);
 
         var echo = await ReceiveAsync(vessel, cancellationToken).ConfigureAwait(false);
         var r = new CodexReader(echo);
-        if (r.ReadByte() != Version)
+        var agreed = r.ReadVarUInt();
+        if (agreed > ushort.MaxValue || !CupriMarks.Accepts(CupriMarks.Toll, (int)agreed))
             throw new NoiseConjunctionException("Unsupported Toll version.");
         var echoedAt = (long)r.ReadUInt64();
         var echoedCookie = r.ReadBytes();
@@ -66,13 +72,19 @@ public static class Toll
     {
         var challenge = await ReceiveAsync(vessel, cancellationToken).ConfigureAwait(false);
         var r = new CodexReader(challenge);
-        if (r.ReadByte() != Version)
-            throw new NoiseConjunctionException("Unsupported Toll version.");
+        var peerMin = r.ReadVarUInt();
+        var peerMax = r.ReadVarUInt();
+        if (peerMin > ushort.MaxValue || peerMax > ushort.MaxValue)
+            throw new NoiseConjunctionException("Peer advertised an out-of-range Toll version.");
+        var negotiation = CupriMarks.Negotiate(CupriMarks.Toll, OrdinalRange.Create((ushort)peerMin, (ushort)peerMax));
+        if (!negotiation.Accepted)
+            throw new NoiseConjunctionException(
+                $"Toll version negotiation failed ({negotiation.Reason}); peer offered [{peerMin}..{peerMax}], our floor is {negotiation.EffectiveFloor}.");
         var issuedAt = (long)r.ReadUInt64();
         var cookie = r.ReadBytes().ToArray();
 
         var echo = new CodexWriter();
-        echo.WriteByte(Version);
+        echo.WriteVarUInt(negotiation.SelectedOrdinal);
         echo.WriteUInt64((ulong)issuedAt);
         echo.WriteBytes(cookie);
         await vessel.SendAsync(TollStream, echo.ToArray(), cancellationToken).ConfigureAwait(false);
