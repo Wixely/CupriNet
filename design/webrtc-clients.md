@@ -182,9 +182,16 @@ everyone else is unaffected.
    trailing-field pattern as `Moniker`, versioned via the CupriMark `webrtc-endpoint` component. Host address(es)
    reuse the link's existing beacons. Codec + options + mint wired; unit-tested. *(Still to spec: the exact
    static-SDP mapping the browser/node build from these fields — lands with phase 2/3.)*
-2. **Node ICE-lite WebRTC listener** (SIPSorcery) — accept a blind DataChannel and hand it to
-   `ConjoinOverVesselAsync` as an `IVessel`, so pairing works with **zero changes** above the transport. Prove it
-   against a native test client first, then a real browser.
+2. **DataChannel → `IVessel` adapter** ✅ *(done)* — `IDataChannel` (a reliable, ordered, message duplex) +
+   `DataChannelVessel` (frames `[varuint streamId][payload]` per message; no length prefix — the channel keeps
+   boundaries). **Proven:** a full mutually-authenticated Noise Conjunction completes over a pair of
+   `DataChannelVessel`s in the tests, so the Toll / Consecration / Rites run over WebRTC unchanged. A WebRTC stack
+   only has to implement `IDataChannel`.
+2b. **Node ICE-lite WebRTC listener** *(next; needs a WebRTC stack — dependency decision pending)* — a SIPSorcery
+   `IDataChannel` binding + an ICE-lite/fixed-creds/accept-any-cert listener that fills the Intonation's
+   `WebRtcEndpoint` from a real cert and hands the accepted DataChannel to `ConjoinOverVesselAsync`. Prove it against
+   a native SIPSorcery client first, then a real browser. **Open:** whether to add SIPSorcery (weigh vs. the
+   100%-managed goal; likely scope it to Lodestar-only / an opt-in package).
 3. **Browser client (Blazor WASM)** — read the Intonation, preload the remote description, open the DataChannel, run
    Noise + Consecration, join an open channel and exchange Epistles with the node.
 4. **Toll-over-DataChannel + DTLS-cookie DoS hardening**, then the **relayed-signalling extension** for reaching
