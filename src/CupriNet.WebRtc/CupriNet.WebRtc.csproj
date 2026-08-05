@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Optional WebRTC transport: a concrete IWebRtcTransport backed by the CupriWebRTC package, so browser DataChannel
+    clients can pair with a node. Kept a SEPARATE project (and intentionally NOT in CupriNet.slnx) so the core stays
+    dependency-free of a WebRTC stack and the main build/CI needs no package feed or token.
+
+    The binding is compile-verified against CupriWebRTC 0.1.0. To build THIS project you need the Wixely GitHub Packages
+    feed (see /nuget.config) + a read:packages token. Anyone who wants WebRTC references this project; everyone else
+    ignores it.
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>true</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\CupriNet.Hosting\CupriNet.Hosting.csproj" />
+    <ProjectReference Include="..\CupriNet.Vessel\CupriNet.Vessel.csproj" />
+    <ProjectReference Include="..\CupriNet.Core\CupriNet.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="CupriWebRTC" Version="0.1.0" />
+  </ItemGroup>
+
+</Project>

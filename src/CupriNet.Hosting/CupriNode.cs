@@ -120,6 +120,7 @@ public sealed partial class CupriNode : IAsyncDisposable
         node.StartLanDiscovery();
         node.StartPortMapping();
         node.StartTor();
+        node.StartWebRtc();
         node.StartAcceptDispatch();
         return node;
     }
@@ -169,7 +170,7 @@ public sealed partial class CupriNode : IAsyncDisposable
             Lifetime = lifetime,
             Petition = petition,
             Moniker = _options.Moniker,
-            WebRtc = _options.WebRtc,
+            WebRtc = WebRtcEndpointToAdvertise,
         }, now);
     }
 
@@ -750,6 +751,7 @@ public sealed partial class CupriNode : IAsyncDisposable
             await pending.DisposeAsync().ConfigureAwait(false);
         DisposeLan();
         await DisposeTorAsync().ConfigureAwait(false);
+        await DisposeWebRtcAsync().ConfigureAwait(false);
         await DisposeOverlayAsync().ConfigureAwait(false);
         await _listener.DisposeAsync().ConfigureAwait(false);
         _handshakeSlots.Dispose();

@@ -51,8 +51,18 @@ public sealed record CupriNodeOptions
     /// Optional static <see cref="WebRtcEndpoint"/> to publish in this node's link, so a browser can open a WebRTC
     /// DataChannel to it with no signalling server (the signed link is the signalling). Normally populated by the
     /// node's WebRTC listener; carrying it here just gets it stamped into the Intonation. See design/webrtc-clients.md.
+    /// When a live <see cref="WebRtcTransport"/> is supplied its parameters take precedence over this static value.
     /// </summary>
     public WebRtcEndpoint? WebRtc { get; init; }
+
+    /// <summary>
+    /// Optional WebRTC transport: a concrete <see cref="IWebRtcTransport"/> (e.g. one backed by the CupriWebRTC
+    /// package) that lets browser DataChannel clients pair with this node. When set, the node advertises the
+    /// transport's <see cref="IWebRtcTransport.Parameters"/> in every Intonation and surfaces inbound browser peers
+    /// through the normal <see cref="CupriNode.AcceptAsync"/> queue. Kept an interface so the core never references a
+    /// WebRTC library directly. See design/webrtc-clients.md.
+    /// </summary>
+    public IWebRtcTransport? WebRtcTransport { get; init; }
 
     /// <summary>
     /// Subnets this node is allowed to connect to and accept from — CIDR (<c>10.0.0.0/8</c>), a dotted netmask

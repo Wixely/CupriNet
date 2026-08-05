@@ -78,11 +78,14 @@ jobs:
           else
             echo "version=0.1.0-ci.${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
           fi
-      - name: Pack core packages (skips CupriNet.Tor, which needs the CupriTor feed)
+      - name: Pack core packages (skips the optional binding projects that need a feed-only package)
         shell: bash
         run: |
           for proj in src/*/*.csproj; do
-            case "$proj" in */CupriNet.Tor.csproj) echo "skipping $proj (needs CupriTor feed)"; continue;; esac
+            case "$proj" in
+              */CupriNet.Tor.csproj)    echo "skipping $proj (needs the CupriTor package)"; continue;;
+              */CupriNet.WebRtc.csproj) echo "skipping $proj (needs the CupriWebRTC package)"; continue;;
+            esac
             dotnet pack "$proj" -c Release -p:Version=${{ steps.ver.outputs.version }} -o artifacts/nuget
           done
       - name: Push packages to the Wixely GitHub Packages feed (on a v* tag)
