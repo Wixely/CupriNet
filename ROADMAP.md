@@ -108,7 +108,8 @@ Ideas we've scoped but not started — captured here so the intent is on record:
   squatting-by-fiat. Scope: an optional signed `Moniker` field on the node's record/link + display helpers; the
   `KnownRelays` TOFU store already demonstrates the client-side name↔fingerprint pattern this generalises. (Pairs
   with the websites item: show a site's Moniker, validate by fingerprint.)
-- **Browser-based clients over WebRTC (short-lived clients).** Investigate letting a node run **in a web browser**
+- **Browser-based clients over WebRTC (short-lived clients).** Full design: [design/webrtc-clients.md](design/webrtc-clients.md).
+  Investigate letting a node run **in a web browser**
   with no native install, connecting via **WebRTC DataChannels** (the browser's only P2P primitive — ICE/DTLS/SCTP;
   a browser can't open raw TCP, which our Noise-over-TCP transport assumes). This is a **new transport binding**, not
   a change to L1/L2: run our **Noise handshake over the DataChannel** as usual, so identity (Sigil), Consecration and
