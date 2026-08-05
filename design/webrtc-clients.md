@@ -124,6 +124,23 @@ exactly a **Lodestar** (and any node with a public IP / port-forward). It does *
 For the primary browser use — **"open the app, connect to an always-on node, join a channel"** — the Intonation is
 enough, with zero signalling infrastructure.
 
+### Falling back to a Lodestar for signalling is a consented, explained step
+
+When the direct path fails and we do fall back to using a Lodestar to **relay signalling** to a NAT'd peer, the app
+**must confirm with the user and explain why it matters — before using the relay** — exactly as CupriChatLite already
+does for the Ferryman. This is the **same trust-and-metadata decision**:
+
+- **Why it matters (what the user is consenting to):** the relay is a **third party** you're now leaning on. It never
+  sees channel content (signalling only — SDP/ICE, then it drops out), but it **does learn metadata**: that you are
+  trying to reach that peer, the timing, and both parties' candidate addresses. It's also a **trust choice** about
+  which relay to use.
+- **How to gate it (reuse what exists):** surface the relay's **bech32 fingerprint** and apply the **`KnownRelays`
+  TOFU** flow (New / Known / changed-key) via the `RelayApprovalRequested` confirm-and-explain dialog CupriChatLite
+  already implements for the Ferryman; remember approved relays, warn on a changed key. Do **not** silently route a
+  browser client through a relay it hasn't approved.
+- **Direct-or-ask, never silent:** the reachable-node path above needs no relay and no prompt. Only the NAT'd-peer
+  fallback introduces a relay, and that is precisely where the app pauses to ask. (See [ferryman.md](ferryman.md).)
+
 ## Client implementation options
 
 | Option | What | Trade |
@@ -168,7 +185,9 @@ everyone else is unaffected.
 3. **Browser client (Blazor WASM)** — read the Intonation, preload the remote description, open the DataChannel, run
    Noise + Consecration, join an open channel and exchange Epistles with the node.
 4. **Toll-over-DataChannel + DTLS-cookie DoS hardening**, then the **relayed-signalling extension** for reaching
-   peers *behind* the node (the one case that still needs a live channel).
+   peers *behind* the node (the one case that still needs a live channel) — **consent-gated**: reuse the Ferryman's
+   `RelayApprovalRequested` confirm-and-explain + `KnownRelays` TOFU so the app asks before routing a client through a
+   Lodestar relay and explains the metadata trade.
 
 The elegant part: for the reachable-node case there is **no signalling server at all** — the signed Intonation *is*
 the signalling, and above the DataChannel it's just another `IVessel`.
