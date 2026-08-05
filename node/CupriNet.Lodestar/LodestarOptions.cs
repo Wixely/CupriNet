@@ -139,7 +139,7 @@ public sealed class LodestarOptions
     /// this node's link, so a browser can open a DataChannel to the node with no signalling server and reach the
     /// overlay through it. Clearnet only — ignored in onion-only mode (there is no clearnet path). Off by default.
     /// The advertised host is this node's beacon address, so for off-box reach the UDP <see cref="WebRtcPort"/> must
-    /// be reachable there too (forward it like the TCP port). Currently one browser at a time (library limitation).
+    /// be reachable there too (forward it like the TCP port). Many browsers are served on the one UDP socket.
     /// </summary>
     public bool EnableWebRtc { get; set; }
 
