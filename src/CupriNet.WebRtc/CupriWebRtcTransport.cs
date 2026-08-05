@@ -24,11 +24,12 @@ public sealed class CupriWebRtcTransport : IWebRtcTransport
 
     /// <summary>Binds a WebRTC listener on <paramref name="bind"/> (use port 0 to let the OS choose). ICE credentials
     /// are generated fresh; an Intonation is a short-lived snapshot, so stable creds across restarts aren't needed.
-    /// <paramref name="maxSessions"/> caps concurrent browser peers (a Ward against a public endpoint being swamped).</summary>
-    public CupriWebRtcTransport(IPEndPoint bind, int maxSessions = WebRtcListener.DefaultMaxSessions)
+    /// <paramref name="maxSessions"/> caps concurrent browser peers (a Ward against a public endpoint being swamped);
+    /// <paramref name="sessionIdleTimeout"/> evicts a peer that has gone silent (null = the library default).</summary>
+    public CupriWebRtcTransport(IPEndPoint bind, int maxSessions = WebRtcListener.DefaultMaxSessions, TimeSpan? sessionIdleTimeout = null)
     {
         ArgumentNullException.ThrowIfNull(bind);
-        _listener = new WebRtcListener(bind, IceCredentials.Generate(), maxSessions: maxSessions);
+        _listener = new WebRtcListener(bind, IceCredentials.Generate(), maxSessions: maxSessions, sessionIdleTimeout: sessionIdleTimeout);
         _listener.ChannelOpened += OnChannelOpened;
     }
 
