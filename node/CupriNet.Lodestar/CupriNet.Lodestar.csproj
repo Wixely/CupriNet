@@ -29,6 +29,9 @@
     <!-- Optional Tor transport (managed CupriTor, from the Wixely feed). A Lodestar can run onion-only,
          keeping the network alive anonymously; enabled at runtime with EnableTor. -->
     <ProjectReference Include="..\..\src\CupriNet.Tor\CupriNet.Tor.csproj" />
+    <!-- Optional WebRTC transport (managed CupriWebRTC, from the Wixely feed): lets browser DataChannel clients
+         reach the overlay through this node. Clearnet only; enabled at runtime with EnableWebRtc. -->
+    <ProjectReference Include="..\..\src\CupriNet.WebRtc\CupriNet.WebRtc.csproj" />
   </ItemGroup>
 
   <ItemGroup>

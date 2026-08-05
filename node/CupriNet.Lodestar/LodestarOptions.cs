@@ -134,6 +134,19 @@ public sealed class LodestarOptions
     /// </summary>
     public bool EnableFerryman { get; set; } = true;
 
+    /// <summary>
+    /// Accept browser WebRTC DataChannel clients: bind a UDP endpoint (ICE-lite / DTLS / SCTP) and advertise it in
+    /// this node's link, so a browser can open a DataChannel to the node with no signalling server and reach the
+    /// overlay through it. Clearnet only — ignored in onion-only mode (there is no clearnet path). Off by default.
+    /// The advertised host is this node's beacon address, so for off-box reach the UDP <see cref="WebRtcPort"/> must
+    /// be reachable there too (forward it like the TCP port). Currently one browser at a time (library limitation).
+    /// </summary>
+    public bool EnableWebRtc { get; set; }
+
+    /// <summary>UDP port for the WebRTC endpoint. Defaults to <see cref="ListenPort"/> (UDP, distinct from the TCP
+    /// listener on the same number). Set a stable, reachable port for a public node. 0 = an OS-assigned ephemeral port.</summary>
+    public int? WebRtcPort { get; set; }
+
     /// <summary>Ask the home gateway (NAT-PMP) to forward the listen port. Off by default — servers usually have a public IP.</summary>
     public bool EnablePortMapping { get; set; }
 

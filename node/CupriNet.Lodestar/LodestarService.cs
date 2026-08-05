@@ -6,6 +6,7 @@ using CupriNet.Core;
 using CupriNet.Hosting;
 using CupriNet.Persistence;
 using CupriNet.Tor;
+using CupriNet.WebRtc;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -28,6 +29,9 @@ public sealed class LodestarService : BackgroundService
 
     // The concrete onion transport (when Tor is enabled), kept so the status page can be published as its own onion.
     private CupriTorOnionTransport? _onion;
+
+    // The concrete WebRTC transport (when EnableWebRtc), kept so its bound endpoint can be logged after startup.
+    private CupriWebRtcTransport? _webRtc;
 
     public LodestarService(
         IOptions<LodestarOptions> options,
@@ -123,6 +127,21 @@ public sealed class LodestarService : BackgroundService
         }
         _onion = onion; // kept so WebLoopAsync can publish the status page as its own onion
 
+        // Optional WebRTC entry point for browsers. Clearnet UDP, so skipped in onion-only mode. The node advertises
+        // its parameters in every link and surfaces inbound browser peers through the normal accept path.
+        CupriWebRtcTransport? webRtc = null;
+        if (_options.EnableWebRtc && !onionOnly)
+        {
+            var webRtcPort = _options.WebRtcPort ?? _options.ListenPort;
+            webRtc = new CupriWebRtcTransport(new IPEndPoint(ParseAddress(_options.ListenAddress), webRtcPort));
+            _log.LogInformation("WebRTC endpoint enabled: browsers can open a DataChannel on UDP :{Port}.", webRtc.LocalEndPoint.Port);
+        }
+        else if (_options.EnableWebRtc && onionOnly)
+        {
+            _log.LogInformation("WebRTC is ignored in onion-only mode (it is a clearnet UDP transport).");
+        }
+        _webRtc = webRtc;
+
         // Clearnet reachability is dropped only in onion-only mode; dual-stack advertises it alongside the onion.
         var advertised = onionOnly ? null : BuildAdvertisedBeacons();
 
@@ -136,6 +155,8 @@ public sealed class LodestarService : BackgroundService
             AdvertisedBeacons = advertised,
             Moniker = _options.Moniker,   // self-asserted display name, carried unverified in link + peer record
             OnionTransport = onion,
+            WebRtcTransport = webRtc,     // optional browser entry point; advertises its params in the link
+
             // Standard + an OnionTransport = dual-stack (clearnet AND onion); TorOnly enforces onion-only.
             Mode = onionOnly ? ReachabilityMode.TorOnly : ReachabilityMode.Standard,
             PersistOverlay = true,               // warm start: reload known peers' keys from the hot path
