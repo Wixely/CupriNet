@@ -8,7 +8,7 @@ Legend: ✅ done & tested · 🔨 in progress / near-term · 🧭 planned · �
 
 ## ✅ Done — the working core
 
-The two-layer stack is real, wired end-to-end, and covered by the test suite (**326** unit tests green).
+The two-layer stack is real, wired end-to-end, and covered by the test suite (**369** unit tests green).
 
 - **Transport (Vessel).** Managed TCP with length-prefixed framing and logical stream multiplexing; a
   reliable-UDP transport for NAT paths. No native deps, no OS TLS, no QUIC.
@@ -22,6 +22,22 @@ The two-layer stack is real, wired end-to-end, and covered by the test suite (**
 - **Rites.** Message (Epistle) + reliable retry (Vigil), generic data (Conduit), chunked/hash-verified
   file transfer (Reliquary).
 - **Traversal.** LAN discovery, NAT-PMP auto port-mapping, mutual-link UDP hole punching.
+- **Ferryman relay.** Opt-in public relay that brokers a hole punch between two NAT'd peers (signaling only) and
+  drops out — it **never carries L2 content** (punch succeeds → direct session; punch fails → Tor, never TURN). The
+  requester reaches the relay with a throwaway identity (the relay never learns its Sigil), an anti-squat signed
+  reservation binds a handle to its key, and the app gates the relay with **SSH-style TOFU** (name + bech32
+  fingerprint, remembered in a `known_relays` file). A natural role for a public Lodestar (`EnableFerryman`, on by
+  default). Full design: [design/ferryman.md](design/ferryman.md).
+- **Browser clients (WebRTC).** A node accepts browser **DataChannel** peers with **no signalling server** — it
+  publishes its static WebRTC params (ICE-lite ufrag/pwd, DTLS fingerprint, port) in the signed **Intonation**, and a
+  browser dials them directly; Noise + Consecration then run over the DataChannel unchanged. The managed ICE/DTLS/SCTP
+  stack is [CupriWebRTC](https://github.com/Wixely/CupriWebRTC) (multi-client on one UDP socket, NAT-rebinding
+  migration, idle eviction), consumed through the `CupriNet.WebRtc` binding behind the `IWebRtcTransport` seam — any
+  node can opt in via `CupriNodeOptions.WebRtcTransport`; **Lodestar turns it on by default**. See
+  [design/webrtc-clients.md](design/webrtc-clients.md).
+- **Monikers.** Optional self-asserted node label (a human-readable name a node claims for itself, carried
+  **unverified** in its signed link + peer record with length/content Wards); trust always rests on the fingerprint,
+  never the name — validating a Moniker is the consuming client's job (fingerprint pinning, allow-list, side channel).
 - **Crypto (Alembic).** Swappable seam over BouncyCastle (Ed25519 / X25519 / ChaCha20-Poly1305 / Argon2id
   / HKDF / SHA-2); a gated insecure dev suite (Simulacrum) for parity testing.
 - **Privacy / cover.** Private-address stripping from links & gossip, overlay gossip fuzzing, hot fuzz,
@@ -34,8 +50,9 @@ The two-layer stack is real, wired end-to-end, and covered by the test suite (**
   [`src/CupriNet.Marks`](src/CupriNet.Marks/README.md).
 - **Persistence.** Encrypted local store; warm-start peer cache; OS-appropriate file permissions.
 - **Lodestar.** Headless keep-the-network-alive node: hot-path identity/peer cache, seed bootstrap, genesis,
-  console / Windows Service / systemd / Docker, and an optional HTTP status page (link + QR, auto-refresh,
-  clearnet/Tor transport split). See its [README](node/CupriNet.Lodestar/README.md).
+  console / Windows Service / systemd / Docker, an optional HTTP status page (link + QR, auto-refresh, clearnet/Tor
+  transport split), and a **browser WebRTC entry point on by default** (docker-configurable). See its
+  [README](node/CupriNet.Lodestar/README.md).
 - **CupriChatLite.** Barebones chat + file-transfer sample (Avalonia; clearnet + Tor, bootstrap UI) — a demo, not a product.
 
 ## 🔨 Near-term
@@ -45,22 +62,18 @@ The two-layer stack is real, wired end-to-end, and covered by the test suite (**
   `known-peer` accept), so every versioned wire component is CupriMark-covered.
 - **Live-verify Tor on Lodestar** — confirm the overlay `.onion` and the status-page `.onion` both publish
   (two onion services on one Tor client) on a real network, end to end.
-- **Decouple the core build from the private feed, or accept it explicitly.** CupriMark is now a *core*
-  dependency from the Wixely GitHub Packages feed, so the whole build (and CI) needs `read:packages`
-  (`PACKAGES_TOKEN`). Options: publish CupriMark to nuget.org, or document the token as required. (Tracked;
+- **Browser example (hosted webpage).** The server side is done; what's missing is a **hosted web page** that dials
+  a node's published WebRTC params (no signalling) — the "validate against a real Chromium" milestone. Deferred until
+  the hosting piece is in place; must ship as a hosted page, not a local static file.
+- **Decouple the core build from the private feed, or accept it explicitly.** CupriMark (and now CupriWebRTC via the
+  optional `CupriNet.WebRtc` binding) come from the Wixely GitHub Packages feed, so the build (and CI) needs
+  `read:packages` (`PACKAGES_TOKEN`). Options: publish to nuget.org, or document the token as required. (Tracked;
   today CI authenticates the feed.)
 - **UPnP / PCP** port mapping alongside the existing NAT-PMP.
 - **Docs/API sweep** — keep READMEs and the public `CupriNode` surface in step as things move.
 
 ## 🧭 Planned — larger pieces
 
-- **Ferryman relay** — an **opt-in public relay** that brokers a direct connection between two NAT'd peers by
-  **coordinating a hole punch** (signaling only) and then dropping out — it **never carries L2 content** (punch
-  succeeds → direct session; punch fails → fall back to Tor, never TURN). The relay can't break end-to-end
-  security (it only sees metadata + IPs), so the app gates it with **SSH-style TOFU trust** (show the relay's
-  name + bech32 fingerprint, remember approved relays to a `known_relays` file, warn on a changed key). Same
-  pattern as libp2p circuit-relay-v2 + DCUtR; a natural role for a public **Lodestar**. Full design:
-  [design/ferryman.md](design/ferryman.md).
 - **Simulation & fuzzing at scale** — a virtual-node harness (hundreds–thousands) for poisoning / partition
   / eclipse / Sybil scenarios, and decoder fuzzing across every frame and document parser.
 - **IPv6 direct** paths and pluggable rendezvous.
@@ -82,8 +95,8 @@ Ideas we've scoped but not started — captured here so the intent is on record:
   **Live self-hosted** for the first cut (reachable only while the host is online; nothing stored in the overlay).
   *Open problem:* resolving a **stable short URL to a moving host** without a global DHT — v1 embeds reachability
   in a signed link, or host the site as a **Tor onion** so the `.onion` is itself the stable self-auth URL.
-  Addressable by link now, by a verifiable node **name** later (below); persistent/distributed hosting is *out of
-  scope* for the first cut.
+  Addressable by link now, by a verifiable node **name** later (Monikers — now built, see ✅ Done); persistent/
+  distributed hosting is *out of scope* for the first cut.
 - **L3 — optional in-channel end-to-end encryption (recipient-anonymous sealed messages).** A *third* encryption
   layer **inside** an Arcanum channel: a member **seals** a payload to specific recipients' **portable public
   keys** and posts the **ciphertext** into the channel, so the channel — and every other member, even an untrusted
@@ -97,32 +110,11 @@ Ideas we've scoped but not started — captured here so the intent is on record:
   long-term-key sealing means **no forward secrecy** (a later key leak reveals past L3 messages); real FS would need
   a session/ratchet (MLS/Signal) that conflicts with the self-contained-blob-using-existing-keys model — an accepted
   trade for this use.
-- **Monikers — self-asserted node labels (L1).** Let a node advertise a **Moniker**: a human-readable name it
-  claims for itself (e.g. "Community Relay"), so popular/infrastructure nodes are recognisable. **The protocol carries
-  the Moniker unverified** — it is a display hint, never a truth claim — and **validating it is the consuming
-  client's job**, however that client chooses: match the node's fingerprint against one it already trusts (a Sigil
-  pinned earlier, a side channel like the entity's own website, an allow-list, or a later domain/social proof).
-  Trust always rests on the **fingerprint, not the name**: a node's **Sigil is the hash of its key**, the handshake
-  already **pins an expected Sigil**, and fingerprints render as **bech32** (branded prefix + checksum). Monikers
-  are **self-asserted labels, not a global namespace** — no registry, no verification baked into the core, no
-  squatting-by-fiat. Scope: an optional signed `Moniker` field on the node's record/link + display helpers; the
-  `KnownRelays` TOFU store already demonstrates the client-side name↔fingerprint pattern this generalises. (Pairs
-  with the websites item: show a site's Moniker, validate by fingerprint.)
-- **Browser-based clients over WebRTC (short-lived clients).** Full design: [design/webrtc-clients.md](design/webrtc-clients.md).
-  Investigate letting a node run **in a web browser**
-  with no native install, connecting via **WebRTC DataChannels** (the browser's only P2P primitive — ICE/DTLS/SCTP;
-  a browser can't open raw TCP, which our Noise-over-TCP transport assumes). This is a **new transport binding**, not
-  a change to L1/L2: run our **Noise handshake over the DataChannel** as usual, so identity (Sigil), Consecration and
-  the no-relay-of-L2 guarantee are unchanged; the browser's DTLS is just the pipe. WebRTC needs **out-of-band
-  signalling** to set up (SDP/ICE candidate exchange) — a natural new job for a **Lodestar / Ferryman-style
-  rendezvous** (it already brokers hole punches; here it brokers the WebRTC offer/answer). Frame these as
-  **short-lived clients**: a browser tab is ephemeral, so such a node is a **transient participant, not
-  infrastructure** — it likely uses a **throwaway per-session identity**, does **not persist overlay state** or carry
-  routing/relay duty, and leans on always-on nodes for reachability (same posture as the "mobile nodes are unreliable
-  routers" stance, taken further). *Open problems:* a **pure-managed / WASM WebRTC + Noise** story for the C# core (or
-  a thin JS shim at the edge) without pulling in a native stack; and how a short-lived browser identity earns any
-  trust (fingerprint pinning still applies, but there's no long-lived key to pin). Scope for a first cut: a **read/chat
-  client** that joins a channel via a rendezvous and talks to native peers — not a full overlay participant.
+
+*(Built since this list was first written and moved up to ✅ Done: **Monikers** — self-asserted node labels; and the
+**browser-clients-over-WebRTC** transport — realised as Intonation-as-signalling rather than the rendezvous-brokered
+SDP exchange originally sketched here, so no signalling server is involved at all. The remaining browser piece is the
+hosted example page, tracked under 🔨 Near-term.)*
 
 ## 💤 Deferred / accepted (not bugs)
 
