@@ -14,6 +14,11 @@ peer-to-peer primitive is **WebRTC** (`RTCPeerConnection` + DataChannel). We add
 a change to L1/L2. Browser clients are framed as **short-lived clients**: an ephemeral tab is a transient
 participant, not infrastructure.
 
+**This is a general node capability, not a Lodestar feature.** Any reachable CupriNet node can accept browser clients
+by supplying `CupriNodeOptions.WebRtcTransport` (the concrete `CupriNet.WebRtc` binding, backed by the CupriWebRTC
+package) — an app running its own node just sets that option. A **Lodestar turns it on by default** because a
+keep-alive node is the natural browser entry point, but the mechanism below is identical for any node.
+
 ## The problem WebRTC always has — and how the Intonation dissolves it
 
 WebRTC won't send a byte until it has the remote peer's **session description** — the remote's ICE credentials
@@ -34,7 +39,7 @@ Everything the browser needs to open a DataChannel to the node is now in the lin
 ## Connection sequence (no signalling server)
 
 ```
-browser (client)                                            target node (Lodestar)
+browser (client)                                            target node (any node; e.g. a Lodestar)
    reads the Intonation (already has the node's WebRTC params)
    RTCPeerConnection: createOffer → setLocalDescription
    setRemoteDescription( node's params from the Intonation )   ← no round-trip

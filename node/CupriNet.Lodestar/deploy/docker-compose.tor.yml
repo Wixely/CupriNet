@@ -19,8 +19,9 @@ services:
     container_name: cuprinet-lodestar-tor
     restart: unless-stopped
     ports:
-      - "43820:43820"     # overlay (clearnet half) — omit this for onion-only
-      - "8080:8080"       # status page (shows both the clearnet link and the .onion)
+      - "43820:43820"      # overlay (clearnet half) — omit this for onion-only
+      - "43820:43820/udp"  # WebRTC browser entry point (clearnet half, on by default) — omit for onion-only
+      - "8080:8080"        # status page (shows both the clearnet link and the .onion)
     volumes:
       - lodestar-tor-data:/data   # hot path incl. the persistent onion key, so the .onion survives restarts
     environment:
@@ -28,7 +29,10 @@ services:
       CUPRINET_LODESTAR_EnableTor: "true"                   # clearnet + onion (dual-stack)
       CUPRINET_LODESTAR_PublicHost: "lodestar.example.net"  # <-- your reachable clearnet address
       CUPRINET_LODESTAR_EnableWeb: "true"
-      # --- onion-only variant (hide the IP): uncomment, and remove the 43820 port mapping above ---
+      # Browser WebRTC entry point is ON by default on the clearnet half (published above); disable with:
+      # CUPRINET_LODESTAR_EnableWebRtc: "false"
+      # --- onion-only variant (hide the IP): uncomment, and remove the 43820 port mappings above ---
+      # (WebRTC is a clearnet transport, so it is automatically skipped in onion-only mode.)
       # CUPRINET_LODESTAR_TorOnly: "true"
       # CUPRINET_LODESTAR_EnableCoverTraffic: "true"        # optional decoy traffic over Tor (extra bandwidth)
       # CUPRINET_LODESTAR_SEEDS: "cuprinet://intone/AAA…"

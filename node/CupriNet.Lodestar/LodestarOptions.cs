@@ -140,8 +140,10 @@ public sealed class LodestarOptions
     /// overlay through it. Clearnet only — ignored in onion-only mode (there is no clearnet path). Off by default.
     /// The advertised host is this node's beacon address, so for off-box reach the UDP <see cref="WebRtcPort"/> must
     /// be reachable there too (forward it like the TCP port). Many browsers are served on the one UDP socket.
+    /// <b>On by default</b> — a keep-alive node is the natural entry point for browser clients; set false to opt out.
+    /// (Any CupriNet node can accept WebRTC via <c>CupriNodeOptions.WebRtcTransport</c>; this is just Lodestar's toggle.)
     /// </summary>
-    public bool EnableWebRtc { get; set; }
+    public bool EnableWebRtc { get; set; } = true;
 
     /// <summary>UDP port for the WebRTC endpoint. Defaults to <see cref="ListenPort"/> (UDP, distinct from the TCP
     /// listener on the same number). Set a stable, reachable port for a public node. 0 = an OS-assigned ephemeral port.</summary>

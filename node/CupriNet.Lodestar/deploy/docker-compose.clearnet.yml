@@ -19,8 +19,9 @@ services:
     container_name: cuprinet-lodestar
     restart: unless-stopped
     ports:
-      - "43820:43820"     # overlay (peers connect here) — must be reachable at your PublicHost
-      - "8080:8080"       # status page
+      - "43820:43820"      # overlay (peers connect here) — must be reachable at your PublicHost
+      - "43820:43820/udp"  # WebRTC entry point for browser clients (on by default) — same number, UDP
+      - "8080:8080"        # status page
     volumes:
       - lodestar-data:/data   # hot path: identity, master key, known peers, lodestar.link
     environment:
@@ -32,6 +33,9 @@ services:
       # CUPRINET_LODESTAR_AdvertisedAddresses__0: "203.0.113.9"
       # CUPRINET_LODESTAR_AdvertisedAddresses__1: "198.51.100.7:43820"
       CUPRINET_LODESTAR_EnableWeb: "true"
+      # Browser WebRTC entry point is ON by default (UDP, same port as the overlay; published above). Tune or disable:
+      # CUPRINET_LODESTAR_EnableWebRtc: "false"
+      # CUPRINET_LODESTAR_WebRtcPort: "43820"              # defaults to ListenPort; set a stable, reachable UDP port
       # Seed from existing nodes (';'/','/newline separated). Omit to stand up a NEW network (genesis).
       # CUPRINET_LODESTAR_SEEDS: "cuprinet://intone/AAA…;cuprinet://intone/BBB…"
 

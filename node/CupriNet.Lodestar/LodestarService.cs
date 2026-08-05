@@ -133,8 +133,17 @@ public sealed class LodestarService : BackgroundService
         if (_options.EnableWebRtc && !onionOnly)
         {
             var webRtcPort = _options.WebRtcPort ?? _options.ListenPort;
-            webRtc = new CupriWebRtcTransport(new IPEndPoint(ParseAddress(_options.ListenAddress), webRtcPort));
-            _log.LogInformation("WebRTC endpoint enabled: browsers can open a DataChannel on UDP :{Port}.", webRtc.LocalEndPoint.Port);
+            try
+            {
+                // Best-effort: WebRTC is on by default, so a busy/unavailable UDP port must never stop the node.
+                webRtc = new CupriWebRtcTransport(new IPEndPoint(ParseAddress(_options.ListenAddress), webRtcPort));
+                _log.LogInformation("WebRTC endpoint enabled: browsers can open a DataChannel on UDP :{Port}.", webRtc.LocalEndPoint.Port);
+            }
+            catch (Exception ex)
+            {
+                _log.LogWarning(ex, "Could not bind the WebRTC endpoint on UDP :{Port}; continuing without it.", webRtcPort);
+                webRtc = null;
+            }
         }
         else if (_options.EnableWebRtc && onionOnly)
         {

@@ -39,6 +39,9 @@ VOLUME ["/data"]
 
 # Default overlay listen port (override with CUPRINET_LODESTAR_ListenPort). Publish with `-p 43820:43820`.
 EXPOSE 43820
+# WebRTC endpoint for browser DataChannel clients — ON by default (disable with CUPRINET_LODESTAR_EnableWebRtc=false).
+# UDP, same number as the overlay port (WebRtcPort defaults to ListenPort). Publish with `-p 43820:43820/udp`.
+EXPOSE 43820/udp
 # Optional status page (enable with CUPRINET_LODESTAR_EnableWeb=true). Publish with `-p 8080:8080`.
 EXPOSE 8080
 
