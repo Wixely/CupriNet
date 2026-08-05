@@ -39,6 +39,9 @@ public static class CupriMarks
     /// <summary>The KnownPeer (persisted trusted-contact record) document component.</summary>
     public const string KnownPeer = "known-peer";
 
+    /// <summary>The WebRtcEndpoint (static WebRTC params published in an Intonation) block component.</summary>
+    public const string WebRtcEndpoint = "webrtc-endpoint";
+
     /// <summary>
     /// The single built-in catalogue for the CupriNet protocol suite. Frozen at first access; its
     /// SHA-256 <see cref="Catalogue.Id"/> identifies exactly this set of definitions, so two builds that
@@ -93,6 +96,11 @@ public static class CupriMarks
         new Component(KnownPeer,
         [
             // v1 — the persisted trusted-contact record (Sigil, Seal key, cached beacons, last-seen).
+            new ComponentVersion(1, BumpReason.Functionality, VersionStatus.Active),
+        ]),
+        new Component(WebRtcEndpoint,
+        [
+            // v1 — the static WebRTC block on an Intonation (ICE ufrag/pwd, DTLS fingerprint, host UDP port).
             new ComponentVersion(1, BumpReason.Functionality, VersionStatus.Active),
         ]),
     ]);

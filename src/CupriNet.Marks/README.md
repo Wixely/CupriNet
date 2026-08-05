@@ -23,6 +23,7 @@ definitions).
 | `toll` | pre-handshake anti-DoS cookie exchange (`Toll`) | negotiate |
 | `lan-presence` | signed LAN discovery announcement (`LanPresence`) | accept |
 | `known-peer` | persisted trusted-contact record (`KnownPeer`) | accept |
+| `webrtc-endpoint` | static WebRTC block on an Intonation (`WebRtcEndpoint`) | accept |
 
 ## Two patterns
 

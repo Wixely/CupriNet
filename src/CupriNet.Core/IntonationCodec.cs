@@ -49,11 +49,16 @@ public static class IntonationCodec
             w.WriteByte(0);
         }
 
-        // Optional trailing Moniker: written only when set, so a link without one is byte-identical to the older
-        // format (backward-compatible — old decoders read up to here and stop; see DecodeBody).
+        // Optional trailing fields, in order: Moniker, then the WebRTC block. Both absent ⇒ byte-identical to the
+        // older format (old decoders read up to here and stop). Because they're positional, a *later* field forces
+        // the earlier slot to be materialised — an empty Moniker string decodes back to null (see DecodeBody) — so
+        // "WebRtc set, Moniker unset" stays unambiguous.
         var moniker = Monikers.Normalize(intonation.Moniker);
-        if (moniker is not null)
-            w.WriteString(moniker);
+        var webrtc = intonation.WebRtc;
+        if (moniker is not null || webrtc is not null)
+            w.WriteString(moniker ?? "");
+        if (webrtc is not null)
+            WebRtcCodec.Write(w, webrtc);
 
         return w.ToArray();
     }
@@ -115,9 +120,10 @@ public static class IntonationCodec
             _ => throw new CodexFormatException("Invalid Petition presence flag."),
         };
 
-        // Optional trailing Moniker (see EncodeBody): present only if bytes remain. Over-long is clamped rather
-        // than rejected — it's a cosmetic hint, never trusted, so a malformed one must not sink the whole link.
+        // Optional trailing fields (see EncodeBody), read positionally, each only if bytes remain: Moniker, then the
+        // WebRTC block. An over-long Moniker is clamped (cosmetic); a malformed WebRTC block is rejected (structural).
         var moniker = r.End ? null : Monikers.Normalize(r.ReadString());
+        var webrtc = r.End ? null : WebRtcCodec.Read(ref r);
 
         return new Intonation
         {
@@ -131,6 +137,7 @@ public static class IntonationCodec
             Nonce = nonce,
             Petition = petition,
             Moniker = moniker,
+            WebRtc = webrtc,
             Signature = [],
         };
     }

@@ -169,6 +169,7 @@ public sealed partial class CupriNode : IAsyncDisposable
             Lifetime = lifetime,
             Petition = petition,
             Moniker = _options.Moniker,
+            WebRtc = _options.WebRtc,
         }, now);
     }
 

@@ -117,6 +117,92 @@ public class IntonationTests
         Assert.Equal(Monikers.MaxLength, decoded.Moniker!.Length);
     }
 
+    private static WebRtcEndpoint SampleWebRtc()
+    {
+        var fingerprint = new byte[32];
+        for (var i = 0; i < fingerprint.Length; i++)
+            fingerprint[i] = (byte)i;
+        return new WebRtcEndpoint
+        {
+            IceUfrag = "u5r7",
+            IcePassword = new string('p', 24),
+            FingerprintAlgorithm = "sha-256",
+            Fingerprint = fingerprint,
+            Port = 51820,
+        };
+    }
+
+    [Fact]
+    public void WebRtc_RoundTrips_WhenSet_WithMonikerUnset()
+    {
+        // Exercises the positional two-optional-field case: WebRtc present, Moniker absent (an empty Moniker slot
+        // is written so positions stay unambiguous, and decodes back to null).
+        var suite = Suite();
+        var identity = NodeIdentity.Generate(suite);
+        var intonation = IntonationMint.Intone(identity, suite, new IntonationOptions
+        {
+            Network = Network,
+            Beacons = [new Beacon(EndpointKind.Host, "192.168.1.20", 43820)],
+            WebRtc = SampleWebRtc(),
+        }, Now);
+
+        var (decoded, _) = IntonationCodec.Decode(IntonationCodec.Encode(intonation));
+        Assert.Null(decoded.Moniker);
+        Assert.NotNull(decoded.WebRtc);
+        Assert.Equal("u5r7", decoded.WebRtc!.IceUfrag);
+        Assert.Equal(51820, decoded.WebRtc.Port);
+        Assert.Equal(32, decoded.WebRtc.Fingerprint.Length);
+    }
+
+    [Fact]
+    public void WebRtc_And_Moniker_Coexist()
+    {
+        var suite = Suite();
+        var identity = NodeIdentity.Generate(suite);
+        var intonation = IntonationMint.Intone(identity, suite, new IntonationOptions
+        {
+            Network = Network,
+            Beacons = [new Beacon(EndpointKind.Host, "192.168.1.20", 43820)],
+            Moniker = "Community Relay",
+            WebRtc = SampleWebRtc(),
+        }, Now);
+
+        var (decoded, _) = IntonationCodec.Decode(IntonationCodec.Encode(intonation));
+        Assert.Equal("Community Relay", decoded.Moniker);
+        Assert.Equal("u5r7", decoded.WebRtc!.IceUfrag);
+    }
+
+    [Fact]
+    public void WebRtc_IsNull_WhenUnset_BackwardCompatible()
+    {
+        var suite = Suite();
+        var (decoded, _) = IntonationCodec.Decode(IntonationCodec.Encode(Sample(suite)));
+        Assert.Null(decoded.WebRtc);
+        Assert.Null(decoded.Moniker);
+    }
+
+    [Fact]
+    public void WebRtc_IsCoveredBySignature_UnderSecureSuite()
+    {
+        // The WebRTC block (incl. the DTLS fingerprint) rides in the signed body, so tampering breaks verification —
+        // that's what makes the published fingerprint trustworthy.
+        var secure = CryptoSuites.Secure();
+        var identity = NodeIdentity.Generate(secure);
+        var intonation = IntonationMint.Intone(identity, secure, new IntonationOptions
+        {
+            Network = Network,
+            Beacons = [new Beacon(EndpointKind.Host, "192.168.1.20", 43820)],
+            WebRtc = SampleWebRtc(),
+        }, Now);
+
+        Assert.Equal(IntonationStatus.Valid,
+            IntonationValidator.ValidateDocument(IntonationCodec.Encode(intonation), Network, secure, Now).Status);
+
+        var forged = intonation with { WebRtc = SampleWebRtc() with { Port = 40000 } };
+        Assert.Equal(IntonationStatus.BadSignature,
+            IntonationValidator.ValidateDocument(IntonationCodec.Encode(forged), Network, secure, Now).Status);
+    }
+
     [Fact]
     public void Uri_RoundTrips_ThroughPrefixedBase64Url()
     {

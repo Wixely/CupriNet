@@ -42,6 +42,12 @@ public sealed record Intonation
     /// </summary>
     public string? Moniker { get; init; }
 
+    /// <summary>
+    /// Optional static WebRTC endpoint (signed) letting a browser open a WebRTC DataChannel to this node with no
+    /// signalling server — the link itself is the signalling. See <see cref="WebRtcEndpoint"/>.
+    /// </summary>
+    public WebRtcEndpoint? WebRtc { get; init; }
+
     /// <summary>Detached signature over the canonical body, made with the inviter's Seal.</summary>
     public required byte[] Signature { get; init; }
 

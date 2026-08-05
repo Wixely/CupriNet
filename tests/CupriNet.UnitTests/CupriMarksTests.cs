@@ -104,6 +104,16 @@ public class CupriMarksTests
     }
 
     [Fact]
+    public void WebRtcEndpoint_Component_AcceptV1_RejectUnknown()
+    {
+        Assert.NotNull(CupriMarks.Catalogue.Component(CupriMarks.WebRtcEndpoint));
+        Assert.Equal(1, (int)CupriMarks.Supported(CupriMarks.WebRtcEndpoint).Max);
+        Assert.True(CupriMarks.Accepts(CupriMarks.WebRtcEndpoint, 1));
+        Assert.False(CupriMarks.Accepts(CupriMarks.WebRtcEndpoint, 2));
+        Assert.False(CupriMarks.Accepts(CupriMarks.WebRtcEndpoint, 0));
+    }
+
+    [Fact]
     public void UnknownComponent_Throws()
     {
         Assert.Throws<ArgumentException>(() => CupriMarks.Supported("not-a-component"));

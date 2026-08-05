@@ -25,6 +25,9 @@ public sealed record IntonationOptions
 
     /// <summary>Optional self-asserted display name (Moniker) to advertise in the link. Never verified by the protocol.</summary>
     public string? Moniker { get; init; }
+
+    /// <summary>Optional static WebRTC endpoint to advertise, so a browser can dial this node with no signalling server.</summary>
+    public WebRtcEndpoint? WebRtc { get; init; }
 }
 
 /// <summary>Mints signed Intonations for a node identity (the <c>Intone</c> command).</summary>
@@ -53,6 +56,7 @@ public static class IntonationMint
             Nonce = RandomNumberGenerator.GetBytes(NonceSize),
             Petition = options.Petition,
             Moniker = options.Moniker,
+            WebRtc = options.WebRtc,
             Signature = [],
         };
 

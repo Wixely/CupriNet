@@ -48,6 +48,13 @@ public sealed record CupriNodeOptions
     public string? Moniker { get; init; }
 
     /// <summary>
+    /// Optional static <see cref="WebRtcEndpoint"/> to publish in this node's link, so a browser can open a WebRTC
+    /// DataChannel to it with no signalling server (the signed link is the signalling). Normally populated by the
+    /// node's WebRTC listener; carrying it here just gets it stamped into the Intonation. See design/webrtc-clients.md.
+    /// </summary>
+    public WebRtcEndpoint? WebRtc { get; init; }
+
+    /// <summary>
     /// Subnets this node is allowed to connect to and accept from — CIDR (<c>10.0.0.0/8</c>), a dotted netmask
     /// (<c>10.0.0.0/255.0.0.0</c>), or a bare IP. Fences a node to a private CupriNet or LAN-only, etc.
     /// <b>An allow-list match always wins over the deny-list.</b> Empty = allow everything (LAN + WAN).

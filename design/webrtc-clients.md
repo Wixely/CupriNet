@@ -177,8 +177,11 @@ everyone else is unaffected.
 
 ## Phased first cut
 
-1. **Intonation WebRTC-endpoint block** — extend the link codec with an optional, signed WebRTC parameter field
-   (same backward-compatible trailing-field pattern as `Moniker`), and spec the static-SDP mapping.
+1. **Intonation WebRTC-endpoint block** ✅ *(done)* — an optional, signed `WebRtcEndpoint` field on the Intonation
+   (ICE ufrag/pwd, DTLS fingerprint + algorithm, host UDP port), carried with the same backward-compatible
+   trailing-field pattern as `Moniker`, versioned via the CupriMark `webrtc-endpoint` component. Host address(es)
+   reuse the link's existing beacons. Codec + options + mint wired; unit-tested. *(Still to spec: the exact
+   static-SDP mapping the browser/node build from these fields — lands with phase 2/3.)*
 2. **Node ICE-lite WebRTC listener** (SIPSorcery) — accept a blind DataChannel and hand it to
    `ConjoinOverVesselAsync` as an `IVessel`, so pairing works with **zero changes** above the transport. Prove it
    against a native test client first, then a real browser.
