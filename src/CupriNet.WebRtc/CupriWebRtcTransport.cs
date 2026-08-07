@@ -31,10 +31,19 @@ public sealed class CupriWebRtcTransport : IWebRtcTransport
         ArgumentNullException.ThrowIfNull(bind);
         _listener = new WebRtcListener(bind, IceCredentials.Generate(), maxSessions: maxSessions, sessionIdleTimeout: sessionIdleTimeout);
         _listener.ChannelOpened += OnChannelOpened;
+        _listener.SessionSecured += (remote, version) => SessionSecured?.Invoke(remote, version);
+        _listener.SessionFaulted += (remote, error) => SessionFaulted?.Invoke(remote, error);
     }
 
     /// <inheritdoc/>
     public event Action<IVessel>? ChannelAccepted;
+
+    /// <summary>Raised when a browser's DTLS handshake completes: (peer address, negotiated version — <c>"DTLS 1.3"</c>
+    /// for browsers, <c>"DTLS 1.2"</c> for the BouncyCastle fallback). Handy to confirm which path a peer took.</summary>
+    public event Action<IPEndPoint, string>? SessionSecured;
+
+    /// <summary>Raised when a browser's session fails to establish (e.g. the DTLS handshake), with the cause.</summary>
+    public event Action<IPEndPoint, Exception>? SessionFaulted;
 
     /// <inheritdoc/>
     public WebRtcEndpoint Parameters

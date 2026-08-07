@@ -137,7 +137,11 @@ public sealed class LodestarService : BackgroundService
             {
                 // Best-effort: WebRTC is on by default, so a busy/unavailable UDP port must never stop the node.
                 webRtc = new CupriWebRtcTransport(new IPEndPoint(ParseAddress(_options.ListenAddress), webRtcPort));
-                _log.LogInformation("WebRTC endpoint enabled: browsers can open a DataChannel on UDP :{Port}.", webRtc.LocalEndPoint.Port);
+                _log.LogInformation("WebRTC endpoint enabled: browsers can open a DataChannel on UDP :{Port} (DTLS 1.3, 1.2 fallback).", webRtc.LocalEndPoint.Port);
+                webRtc.SessionSecured += (remote, version) =>
+                    _log.LogInformation("WebRTC browser peer secured over {Version} from {Remote}.", version, remote);
+                webRtc.SessionFaulted += (remote, ex2) =>
+                    _log.LogDebug(ex2, "WebRTC browser handshake from {Remote} failed.", remote);
             }
             catch (Exception ex)
             {
