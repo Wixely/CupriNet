@@ -5,9 +5,10 @@
     clients can pair with a node. Kept a SEPARATE project (and intentionally NOT in CupriNet.slnx) so the core stays
     dependency-free of a WebRTC stack and the main build/CI needs no package feed or token.
 
-    The binding is compile-verified against CupriWebRTC 0.2.0 (adds the managed DTLS 1.3 server, so browsers — which now
-    require DTLS 1.3 — can pair; the listener dual-dispatches 1.3/1.2 internally, so this binding is unchanged). To
-    build THIS project you need the Wixely GitHub Packages
+    The binding is compile-verified against CupriWebRTC 0.3.0 (0.2.0 added the managed DTLS 1.3 server, so browsers —
+    which now require DTLS 1.3 — can pair; 0.3.0 hardens the SCTP data path with fragmentation, reassembly and
+    retransmission, plus a pion/dtls interop gate. The listener dual-dispatches 1.3/1.2 internally and its public
+    surface is unchanged, so this binding is unchanged). To build THIS project you need the Wixely GitHub Packages
     feed (see /nuget.config) + a read:packages token. Anyone who wants WebRTC references this project; everyone else
     ignores it.
   -->
@@ -26,7 +27,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="CupriWebRTC" Version="0.2.0" />
+    <PackageReference Include="CupriWebRTC" Version="0.3.0" />
   </ItemGroup>
 
 </Project>
