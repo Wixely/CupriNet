@@ -9,7 +9,7 @@ security is [Noise](https://noiseprotocol.org/) over TCP; cryptography is manage
 ([BouncyCastle](https://www.bouncycastle.org/) primitives behind a swappable seam).
 
 > Status: pre-1.0, evolving. The cryptographic core (Noise_XX identity binding, channel Consecration,
-> signed documents) is real and reviewed; **326 unit tests** pass. Not yet audited for production use.
+> signed documents) is real and reviewed; **369 unit tests** pass. Not yet audited for production use.
 > See the [roadmap](ROADMAP.md) for what's done, next, and deliberately out of scope.
 
 ## The model — two layers
@@ -36,11 +36,17 @@ Transport (Vessel)   TCP + length-prefixed framing + stream multiplexing · Nois
 ## What's in the box
 
 - **Mesh-magnet links (Intonations)** — `cuprinet://intone/…`: a signed, expiring bootstrap document
-  carrying a node's reachability candidates + a sample of seed peers. Show it as text or a QR code.
+  carrying a node's reachability candidates + a sample of seed peers (and, for a node that accepts browsers,
+  its static WebRTC endpoint parameters). Show it as text or a QR code.
 - **NAT traversal** — LAN discovery, NAT-PMP auto port-mapping, mutual-link UDP hole punching, and a
   pure-managed reliable-UDP transport, all behind the transport-agnostic pairing seam.
 - **Tor** — optional onion transport ([CupriTor](https://github.com/Wixely/CupriTor), managed, no native
   daemon): **dual-stack** (clearnet + `.onion` at once) or a strict **onion-only** mode that hides the IP.
+- **Browser clients (WebRTC)** — a node can accept **browser** WebRTC DataChannel peers with **no signalling
+  server**: it publishes its static endpoint parameters in the signed link and the browser dials them directly.
+  The managed ICE / **DTLS 1.3** / SCTP stack is [CupriWebRTC](https://github.com/Wixely/CupriWebRTC) (browsers
+  now require DTLS 1.3), consumed through the optional `CupriNet.WebRtc` binding — the browser is just another
+  peer, with Noise + Consecration running over the DataChannel unchanged.
 - **Traffic-analysis cover** — overlay gossip fuzzing, long-lived decoy connections (hot fuzz), decoy
   channel sessions (effigies), and fake groups (pageants).
 - **Warm start** — an encrypted local cache of known peers so a node reconnects directly after restart.
@@ -64,6 +70,7 @@ Transport (Vessel)   TCP + length-prefixed framing + stream multiplexing · Nois
 | `src/CupriNet.Hosting` | **`CupriNode`** — the public API |
 | `src/CupriNet.Marks` | CupriMark version negotiation — the [catalogue](src/CupriNet.Marks/README.md) & floors |
 | `src/CupriNet.Tor` | CupriTor onion transport binding (needs the CupriTor feed) |
+| `src/CupriNet.WebRtc` | CupriWebRTC transport binding — browsers over WebRTC / DTLS 1.3 (needs the CupriWebRTC feed) |
 | `node/CupriNet.Lodestar` | headless "keep the network alive" overlay node — see its [README](node/CupriNet.Lodestar/README.md) |
 | `samples/CupriChatLite` | Barebones chat + file-transfer sample (Avalonia) — see its [README](samples/CupriChatLite/README.md) |
 | `tests/CupriNet.UnitTests` | the test suite |
@@ -90,8 +97,9 @@ var channel = await node.ConsecrateAsync(peer, watchword, DateTimeOffset.UtcNow)
 
 Requires the **.NET 10 SDK** and access to the **[Wixely GitHub Packages](https://github.com/Wixely)** feed
 (a GitHub token with `read:packages`; see [`nuget.config`](nuget.config)). The core depends on
-[CupriMark](https://github.com/Wixely/CupriMark) (version negotiation), and the Tor bits on
-[CupriTor](https://github.com/Wixely/CupriTor) — both published there.
+[CupriMark](https://github.com/Wixely/CupriMark) (version negotiation); the Tor bits on
+[CupriTor](https://github.com/Wixely/CupriTor) and the WebRTC bits on
+[CupriWebRTC](https://github.com/Wixely/CupriWebRTC) — all published there.
 
 ```bash
 # Full test suite
