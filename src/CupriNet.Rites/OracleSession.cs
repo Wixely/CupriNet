@@ -33,7 +33,7 @@ public sealed class OracleSession
     }
 
     private readonly IStreamChannel _channel;
-    private readonly VeilCipher _veil;
+    private readonly VeilCipher? _veil;
 
     public OracleSession(IStreamChannel channel, ReadOnlyMemory<byte> sessionKey, ICryptoSuite suite)
     {
@@ -45,6 +45,22 @@ public sealed class OracleSession
     /// <summary>Convenience: bind to a single Vessel stream directly (single-stream use only).</summary>
     public OracleSession(VesselSession vessel, ReadOnlyMemory<byte> sessionKey, ICryptoSuite suite, ushort stream = RequestStream)
         : this(new VesselStreamChannel(vessel, stream), sessionKey, suite)
+    {
+    }
+
+    /// <summary>
+    /// Binds over an <em>already-encrypted</em> transport (e.g. the NoiseVessel from a Pilgrimage): frames are sent
+    /// as-is, with no Veil layer, because the underlying vessel is itself the confidentiality + authenticity boundary.
+    /// </summary>
+    public OracleSession(IStreamChannel channel)
+    {
+        _channel = channel ?? throw new ArgumentNullException(nameof(channel));
+        _veil = null;
+    }
+
+    /// <summary>Convenience: bind over an already-encrypted Vessel's stream directly (single-stream use only).</summary>
+    public OracleSession(IVessel vessel, ushort stream = RequestStream)
+        : this(new VesselStreamChannel(vessel, stream))
     {
     }
 
@@ -69,10 +85,11 @@ public sealed class OracleSession
 
         var reader = new CodexReader(payload);
         var type = (FrameType)reader.ReadByte();
-        var sealedBody = reader.ReadBytes();
+        var body = reader.ReadBytes();
 
-        var plaintext = _veil.Open(sealedBody)
-                        ?? throw new EpistleException("Oracle content failed authentication (Veil).");
+        var plaintext = _veil is null
+            ? body.ToArray()
+            : _veil.Open(body) ?? throw new EpistleException("Oracle content failed authentication (Veil).");
 
         return type switch
         {
@@ -97,7 +114,7 @@ public sealed class OracleSession
     {
         var w = new CodexWriter();
         w.WriteByte((byte)type);
-        w.WriteBytes(_veil.Seal(body));
+        w.WriteBytes(_veil is null ? body : _veil.Seal(body));
         await _channel.SendAsync(w.ToArray(), cancellationToken).ConfigureAwait(false);
     }
 }

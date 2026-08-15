@@ -43,6 +43,14 @@ public sealed partial class CupriNode
     {
         try
         {
+            // When this node hosts a Shrine, a browser DataChannel is a Pilgrimage: the host presents the Signet
+            // and serves the site over the Oracle rite (no overlay join). Otherwise it is a normal channel peer.
+            if (_shrine is { } shrine)
+            {
+                await AcceptPilgrimageOverVesselAsync(vessel, shrine.Signet, shrine.Handler, cancellationToken).ConfigureAwait(false);
+                return;
+            }
+
             var peer = await AcceptChannelOverVesselAsync(vessel, DateTimeOffset.UtcNow, cancellationToken).ConfigureAwait(false);
             if (!_accepted.Writer.TryWrite(peer))
                 await peer.DisposeAsync().ConfigureAwait(false); // no one is accepting (or the backlog is full) — drop it
