@@ -78,13 +78,14 @@ jobs:
           else
             echo "version=0.1.0-ci.${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
           fi
-      - name: Pack core packages (skips the optional binding projects that need a feed-only package)
+      - name: Pack core packages (plus the WebRTC binding; skips the one needing a feed-only package)
         shell: bash
+        # CupriNet.WebRtc IS packed: downstream products (e.g. Nodestar) need the browser/WebRTC binding from the
+        # feed, and its CupriWebRTC dependency restores here the same way publish-lodestar already restores it.
         run: |
           for proj in src/*/*.csproj; do
             case "$proj" in
-              */CupriNet.Tor.csproj)    echo "skipping $proj (needs the CupriTor package)"; continue;;
-              */CupriNet.WebRtc.csproj) echo "skipping $proj (needs the CupriWebRTC package)"; continue;;
+              */CupriNet.Tor.csproj) echo "skipping $proj (needs the CupriTor package)"; continue;;
             esac
             dotnet pack "$proj" -c Release -p:Version=${{ steps.ver.outputs.version }} -o artifacts/nuget
           done
