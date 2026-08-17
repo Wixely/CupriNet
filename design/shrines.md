@@ -23,6 +23,26 @@ await using var shrine = await node.PilgrimageOverVesselAsync(vessel, signetSigi
 var page = await shrine.ConsultAsync(OracleRequest.Get("/index.html"), ct);
 ```
 
+Live data rides the same connection. The host registers named feeds; the Pilgrim attends one and reads a snapshot
+followed by updates, concurrently with any Oracle fetch:
+
+```csharp
+// Host: a named feed, emanated for as long as a Pilgrim attends it.
+node.HostShrine(signet, handler, feeds: new Dictionary<string, IAuspiceSource>
+{
+    ["constellation"] = new DelegateAuspiceSource(async (publisher, token) =>
+    {
+        await publisher.SnapshotAsync(CurrentState(), token);
+        await foreach (var change in Changes(token))
+            await publisher.UpdateAsync(change, token);
+    }),
+});
+
+// Pilgrim: attend it — the snapshot arrives first, then each update.
+await foreach (var frame in shrine.AttendAsync("constellation", ct))
+    Render(frame.Kind, frame.Payload);   // Snapshot, then Update…
+```
+
 A browser DataChannel arriving at a Shrine-hosting node is routed straight into the Pilgrimage, so browsers are
 served by the same path with no extra wiring.
 
@@ -57,14 +77,58 @@ so it **skips the overlay join / anchoring**.
 - **Shrine session kind.** A new kind declared over the vessel beside `Channel`, so the accept dispatcher routes it to
   the Shrine handler instead of the overlay/channel path.
 
-## The Oracle rite (request/response over Conduit)
+## The Oracle rite (request/response)
 
 Today [`Conduit`](../src/CupriNet.Rites/Conduit.cs) carries raw `ProtocolId`/`Flags` frames with no request/response.
-The **Oracle** rite adds an HTTP-shaped exchange over it: `request(method, path, headers) → response(status, headers,
-body)`, bodies streamed; content-types and ranges later. A **content handler** maps a request to a directory of static
-files (reusing [`FilePathGuard`](../src/CupriNet.Rites/FilePathGuard.cs) for path-traversal defence) or an app
-callback. For a *non*-Oracle L2 protocol, a consumer can still drive raw `Arcanum`/`Conduit` directly — the Oracle is
-the batteries-included path, not the only one.
+The **Oracle** rite adds an HTTP-shaped exchange: `request(method, path, headers) → response(status, headers, body)`.
+A **content handler** maps a request to a directory of static files (reusing
+[`FilePathGuard`](../src/CupriNet.Rites/FilePathGuard.cs) for path-traversal defence) or an app callback. For a
+*non*-Oracle L2 protocol, a consumer can still drive raw `Arcanum`/`Conduit` directly — the Oracle is the
+batteries-included path, not the only one.
+
+**Bodies are whole messages, not streams.** A request and a response each carry one fully-materialised `byte[]`, sent
+as a single message. There is no chunking, no backpressure and no ranges — see *The message ceiling* below for what
+that costs and which rite to use instead.
+
+## The Auspice rite (live feeds)
+
+The Oracle answers once. The **Auspice** is its streaming sibling: a Pilgrim **attends** a named feed and the Shrine
+emanates a **snapshot** followed by a stream of **updates** — subscribe-once, push-many, with no polling, no second
+connection and no WebSocket/SSE machinery. It runs on its own logical stream, so a page fetch and its live data share
+one Pilgrimage and are demultiplexed by a `VesselMux`.
+
+The host seam mirrors the Oracle's: an `IAuspiceSource` is handed an `IAuspicePublisher` for the life of one
+subscription (`SnapshotAsync` once, then `UpdateAsync`), and `AuspiceHost.ServeAsync` starts a source per attended
+feed, stops it when the Pilgrim departs, and **seals only that feed** if the source throws — one bad feed never takes
+the Shrine down. Attending a feed the Shrine does not host is answered with `Sealed("no such feed")` rather than
+silence, so a client never hangs waiting for a stream that will never arrive.
+
+**Why this lives in the core, not in a product.** The Pilgrim half of the rite runs inside the CupriNet client stack —
+including where that stack is compiled to WebAssembly to run in a browser. Putting it downstream would mean either a
+product injecting protocol code into a stack it does not own, or the WASM client taking a dependency on a product.
+So it sits beside the Oracle, and a downstream host re-exposes it as its own sugar.
+
+## The message ceiling (and what it rules out)
+
+Every rite here sends **whole messages**, and the browser sets a hard ceiling on how big one may be. A WebRTC
+DataChannel message cannot exceed the `a=max-message-size` an endpoint advertises, and CupriWebRTC's SCTP association
+fixes that at **256 KiB** (`SctpAssociation.MaxMessageBytes`), **rejecting** anything larger rather than truncating it,
+in both directions. That is **64× tighter than the 16 MiB** a TCP vessel frame allows — the WebRTC path is the
+constraint, not the relief.
+
+- The **Auspice** enforces its own cap (`AuspiceCodec.MaxPayloadBytes`, 192 KiB) when encoding *and* decoding, so an
+  oversized payload fails at the rite with a clear message instead of deep inside the transport. The remaining 64 KiB
+  is headroom for rite framing, the vessel header and Noise/DTLS overhead.
+- The **Oracle** has no such guard today: a large response fails at the transport, later and less clearly.
+
+**The consequence is structural, not cosmetic.** A hosted-app tier — serving a WASM application blob that the client
+fetches and executes — is **blocked**, not merely inefficient: such a blob is multi-MB and the Oracle materialises a
+whole body into one message. Serving one is therefore not a matter of tuning; it needs a chunked path.
+
+**The route is the Reliquary**, which already exists: chunked, hash-verified, resumable transfer
+([`ReliquaryBuilder`](../src/CupriNet.Rites/ReliquaryBuilder.cs) and friends). Wiring it into the Shrine path is a
+**prerequisite** for any large-payload tier, not an optimisation of one — and it brings a property a single opaque
+response could never have: **per-chunk hashes let the client verify a blob's integrity before executing it.**
 
 ## The Pilgrimage (connect path)
 
@@ -121,10 +185,16 @@ relayed). With reachability riding in the link, even L1 is optional for v1: *fol
 4. ✅ **Intonation Signet field** — optional signed `Shrine` field (`shrine-address` CupriMark component),
    **opt-in** via `HostShrine(…, advertiseInLink: true)`, with the L1-linkage trade documented at the call site.
 5. ✅ **Publish `CupriNet.WebRtc`** to the Wixely feed, so downstream products can consume the WebRTC binding.
-6. **Next (product):** the Nodestar repo — the web front, the served client, and the author tooling.
-7. **Later (protocol):** streamed/ranged Oracle bodies; Noise NK (a Pilgrim that sends no static key at all);
-   **multi-Shrine** hosting on one endpoint (an encrypted target selector — deliberately *not* pre-Noise cleartext,
-   so the network never learns which site); brokered WebRTC to NAT'd hosts; private (Watchword-gated) Shrines.
+6. ✅ **Auspice rite** — named live feeds (attend → snapshot → updates) beside the Oracle, muxed onto one Pilgrimage,
+   with the payload ceiling enforced both ways and a per-feed source seam (`IAuspiceSource` / `AuspiceHost`).
+7. **Next (protocol): Reliquary over the Shrine path** — a **prerequisite** for any large-payload tier (see *The
+   message ceiling*), not an optimisation. Chunked, hash-verified, resumable, and it gives a client integrity
+   verification of a blob before it executes it.
+8. **Next (product):** the Nodestar repo — the web front, the served client, and the author tooling.
+9. **Later (protocol):** a size guard on Oracle responses (fail at the rite, not the transport); chunked/ranged Oracle
+   bodies; Noise NK (a Pilgrim that sends no static key at all); **multi-Shrine** hosting on one endpoint (an encrypted
+   target selector — deliberately *not* pre-Noise cleartext, so the network never learns which site); brokered WebRTC
+   to NAT'd hosts; private (Watchword-gated) Shrines.
 
 ### A note on the session kind
 
