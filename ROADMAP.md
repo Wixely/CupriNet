@@ -35,6 +35,13 @@ The two-layer stack is real, wired end-to-end, and covered by the test suite (**
   migration, idle eviction), consumed through the `CupriNet.WebRtc` binding behind the `IWebRtcTransport` seam — any
   node can opt in via `CupriNodeOptions.WebRtcTransport`; **Lodestar turns it on by default**. See
   [design/webrtc-clients.md](design/webrtc-clients.md).
+- **Shrines — hosting content over L2.** A node serves content at a **Signet**: a generated key whose bech32
+  `cupri1…` rendering **is** the address, self-authenticating like a `.onion` and **separate from the node's overlay
+  Sigil**, so hosting leaks no L1 identity. A **Pilgrim** (an ephemeral visitor, throwaway per-visit identity) dials
+  it, **pins the Signet** through the existing Noise handshake — nothing identifying goes on the wire, and only the
+  key-holder can answer — and fetches over the **Oracle** rite (HTTP-shaped `request → response` with static-file and
+  app-callback handlers). No overlay join, direct-only, and browser DataChannels route straight into it. A node may
+  **opt in** to advertising its Shrine in its signed Intonation. See [design/shrines.md](design/shrines.md).
 - **Monikers.** Optional self-asserted node label (a human-readable name a node claims for itself, carried
   **unverified** in its signed link + peer record with length/content Wards); trust always rests on the fingerprint,
   never the name — validating a Moniker is the consuming client's job (fingerprint pinning, allow-list, side channel).
@@ -62,9 +69,11 @@ The two-layer stack is real, wired end-to-end, and covered by the test suite (**
   `known-peer` accept), so every versioned wire component is CupriMark-covered.
 - **Live-verify Tor on Lodestar** — confirm the overlay `.onion` and the status-page `.onion` both publish
   (two onion services on one Tor client) on a real network, end to end.
-- **Browser example (hosted webpage).** The server side is done; what's missing is a **hosted web page** that dials
-  a node's published WebRTC params (no signalling) — the "validate against a real Chromium" milestone. Deferred until
-  the hosting piece is in place; must ship as a hosted page, not a local static file.
+- **Browser example (hosted webpage) — the Nodestar product.** Both server halves are done (the WebRTC transport and
+  the Shrine/Oracle content layer); what's missing is the **hosted web page** that dials a node's published WebRTC
+  params (no signalling) and renders a Shrine — the "validate against a real Chromium" milestone. It ships as
+  **Nodestar** (a separate repo): an SDK + reference host pairing a CupriNode with a clearnet HTTP front, serving a
+  CupriFace WASM client. Must be a hosted page, not a local static file.
 - **Decouple the core build from the private feed, or accept it explicitly.** CupriMark (and now CupriWebRTC via the
   optional `CupriNet.WebRtc` binding) come from the Wixely GitHub Packages feed, so the build (and CI) needs
   `read:packages` (`PACKAGES_TOKEN`). Options: publish to nuget.org, or document the token as required. (Tracked;
@@ -83,20 +92,6 @@ The two-layer stack is real, wired end-to-end, and covered by the test suite (**
 
 Ideas we've scoped but not started — captured here so the intent is on record:
 
-- **Websites over CupriNet + a browser bridge.** Serve HTTP-style request/response **directly from a node** over
-  the Rites layer, viewed through a **browser extension / local gateway** that maps a `cuprinet://…` address to a
-  fetch — the way you'd view a Tor onion site. It reuses the L2 transport but with **one-sided auth**: the *host*
-  proves it owns the URL (a dedicated **site key**, self-authenticating like `.onion` — Noise NK-style, or XX with
-  a throwaway per-visit visitor identity), while the *visitor* stays anonymous. A public site has **no access
-  control by design**; add a Watchword and it becomes a private Arcanum channel that serves web content. The site
-  key is **separate from the node's overlay Sigil**, so hosting reveals no L1 identity and keeps L2's
-  unlinkability + no-relay guarantees. The **URL is the 32-byte (256-bit) self-auth key rendered as bech32** —
-  branded human prefix + checksum (`cupri1…`, ~52 chars, v3-onion-grade) — unstealable, no registry, no CA.
-  **Live self-hosted** for the first cut (reachable only while the host is online; nothing stored in the overlay).
-  *Open problem:* resolving a **stable short URL to a moving host** without a global DHT — v1 embeds reachability
-  in a signed link, or host the site as a **Tor onion** so the `.onion` is itself the stable self-auth URL.
-  Addressable by link now, by a verifiable node **name** later (Monikers — now built, see ✅ Done); persistent/
-  distributed hosting is *out of scope* for the first cut.
 - **L3 — optional in-channel end-to-end encryption (recipient-anonymous sealed messages).** A *third* encryption
   layer **inside** an Arcanum channel: a member **seals** a payload to specific recipients' **portable public
   keys** and posts the **ciphertext** into the channel, so the channel — and every other member, even an untrusted
@@ -111,10 +106,12 @@ Ideas we've scoped but not started — captured here so the intent is on record:
   a session/ratchet (MLS/Signal) that conflicts with the self-contained-blob-using-existing-keys model — an accepted
   trade for this use.
 
-*(Built since this list was first written and moved up to ✅ Done: **Monikers** — self-asserted node labels; and the
+*(Built since this list was first written and moved up to ✅ Done: **Monikers** — self-asserted node labels; the
 **browser-clients-over-WebRTC** transport — realised as Intonation-as-signalling rather than the rendezvous-brokered
-SDP exchange originally sketched here, so no signalling server is involved at all. The remaining browser piece is the
-hosted example page, tracked under 🔨 Near-term.)*
+SDP exchange originally sketched here, so no signalling server is involved at all; and **websites over CupriNet**,
+now built as **Shrines** — the site key, one-sided auth and bech32 self-auth address landed as sketched, but with **no
+browser extension or local gateway**: the viewer is a served web page reaching the node over WebRTC. The remaining
+browser piece is that page — the **Nodestar** product, a separate repo — tracked under 🔨 Near-term.)*
 
 ## 💤 Deferred / accepted (not bugs)
 

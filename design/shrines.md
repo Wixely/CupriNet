@@ -4,10 +4,27 @@
 fetched by ephemeral *Pilgrims* over a request/response *Oracle* rite — direct member-to-member, never relayed.** This
 is the CupriNet-core capability that the **Nodestar** product (separate repo, `CupriNodestar`) is built on.
 
-> Status: design. This is the **Layer-A (protocol) half** of the Nodestar plan, split out to live where it belongs — in
-> the core. It refines the core-protocol parts of [websites-l2.md](websites-l2.md) with Lexicon naming. The transport
-> it rests on (a node accepting browser WebRTC DataChannels) is **built** — see [webrtc-clients.md](webrtc-clients.md).
-> The product/SDK half (web front, served WASM client, author tooling, deploy) lives in the Nodestar repo.
+> Status: **built** (the core capability — see *Phased plan* below for exactly what landed). This is the **Layer-A
+> (protocol) half** of the Nodestar plan, split out to live where it belongs — in the core. It refines the
+> core-protocol parts of [websites-l2.md](websites-l2.md) with Lexicon naming. The transport it rests on (a node
+> accepting browser WebRTC DataChannels) is **built** — see [webrtc-clients.md](webrtc-clients.md). The product/SDK
+> half (web front, served WASM client, author tooling, deploy) lives in the separate Nodestar repo.
+
+## Using it
+
+```csharp
+// Host: the Signet's cupri1… address IS the site URL. Persist it so the address is stable across restarts.
+var signet = await new SignetStore(secretStore).LoadOrCreateAsync(node.Suite);
+node.HostShrine(signet, new StaticFileOracleHandler("wwwroot-l2"));   // or DelegateOracleHandler / your own
+Console.WriteLine(node.ShrineAddress);                                 // cupri1…
+
+// Pilgrim: dial the host, pin the Signet, fetch.
+await using var shrine = await node.PilgrimageOverVesselAsync(vessel, signetSigil, ct);
+var page = await shrine.ConsultAsync(OracleRequest.Get("/index.html"), ct);
+```
+
+A browser DataChannel arriving at a Shrine-hosting node is routed straight into the Pilgrimage, so browsers are
+served by the same path with no extra wiring.
 
 ## Naming (Lexicon)
 
@@ -93,15 +110,28 @@ relayed). With reachability riding in the link, even L1 is optional for v1: *fol
 
 ## Phased plan (the CupriNet-side work)
 
-1. **Shrine session kind** + accept-dispatch routing, parameterised with a **serving identity**.
-2. **Signet** — the `cupri1…` keypair + encrypted-store persistence + identity separation on the accept path.
-3. **Oracle rite** over `Conduit` — request/response, streamed bodies, a `FilePathGuard` static handler + an
-   app-callback seam.
-4. **Pilgrimage** — Noise XX + throwaway Pilgrim pinning the Signet, no overlay join; `Shrine` session dispatch.
-5. **Intonation Signet field** — optional signed field; opt-in advertising with the linkage warning surfaced.
-6. **Publish `CupriNet.WebRtc`** to the Wixely feed (today `pack` skips it) so downstream products can consume the
-   WebRTC binding — then ship all of the above in a **CupriNet minor release**.
-7. **Later** — Noise NK; brokered WebRTC to NAT'd hosts; ranges / conditional Oracle requests.
+1. ✅ **Oracle rite** over `Conduit` — request/response with headers and bodies, plus the content-handler seam
+   (`IOracleHandler`): a `FilePathGuard`-guarded static-file handler, a delegate handler, and `OracleHost.ServeAsync`
+   (a keep-alive request loop that turns a handler throw into a 500 rather than dropping the Shrine).
+2. ✅ **Signet** — the `cupri1…` keypair (`Signet`) + per-Shrine encrypted-store persistence (`SignetStore`).
+3. ✅ **Pilgrimage** — `HostShrine` / `AcceptPilgrimageOverVesselAsync` / `PilgrimageOverVesselAsync`. The host
+   presents *only* the Signet through the existing Noise XX + identity binding, so it is self-authenticating with
+   **no new crypto** and nothing identifying on the wire; the Pilgrim pins it under a throwaway per-visit identity;
+   no overlay join. A browser DataChannel routes into it automatically when a Shrine is hosted.
+4. ✅ **Intonation Signet field** — optional signed `Shrine` field (`shrine-address` CupriMark component),
+   **opt-in** via `HostShrine(…, advertiseInLink: true)`, with the L1-linkage trade documented at the call site.
+5. ✅ **Publish `CupriNet.WebRtc`** to the Wixely feed, so downstream products can consume the WebRTC binding.
+6. **Next (product):** the Nodestar repo — the web front, the served client, and the author tooling.
+7. **Later (protocol):** streamed/ranged Oracle bodies; Noise NK (a Pilgrim that sends no static key at all);
+   **multi-Shrine** hosting on one endpoint (an encrypted target selector — deliberately *not* pre-Noise cleartext,
+   so the network never learns which site); brokered WebRTC to NAT'd hosts; private (Watchword-gated) Shrines.
+
+### A note on the session kind
+
+The original sketch had a `Shrine` marker alongside `Channel` in the post-Noise session-kind byte. It turned out to be
+unnecessary: because the host presents the Signet *as* its handshake identity, a Pilgrimage is already unambiguous to
+both ends, and adding a marker would only have created a second way to say the same thing. It becomes relevant again
+for multi-Shrine hosting, where one endpoint must route to one of several Signets.
 
 ## Consumers
 

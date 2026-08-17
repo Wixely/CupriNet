@@ -9,7 +9,7 @@ security is [Noise](https://noiseprotocol.org/) over TCP; cryptography is manage
 ([BouncyCastle](https://www.bouncycastle.org/) primitives behind a swappable seam).
 
 > Status: pre-1.0, evolving. The cryptographic core (Noise_XX identity binding, channel Consecration,
-> signed documents) is real and reviewed; **369 unit tests** pass. Not yet audited for production use.
+> signed documents) is real and reviewed; **392 unit tests** pass. Not yet audited for production use.
 > See the [roadmap](ROADMAP.md) for what's done, next, and deliberately out of scope.
 
 ## The model — two layers
@@ -47,6 +47,11 @@ Transport (Vessel)   TCP + length-prefixed framing + stream multiplexing · Nois
   The managed ICE / **DTLS 1.3** / SCTP stack is [CupriWebRTC](https://github.com/Wixely/CupriWebRTC) (browsers
   now require DTLS 1.3), consumed through the optional `CupriNet.WebRtc` binding — the browser is just another
   peer, with Noise + Consecration running over the DataChannel unchanged.
+- **Shrines — sites hosted over L2** — a node can serve content at a **self-authenticating `cupri1…` address** (a
+  generated key, like a `.onion`, kept separate from the node's overlay identity so hosting leaks nothing about it).
+  A visitor pins that address during the handshake — only the key-holder can answer, and nothing identifying crosses
+  the wire — then fetches over an HTTP-shaped request/response rite, with static-file or app-callback handlers.
+  Direct-only, no overlay join, and browser DataChannels route straight in. See [design/shrines.md](design/shrines.md).
 - **Traffic-analysis cover** — overlay gossip fuzzing, long-lived decoy connections (hot fuzz), decoy
   channel sessions (effigies), and fake groups (pageants).
 - **Warm start** — an encrypted local cache of known peers so a node reconnects directly after restart.
@@ -64,7 +69,7 @@ Transport (Vessel)   TCP + length-prefixed framing + stream multiplexing · Nois
 | `src/CupriNet.Vessel` · `CupriNet.Noise` | TCP/UDP transport, mux; Noise XX/IK handshake |
 | `src/CupriNet.Concordance` | peer table, gossip, discovery routing |
 | `src/CupriNet.Arcanum` | channel codes, key derivation, adverts, ownership |
-| `src/CupriNet.Rites` | message / data / file protocols + retry |
+| `src/CupriNet.Rites` | message / data / file / site (Oracle) protocols + retry |
 | `src/CupriNet.Traversal` | LAN discovery, NAT-PMP, hole punch, reliable-UDP |
 | `src/CupriNet.Persistence` | `ISecretStore` + encrypted file store |
 | `src/CupriNet.Hosting` | **`CupriNode`** — the public API |
