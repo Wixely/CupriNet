@@ -32,7 +32,7 @@ public sealed class ShrineSession : IAsyncDisposable
 public sealed partial class CupriNode
 {
     // The single Shrine this node hosts (v1). Multi-Shrine (per-connection Signet selection) is a later enhancement.
-    private (Signet Signet, IOracleHandler Handler)? _shrine;
+    private (Signet Signet, IOracleHandler Handler, bool Advertise)? _shrine;
 
     /// <summary>
     /// Hosts a Shrine (an L2 site) under <paramref name="signet"/>, serving content through <paramref name="handler"/>.
@@ -40,16 +40,24 @@ public sealed partial class CupriNode
     /// Signet during the Pilgrimage, so the connection is self-authenticating — only the holder of the Signet key can
     /// answer, and the node's overlay Sigil is never presented (hosting a Shrine leaks no L1 identity). v1 hosts one
     /// Shrine per node, served to browser Pilgrims over the node's WebRTC endpoint.
+    /// <para>
+    /// <paramref name="advertiseInLink"/> stamps the Shrine's Signet into every Intonation this node mints, so
+    /// "here is my link" doubles as "here is my site". It is <b>off by default</b> because it ties the Shrine to this
+    /// node's overlay Sigil — right for a public or branded host, wrong for anonymous hosting.
+    /// </para>
     /// </summary>
-    public void HostShrine(Signet signet, IOracleHandler handler)
+    public void HostShrine(Signet signet, IOracleHandler handler, bool advertiseInLink = false)
     {
         ArgumentNullException.ThrowIfNull(signet);
         ArgumentNullException.ThrowIfNull(handler);
-        _shrine = (signet, handler);
+        _shrine = (signet, handler, advertiseInLink);
     }
 
     /// <summary>The <c>cupri1…</c> address of the Shrine this node hosts, or null if it hosts none.</summary>
     public string? ShrineAddress => _shrine?.Signet.Address;
+
+    /// <summary>The Shrine Signet to stamp into a minted Intonation — only when hosting one AND opted in.</summary>
+    internal Sigil? ShrineToAdvertise => _shrine is { Advertise: true } shrine ? shrine.Signet.Sigil : null;
 
     /// <summary>
     /// Host side of a Pilgrimage over an already-connected vessel: the Toll, then a Noise handshake in which the host

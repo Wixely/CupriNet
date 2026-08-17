@@ -49,16 +49,26 @@ public static class IntonationCodec
             w.WriteByte(0);
         }
 
-        // Optional trailing fields, in order: Moniker, then the WebRTC block. Both absent ⇒ byte-identical to the
-        // older format (old decoders read up to here and stop). Because they're positional, a *later* field forces
-        // the earlier slot to be materialised — an empty Moniker string decodes back to null (see DecodeBody) — so
-        // "WebRtc set, Moniker unset" stays unambiguous.
+        // Optional trailing fields, in order: Moniker, the WebRTC block, then the Shrine address. All absent ⇒
+        // byte-identical to the older format (old decoders read up to here and stop). Because they're positional, a
+        // *later* field forces the earlier slots to be materialised — an empty Moniker string decodes back to null
+        // (see DecodeBody), and an absent WebRTC block becomes the ShrineAddressCodec.AbsentBlock sentinel — so
+        // "Shrine set, the rest unset" stays unambiguous.
+        //
+        // Interop: a link with a Shrine AND a WebRTC block still parses cleanly on a pre-Shrine build (it reads up to
+        // the WebRTC block and ignores the rest). A Shrine with NO WebRTC block writes the 0 sentinel, which such a
+        // build rejects as an unknown WebRTC version — so a public Shrine host should advertise both.
         var moniker = Monikers.Normalize(intonation.Moniker);
         var webrtc = intonation.WebRtc;
-        if (moniker is not null || webrtc is not null)
+        var shrine = intonation.Shrine;
+        if (moniker is not null || webrtc is not null || shrine is not null)
             w.WriteString(moniker ?? "");
         if (webrtc is not null)
             WebRtcCodec.Write(w, webrtc);
+        else if (shrine is not null)
+            w.WriteByte(ShrineAddressCodec.AbsentBlock);
+        if (shrine is { } signet)
+            ShrineAddressCodec.Write(w, signet);
 
         return w.ToArray();
     }
@@ -120,10 +130,19 @@ public static class IntonationCodec
             _ => throw new CodexFormatException("Invalid Petition presence flag."),
         };
 
-        // Optional trailing fields (see EncodeBody), read positionally, each only if bytes remain: Moniker, then the
-        // WebRTC block. An over-long Moniker is clamped (cosmetic); a malformed WebRTC block is rejected (structural).
+        // Optional trailing fields (see EncodeBody), read positionally, each only if bytes remain: Moniker, the WebRTC
+        // block, then the Shrine address. An over-long Moniker is clamped (cosmetic); a malformed WebRTC or Shrine
+        // block is rejected (structural). The WebRTC slot's leading byte is read here so the 0 "absent" sentinel can
+        // be told apart from a real block.
         var moniker = r.End ? null : Monikers.Normalize(r.ReadString());
-        var webrtc = r.End ? null : WebRtcCodec.Read(ref r);
+        WebRtcEndpoint? webrtc = null;
+        if (!r.End)
+        {
+            var block = r.ReadByte();
+            if (block != ShrineAddressCodec.AbsentBlock)
+                webrtc = WebRtcCodec.ReadAfterVersion(ref r, block);
+        }
+        Sigil? shrine = r.End ? null : ShrineAddressCodec.Read(ref r);
 
         return new Intonation
         {
@@ -138,6 +157,7 @@ public static class IntonationCodec
             Petition = petition,
             Moniker = moniker,
             WebRtc = webrtc,
+            Shrine = shrine,
             Signature = [],
         };
     }

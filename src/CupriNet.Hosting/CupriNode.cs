@@ -171,6 +171,7 @@ public sealed partial class CupriNode : IAsyncDisposable
             Petition = petition,
             Moniker = _options.Moniker,
             WebRtc = WebRtcEndpointToAdvertise,
+            Shrine = ShrineToAdvertise,
         }, now);
     }
 

@@ -42,6 +42,9 @@ public static class CupriMarks
     /// <summary>The WebRtcEndpoint (static WebRTC params published in an Intonation) block component.</summary>
     public const string WebRtcEndpoint = "webrtc-endpoint";
 
+    /// <summary>The ShrineAddress (a hosted L2 site's Signet, published in an Intonation) block component.</summary>
+    public const string ShrineAddress = "shrine-address";
+
     /// <summary>
     /// The single built-in catalogue for the CupriNet protocol suite. Frozen at first access; its
     /// SHA-256 <see cref="Catalogue.Id"/> identifies exactly this set of definitions, so two builds that
@@ -101,6 +104,11 @@ public static class CupriMarks
         new Component(WebRtcEndpoint,
         [
             // v1 — the static WebRTC block on an Intonation (ICE ufrag/pwd, DTLS fingerprint, host UDP port).
+            new ComponentVersion(1, BumpReason.Functionality, VersionStatus.Active),
+        ]),
+        new Component(ShrineAddress,
+        [
+            // v1 — the Signet (32-byte mark) of an L2 Shrine this node hosts, published in its Intonation.
             new ComponentVersion(1, BumpReason.Functionality, VersionStatus.Active),
         ]),
     ]);

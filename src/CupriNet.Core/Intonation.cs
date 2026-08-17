@@ -48,9 +48,20 @@ public sealed record Intonation
     /// </summary>
     public WebRtcEndpoint? WebRtc { get; init; }
 
+    /// <summary>
+    /// Optional Signet of an L2 <b>Shrine</b> (site) this node hosts, so "here is my link" doubles as "here is my
+    /// site". <b>Opt-in:</b> advertising it here links the Shrine to this node's overlay Sigil — right for a public
+    /// or branded host, wrong for anonymous hosting (share the address out-of-band instead). See
+    /// <c>design/shrines.md</c>.
+    /// </summary>
+    public Sigil? Shrine { get; init; }
+
     /// <summary>Detached signature over the canonical body, made with the inviter's Seal.</summary>
     public required byte[] Signature { get; init; }
 
     /// <summary>The Sigil of the inviter, derived from the embedded Seal public key.</summary>
     public Sigil InviterSigil => Sigil.FromSealPublicKey(InviterSealPublicKey);
+
+    /// <summary>The advertised Shrine's <c>cupri1…</c> address, or null when the link advertises no Shrine.</summary>
+    public string? ShrineAddress => Shrine is { } shrine ? Bech32.Fingerprint(shrine) : null;
 }

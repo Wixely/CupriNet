@@ -56,9 +56,15 @@ public static class WebRtcCodec
         writer.WriteVarUInt((ulong)(uint)endpoint.Port);
     }
 
-    public static WebRtcEndpoint Read(ref CodexReader reader)
+    public static WebRtcEndpoint Read(ref CodexReader reader) => ReadAfterVersion(ref reader, reader.ReadByte());
+
+    /// <summary>
+    /// Reads the block when the caller has already consumed its leading version byte. The Intonation trailer needs
+    /// this: it peeks that byte to distinguish a real block from the <c>0</c> "absent" sentinel that reserves this
+    /// positional slot when a later optional field (the Shrine address) is present.
+    /// </summary>
+    public static WebRtcEndpoint ReadAfterVersion(ref CodexReader reader, byte version)
     {
-        var version = reader.ReadByte();
         if (!CupriMarks.Accepts(CupriMarks.WebRtcEndpoint, version))
             throw new CodexFormatException($"Unsupported WebRtcEndpoint version {version}.");
 

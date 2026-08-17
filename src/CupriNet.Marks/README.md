@@ -24,6 +24,7 @@ definitions).
 | `lan-presence` | signed LAN discovery announcement (`LanPresence`) | accept |
 | `known-peer` | persisted trusted-contact record (`KnownPeer`) | accept |
 | `webrtc-endpoint` | static WebRTC block on an Intonation (`WebRtcEndpoint`) | accept |
+| `shrine-address` | hosted L2 site's Signet on an Intonation (`ShrineAddressCodec`) | accept |
 
 ## Two patterns
 

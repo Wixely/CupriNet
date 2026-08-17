@@ -28,6 +28,12 @@ public sealed record IntonationOptions
 
     /// <summary>Optional static WebRTC endpoint to advertise, so a browser can dial this node with no signalling server.</summary>
     public WebRtcEndpoint? WebRtc { get; init; }
+
+    /// <summary>
+    /// Optional Signet of an L2 Shrine this node hosts, advertised in the link. Opt-in: it links the Shrine to this
+    /// node's overlay Sigil (see <see cref="ShrineAddressCodec"/>).
+    /// </summary>
+    public Sigil? Shrine { get; init; }
 }
 
 /// <summary>Mints signed Intonations for a node identity (the <c>Intone</c> command).</summary>
@@ -57,6 +63,7 @@ public static class IntonationMint
             Petition = options.Petition,
             Moniker = options.Moniker,
             WebRtc = options.WebRtc,
+            Shrine = options.Shrine,
             Signature = [],
         };
 
