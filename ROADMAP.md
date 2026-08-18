@@ -40,8 +40,10 @@ The two-layer stack is real, wired end-to-end, and covered by the test suite (**
   Sigil**, so hosting leaks no L1 identity. A **Pilgrim** (an ephemeral visitor, throwaway per-visit identity) dials
   it, **pins the Signet** through the existing Noise handshake — nothing identifying goes on the wire, and only the
   key-holder can answer — and fetches over the **Oracle** rite (HTTP-shaped `request → response` with static-file and
-  app-callback handlers). No overlay join, direct-only, and browser DataChannels route straight into it. A node may
-  **opt in** to advertising its Shrine in its signed Intonation. See [design/shrines.md](design/shrines.md).
+  app-callback handlers), or attends an **Auspice**: a named live feed pushed over the same connection (snapshot then
+  updates, no polling and no WebSocket), size-quantised against traffic analysis. No overlay join, direct-only, and
+  browser DataChannels route straight into it. A node may **opt in** to advertising its Shrine in its signed
+  Intonation. See [design/shrines.md](design/shrines.md).
 - **Monikers.** Optional self-asserted node label (a human-readable name a node claims for itself, carried
   **unverified** in its signed link + peer record with length/content Wards); trust always rests on the fingerprint,
   never the name — validating a Moniker is the consuming client's job (fingerprint pinning, allow-list, side channel).
@@ -66,7 +68,9 @@ The two-layer stack is real, wired end-to-end, and covered by the test suite (**
 
 - ~~**Finish CupriMark coverage** of the remaining low-value version points: `Toll`, `LanPresence`, `KnownPeer`.~~
   **Done** — all three now range-negotiate/accept through the catalogue (`toll` negotiates; `lan-presence` and
-  `known-peer` accept), so every versioned wire component is CupriMark-covered.
+  `known-peer` accept), so every versioned wire component is CupriMark-covered. The site rites added since
+  (`oracle`, `auspice`) carry their own components too — the first rites added *after* a release, so unlike
+  Epistle/Conduit they can no longer inherit compatibility from the handshake.
 - **Live-verify Tor on Lodestar** — confirm the overlay `.onion` and the status-page `.onion` both publish
   (two onion services on one Tor client) on a real network, end to end.
 - **Browser example (hosted webpage) — the Nodestar product.** Both server halves are done (the WebRTC transport and

@@ -25,6 +25,15 @@ definitions).
 | `known-peer` | persisted trusted-contact record (`KnownPeer`) | accept |
 | `webrtc-endpoint` | static WebRTC block on an Intonation (`WebRtcEndpoint`) | accept |
 | `shrine-address` | hosted L2 site's Signet on an Intonation (`ShrineAddressCodec`) | accept |
+| `oracle` | a Shrine's request/response site rite frame (`OracleCodec`) | accept |
+| `auspice` | a Shrine's live-feed site rite frame (`AuspiceCodec`) | accept |
+
+> **Why the rites are covered individually now.** Epistle/Conduit/Reliquary carry no component of their own: they
+> inherited compatibility from the handshake, because every node speaking a given `conjunction` spoke all of them —
+> they shipped together. **Oracle** and **Auspice** are the first rites added *after* a release, so that no longer
+> holds: two peers can agree a Conjunction version and still disagree about which rites exist. Each therefore stamps
+> and accepts its own frame version, turning "newer Pilgrim, older Shrine" into a typed refusal instead of a stream
+> that never starts.
 
 ## Two patterns
 

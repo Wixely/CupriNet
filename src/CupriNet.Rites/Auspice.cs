@@ -1,4 +1,5 @@
 using CupriNet.Codex;
+using CupriNet.Marks;
 
 namespace CupriNet.Rites;
 
@@ -87,6 +88,7 @@ public static class AuspiceCodec
                 "(the browser DataChannel ceiling, less framing headroom). Send a delta, or move bulk content to the Reliquary.");
 
         var w = new CodexWriter();
+        w.WriteByte(checked((byte)CupriMarks.Supported(CupriMarks.Auspice).Max));
         w.WriteByte((byte)frame.Kind);
         w.WriteString(frame.Topic);
         w.WriteBytes(frame.Payload);
@@ -96,6 +98,14 @@ public static class AuspiceCodec
     public static AuspiceFrame Decode(ReadOnlySpan<byte> data)
     {
         var r = new CodexReader(data);
+
+        // Leads with the Auspice version this build speaks, so a peer that predates the rite (or speaks a version we
+        // have buried) is a typed refusal rather than a frame nobody can parse. See OracleCodec for why the rites
+        // now carry their own version instead of inheriting it from the handshake.
+        var version = r.ReadByte();
+        if (!CupriMarks.Accepts(CupriMarks.Auspice, version))
+            throw new CodexFormatException($"Unsupported Auspice frame version {version}.");
+
         var kind = (AuspiceFrameKind)r.ReadByte();
         if (!Enum.IsDefined(kind))
             throw new CodexFormatException($"Unknown Auspice frame kind {(byte)kind}.");

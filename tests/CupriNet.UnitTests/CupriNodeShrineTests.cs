@@ -43,7 +43,7 @@ public class CupriNodeShrineTests
         await using var _listener = listener;
 
         // Host serves a Pilgrimage over its side of the vessel, presenting only the Signet.
-        var hostTask = hostNode.AcceptPilgrimageOverVesselAsync(hostSide, signet, handler, cancellationToken: ct);
+        var hostTask = hostNode.AcceptPilgrimageOverVesselAsync(hostSide, signet, handler, ct);
 
         // Pilgrim dials, pinning the Signet (the site URL is signet.Address).
         await using var shrine = await pilgrimNode.PilgrimageOverVesselAsync(pilgrimSide, signet.Sigil, ct);
@@ -71,7 +71,7 @@ public class CupriNodeShrineTests
         await using var _listener = listener;
 
         // Host presents `signet`, but the Pilgrim pins a DIFFERENT Signet — the handshake must fail for the Pilgrim.
-        var hostTask = hostNode.AcceptPilgrimageOverVesselAsync(hostSide, signet, handler, cancellationToken: ct);
+        var hostTask = hostNode.AcceptPilgrimageOverVesselAsync(hostSide, signet, handler, ct);
 
         await Assert.ThrowsAnyAsync<Exception>(async () =>
         {

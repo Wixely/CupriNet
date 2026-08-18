@@ -9,7 +9,7 @@ security is [Noise](https://noiseprotocol.org/) over TCP; cryptography is manage
 ([BouncyCastle](https://www.bouncycastle.org/) primitives behind a swappable seam).
 
 > Status: pre-1.0, evolving. The cryptographic core (Noise_XX identity binding, channel Consecration,
-> signed documents) is real and reviewed; **406 unit tests** pass. Not yet audited for production use.
+> signed documents) is real and reviewed; **409 unit tests** pass. Not yet audited for production use.
 > See the [roadmap](ROADMAP.md) for what's done, next, and deliberately out of scope.
 
 ## The model — two layers

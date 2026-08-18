@@ -68,10 +68,17 @@ public sealed partial class CupriNode
     /// node's overlay Sigil — right for a public or branded host, wrong for anonymous hosting.
     /// </para>
     /// </summary>
+    public void HostShrine(Signet signet, IOracleHandler handler, bool advertiseInLink = false)
+        => HostShrine(signet, handler, feeds: null, advertiseInLink);
+
+    /// <summary>
+    /// As <see cref="HostShrine(Signet, IOracleHandler, bool)"/>, plus named live <paramref name="feeds"/> the Shrine
+    /// emanates over the Auspice rite (see <see cref="IAuspiceSource"/>).
+    /// </summary>
     public void HostShrine(
         Signet signet,
         IOracleHandler handler,
-        IReadOnlyDictionary<string, IAuspiceSource>? feeds = null,
+        IReadOnlyDictionary<string, IAuspiceSource>? feeds,
         bool advertiseInLink = false)
     {
         ArgumentNullException.ThrowIfNull(signet);
@@ -91,11 +98,19 @@ public sealed partial class CupriNode
     /// <paramref name="handler"/> and any live <paramref name="feeds"/> — until the Pilgrim disconnects. No overlay
     /// join: a Pilgrim is a short-lived client. On failure the vessel is disposed.
     /// </summary>
+    public Task AcceptPilgrimageOverVesselAsync(
+        IVessel vessel, Signet signet, IOracleHandler handler, CancellationToken cancellationToken = default)
+        => AcceptPilgrimageOverVesselAsync(vessel, signet, handler, feeds: null, cancellationToken);
+
+    /// <summary>
+    /// As <see cref="AcceptPilgrimageOverVesselAsync(IVessel, Signet, IOracleHandler, CancellationToken)"/>, also
+    /// serving named live <paramref name="feeds"/> over the Auspice rite alongside the Oracle.
+    /// </summary>
     public async Task AcceptPilgrimageOverVesselAsync(
         IVessel vessel,
         Signet signet,
         IOracleHandler handler,
-        IReadOnlyDictionary<string, IAuspiceSource>? feeds = null,
+        IReadOnlyDictionary<string, IAuspiceSource>? feeds,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(vessel);

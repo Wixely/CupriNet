@@ -1,4 +1,5 @@
 using CupriNet.Codex;
+using CupriNet.Marks;
 
 namespace CupriNet.Rites;
 
@@ -75,10 +76,28 @@ public static class OracleCodec
     /// <summary>An upper bound on header count, so a malformed frame cannot force a huge allocation.</summary>
     private const ulong MaxHeaders = 4096;
 
+    /// <summary>
+    /// Every frame leads with the Oracle version this build speaks, accepted by the reader through
+    /// <see cref="CupriMarks.Accepts"/>. The rites used to inherit their compatibility from the handshake — every node
+    /// that spoke a given Conjunction spoke all the rites, because they all shipped together. The Oracle and the
+    /// Auspice are the first rites added <em>after</em> a release, so that no longer holds: two peers can agree on a
+    /// Conjunction version and still disagree about which rites exist. Stamping the version makes the mismatch a
+    /// typed refusal instead of a frame nobody can parse.
+    /// </summary>
+    private static byte Version => checked((byte)CupriMarks.Supported(CupriMarks.Oracle).Max);
+
+    private static void ReadAndCheckVersion(ref CodexReader r)
+    {
+        var version = r.ReadByte();
+        if (!CupriMarks.Accepts(CupriMarks.Oracle, version))
+            throw new CodexFormatException($"Unsupported Oracle frame version {version}.");
+    }
+
     public static byte[] EncodeRequest(OracleRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
         var w = new CodexWriter();
+        w.WriteByte(Version);
         w.WriteString(request.Method);
         w.WriteString(request.Path);
         WriteHeaders(w, request.Headers);
@@ -89,6 +108,7 @@ public static class OracleCodec
     public static OracleRequest DecodeRequest(ReadOnlySpan<byte> data)
     {
         var r = new CodexReader(data);
+        ReadAndCheckVersion(ref r);
         var method = r.ReadString();
         var path = r.ReadString();
         var headers = ReadHeaders(ref r);
@@ -100,6 +120,7 @@ public static class OracleCodec
     {
         ArgumentNullException.ThrowIfNull(response);
         var w = new CodexWriter();
+        w.WriteByte(Version);
         w.WriteUInt32(response.Status);
         WriteHeaders(w, response.Headers);
         w.WriteBytes(response.Body);
@@ -109,6 +130,7 @@ public static class OracleCodec
     public static OracleResponse DecodeResponse(ReadOnlySpan<byte> data)
     {
         var r = new CodexReader(data);
+        ReadAndCheckVersion(ref r);
         var status = r.ReadUInt32();
         var headers = ReadHeaders(ref r);
         var body = r.ReadBytes().ToArray();

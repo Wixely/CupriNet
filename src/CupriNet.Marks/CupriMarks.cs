@@ -45,6 +45,12 @@ public static class CupriMarks
     /// <summary>The ShrineAddress (a hosted L2 site's Signet, published in an Intonation) block component.</summary>
     public const string ShrineAddress = "shrine-address";
 
+    /// <summary>The Oracle (a Shrine's request/response site rite) frame component.</summary>
+    public const string Oracle = "oracle";
+
+    /// <summary>The Auspice (a Shrine's live-feed site rite) frame component.</summary>
+    public const string Auspice = "auspice";
+
     /// <summary>
     /// The single built-in catalogue for the CupriNet protocol suite. Frozen at first access; its
     /// SHA-256 <see cref="Catalogue.Id"/> identifies exactly this set of definitions, so two builds that
@@ -109,6 +115,16 @@ public static class CupriMarks
         new Component(ShrineAddress,
         [
             // v1 — the Signet (32-byte mark) of an L2 Shrine this node hosts, published in its Intonation.
+            new ComponentVersion(1, BumpReason.Functionality, VersionStatus.Active),
+        ]),
+        new Component(Oracle,
+        [
+            // v1 — the HTTP-shaped request/response frame a Pilgrim exchanges with a Shrine.
+            new ComponentVersion(1, BumpReason.Functionality, VersionStatus.Active),
+        ]),
+        new Component(Auspice,
+        [
+            // v1 — the live-feed frame (attend/depart/snapshot/update/sealed) a Shrine emanates.
             new ComponentVersion(1, BumpReason.Functionality, VersionStatus.Active),
         ]),
     ]);

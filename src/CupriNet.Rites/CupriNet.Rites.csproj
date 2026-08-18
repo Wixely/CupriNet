@@ -3,6 +3,9 @@
     <ProjectReference Include="..\CupriNet.Abstractions\CupriNet.Abstractions.csproj" />
     <ProjectReference Include="..\CupriNet.Alembic\CupriNet.Alembic.csproj" />
     <ProjectReference Include="..\CupriNet.Codex\CupriNet.Codex.csproj" />
+    <!-- The site rites (Oracle, Auspice) stamp and accept their frame version through the CupriMark catalogue, so a
+         newer peer degrades deliberately against an older one instead of hanging on a frame it cannot parse. -->
+    <ProjectReference Include="..\CupriNet.Marks\CupriNet.Marks.csproj" />
     <ProjectReference Include="..\CupriNet.Vessel\CupriNet.Vessel.csproj" />
   </ItemGroup>
 </Project>

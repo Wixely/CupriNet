@@ -1,5 +1,7 @@
 using System.Net;
 using System.Security.Cryptography;
+using CupriNet.Codex;
+using CupriNet.Marks;
 using CupriNet.Rites;
 using CupriNet.Vessel;
 using Xunit;
@@ -44,6 +46,26 @@ public class OracleTests
         Assert.Equal(200u, decoded.Status);
         Assert.Equal("text/html", decoded.ContentType);
         Assert.Equal("<h1>hi</h1>"u8.ToArray(), decoded.Body);
+    }
+
+    [Fact]
+    public void Codec_StampsAndChecksTheFrameVersion()
+    {
+        // Both directions lead with the catalogue version, so a peer that predates the rite (or speaks a version this
+        // build has buried) gets a typed refusal rather than a mis-parse.
+        var request = OracleCodec.EncodeRequest(OracleRequest.Get("/"));
+        var response = OracleCodec.EncodeResponse(OracleResponse.NotFound());
+        var expected = (byte)CupriMarks.Supported(CupriMarks.Oracle).Max;
+        Assert.Equal(expected, request[0]);
+        Assert.Equal(expected, response[0]);
+
+        var future = request.ToArray();
+        future[0] = 99;
+        Assert.Throws<CodexFormatException>(() => OracleCodec.DecodeRequest(future));
+
+        var futureResponse = response.ToArray();
+        futureResponse[0] = 99;
+        Assert.Throws<CodexFormatException>(() => OracleCodec.DecodeResponse(futureResponse));
     }
 
     [Fact]

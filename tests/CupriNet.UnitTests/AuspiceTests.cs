@@ -3,6 +3,7 @@ using System.Text;
 using CupriNet.Codex;
 using CupriNet.Core;
 using CupriNet.Hosting;
+using CupriNet.Marks;
 using CupriNet.Rites;
 using CupriNet.Vessel;
 using Xunit;
@@ -74,32 +75,47 @@ public class AuspiceTests
         Assert.True(browserDataChannelLimit - AuspiceCodec.MaxPayloadBytes >= 32 * 1024);
     }
 
+    /// <summary>Hand-rolls a frame, so a malformed one can be built deliberately. v1 is the current wire version.</summary>
+    private static byte[] RawFrame(byte version, byte kind, string topic, byte[] payload)
+    {
+        var w = new CodexWriter();
+        w.WriteByte(version);
+        w.WriteByte(kind);
+        w.WriteString(topic);
+        w.WriteBytes(payload);
+        return w.ToArray();
+    }
+
     [Fact]
     public void Decode_RejectsOversizedPayload_FromAHostilePeer()
     {
-        // Hand-roll a frame that declares a payload past the ceiling: the decoder must refuse it, not allocate it.
-        var w = new CodexWriter();
-        w.WriteByte((byte)AuspiceFrameKind.Update);
-        w.WriteString("hostile");
-        w.WriteBytes(new byte[AuspiceCodec.MaxPayloadBytes + 1]);
-
-        Assert.Throws<CodexFormatException>(() => AuspiceCodec.Decode(w.ToArray()));
+        // A frame declaring a payload past the ceiling must be refused, not allocated.
+        var raw = RawFrame(1, (byte)AuspiceFrameKind.Update, "hostile", new byte[AuspiceCodec.MaxPayloadBytes + 1]);
+        Assert.Throws<CodexFormatException>(() => AuspiceCodec.Decode(raw));
     }
 
     [Fact]
     public void Decode_RejectsUnknownKindAndEmptyTopic()
     {
-        var badKind = new CodexWriter();
-        badKind.WriteByte(99);
-        badKind.WriteString("t");
-        badKind.WriteBytes([]);
-        Assert.Throws<CodexFormatException>(() => AuspiceCodec.Decode(badKind.ToArray()));
+        Assert.Throws<CodexFormatException>(() => AuspiceCodec.Decode(RawFrame(1, 99, "t", [])));
+        Assert.Throws<CodexFormatException>(() => AuspiceCodec.Decode(RawFrame(1, (byte)AuspiceFrameKind.Update, "", [])));
+    }
 
-        var noTopic = new CodexWriter();
-        noTopic.WriteByte((byte)AuspiceFrameKind.Update);
-        noTopic.WriteString("");
-        noTopic.WriteBytes([]);
-        Assert.Throws<CodexFormatException>(() => AuspiceCodec.Decode(noTopic.ToArray()));
+    [Fact]
+    public void Decode_RejectsAnUnsupportedFrameVersion()
+    {
+        // A peer speaking a version this build doesn't know is a typed refusal, not a mis-parse. This is what makes
+        // "newer Pilgrim, older Shrine" degrade deliberately instead of hanging on an unintelligible frame.
+        var future = RawFrame(99, (byte)AuspiceFrameKind.Update, "t", []);
+        var ex = Assert.Throws<CodexFormatException>(() => AuspiceCodec.Decode(future));
+        Assert.Contains("Auspice frame version", ex.Message);
+    }
+
+    [Fact]
+    public void Encode_StampsTheCatalogueVersion()
+    {
+        var encoded = AuspiceCodec.Encode(new AuspiceFrame { Kind = AuspiceFrameKind.Attend, Topic = "t" });
+        Assert.Equal((byte)CupriMarks.Supported(CupriMarks.Auspice).Max, encoded[0]);
     }
 
     [Fact]
@@ -270,7 +286,7 @@ public class AuspiceTests
         VesselSession hostSide = await acceptTask;
         await using var _listener = listener;
 
-        var hostTask = hostNode.AcceptPilgrimageOverVesselAsync(hostSide, signet, handler, cancellationToken: ct);
+        var hostTask = hostNode.AcceptPilgrimageOverVesselAsync(hostSide, signet, handler, ct);
         await using var shrine = await pilgrimNode.PilgrimageOverVesselAsync(pilgrimSide, signet.Sigil, ct);
 
         // The host hosts no feeds at all, so attending one must terminate rather than hang.
