@@ -103,6 +103,99 @@ public class AuspiceTests
     }
 
     [Fact]
+    public void Padding_Blocks_QuantisesToTheNextMultiple()
+    {
+        var padding = AuspicePadding.Blocks(512);
+
+        Assert.Equal(512, padding.Quantise(1));
+        Assert.Equal(512, padding.Quantise(511));
+        Assert.Equal(512, padding.Quantise(512));   // already on a boundary: no growth
+        Assert.Equal(1024, padding.Quantise(513));
+        Assert.Equal(0, padding.Quantise(0));
+    }
+
+    [Fact]
+    public void Padding_PowersOfTwo_CollapsesTheRangeIntoBuckets()
+    {
+        var padding = AuspicePadding.PowersOfTwo;
+
+        Assert.Equal(256, padding.Quantise(1));     // floored at the minimum bucket
+        Assert.Equal(256, padding.Quantise(256));
+        Assert.Equal(512, padding.Quantise(257));
+        Assert.Equal(4096, padding.Quantise(2049));
+    }
+
+    [Fact]
+    public void Padding_NeverExceedsWhatTheTransportWillCarry()
+    {
+        // A near-limit frame must not be padded into a message the 256 KiB transport would refuse.
+        var padded = AuspicePadding.PowersOfTwo.Quantise(AuspiceCodec.MaxPayloadBytes);
+
+        Assert.True(padded <= AuspiceCodec.MaxPaddedBytes);
+        Assert.True(padded < 256 * 1024);
+        Assert.True(padded >= AuspiceCodec.MaxPayloadBytes);   // and never shrinks a frame
+    }
+
+    [Fact]
+    public void Padding_None_LeavesLengthsExact()
+    {
+        Assert.Equal(1, AuspicePadding.None.Quantise(1));
+        Assert.Equal(9999, AuspicePadding.None.Quantise(9999));
+    }
+
+    [Fact]
+    public void Decode_IgnoresTrailingPadding()
+    {
+        // Padding is appended to the encoded frame; because the payload is length-prefixed, a reader stops at the
+        // real end and never sees it. Two differently-padded copies must decode identically.
+        var frame = new AuspiceFrame { Kind = AuspiceFrameKind.Update, Topic = "t", Payload = "hi"u8.ToArray() };
+        var encoded = AuspiceCodec.Encode(frame);
+
+        var padded = new byte[encoded.Length + 500];
+        encoded.CopyTo(padded, 0);
+
+        var decoded = AuspiceCodec.Decode(padded);
+        Assert.Equal(AuspiceFrameKind.Update, decoded.Kind);
+        Assert.Equal("t", decoded.Topic);
+        Assert.Equal("hi", decoded.AsText());
+    }
+
+    [Fact]
+    public async Task Padding_MakesDifferentSizedUpdates_IndistinguishableOnTheWire()
+    {
+        // Two updates whose payloads differ in length must produce the SAME number of transport bytes once padded.
+        var sizes = new List<int>();
+        var channel = new RecordingChannel(sizes);
+        var session = new AuspiceSession(channel, AuspicePadding.Blocks(512));
+
+        await session.SendUpdateAsync("t", new byte[10]);
+        await session.SendUpdateAsync("t", new byte[200]);
+
+        Assert.Equal(2, sizes.Count);
+        Assert.Equal(sizes[0], sizes[1]);   // both fell in the same bucket
+
+        // Without padding they are plainly different sizes — i.e. the defence is doing something.
+        var bare = new List<int>();
+        var unpadded = new AuspiceSession(new RecordingChannel(bare), AuspicePadding.None);
+        await unpadded.SendUpdateAsync("t", new byte[10]);
+        await unpadded.SendUpdateAsync("t", new byte[200]);
+        Assert.NotEqual(bare[0], bare[1]);
+    }
+
+    /// <summary>An <see cref="IStreamChannel"/> that records how many bytes each send put on the wire.</summary>
+    private sealed class RecordingChannel(List<int> sizes) : IStreamChannel
+    {
+        public ValueTask SendAsync(ReadOnlyMemory<byte> payload, CancellationToken cancellationToken = default)
+        {
+            sizes.Add(payload.Length);
+            return ValueTask.CompletedTask;
+        }
+
+        public ValueTask<byte[]?> ReceiveAsync(CancellationToken cancellationToken = default)
+            => ValueTask.FromResult<byte[]?>(null);
+    }
+
+    [Fact]
     public async Task Attend_ReceivesSnapshotThenUpdates_AlongsideAnOracleFetch()
     {
         using var cts = new CancellationTokenSource(Timeout);

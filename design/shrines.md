@@ -165,6 +165,21 @@ relayed). With reachability riding in the link, even L1 is optional for v1: *fol
 - **Pilgrim anonymity** — the throwaway per-visit identity (v1) / NK (v2) keeps the Pilgrim unlinkable; the Shrine learns
   nothing durable about who visited.
 - **DoS on a blind endpoint** — DTLS HelloVerify cookie → **Toll**-over-DataChannel → per-source rate-limit.
+- **What a feed may publish.** A Pilgrim is anonymous and unauthenticated, so an Auspice feed is world-readable. Peer
+  data itself is fine to serve — `PeerRecord`s are signed by their owners precisely to be redistributed, and every
+  Intonation's Litany already hands out sampled Sigils. The line is elsewhere: **never publish
+  `ConstellationEntry.Bucket`, `Standing` or `Taint`.** Those are not facts about peers, they are *this node's private
+  judgements* — the code is explicit that "local Standing/Taint never propagate as authoritative fact" — and streaming
+  them tells a Sybil operator whether its identities have been noticed or quarantined, turning the feed into a
+  detection-evasion aid. The trap is that `ConstellationEntry` bundles them in with the public record, so
+  `Serialize(constellation.Entries)` leaks them by accident: project `entry.Record` explicitly instead. Rule of thumb —
+  **if the control plane wouldn't serve it to a peer, don't push it to an anonymous visitor.**
+- **Traffic analysis.** Encryption hides the bytes, not how many there are. Feed content and names are sealed, but
+  message **size and timing** stay visible, and a live feed is a far richer signal than a request/response burst — update
+  sizes track content, snapshot size tracks how much state exists. `AuspicePadding` quantises each message to a bucket
+  (512-byte blocks by default; `PowersOfTwo` for ~10 buckets across the whole range) *before* it is sealed, so the
+  padding is encrypted with everything else and a reader never sees it. It does **not** hide timing: an update per event
+  still reveals the event rate, so a feed whose cadence is itself sensitive needs the source to smooth it.
 
 ## Scope & limits (v1)
 

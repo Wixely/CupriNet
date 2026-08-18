@@ -70,6 +70,12 @@ public static class AuspiceCodec
     /// <summary>Maximum length of a feed name, a Ward against an unbounded allocation from a hostile peer.</summary>
     public const int MaxTopicLength = 128;
 
+    /// <summary>
+    /// The largest an encoded frame may grow to <em>after</em> padding — still comfortably under the 256 KiB transport
+    /// ceiling, so quantising a size can never make a message the transport would refuse.
+    /// </summary>
+    public const int MaxPaddedBytes = 224 * 1024;
+
     public static byte[] Encode(AuspiceFrame frame)
     {
         ArgumentNullException.ThrowIfNull(frame);
@@ -111,5 +117,79 @@ public static class AuspiceCodec
         if (string.IsNullOrEmpty(topic) || topic.Length > MaxTopicLength)
             throw new ArgumentOutOfRangeException(
                 nameof(topic), $"An Auspice feed name must be 1..{MaxTopicLength} characters.");
+    }
+}
+
+/// <summary>
+/// How much an Auspice message's length is rounded up before it is sealed — a traffic-analysis defence.
+///
+/// <para>Content and feed names are encrypted, so an on-path observer never learns <em>what</em> is flowing. What it
+/// can still read is the <b>size and timing</b> of each message: encryption hides the bytes, not their number. On a
+/// live feed that is a real signal — update sizes track content, and a snapshot's size tracks how much state there is.
+/// Quantising every message to a bucket collapses many distinct sizes into one, so an observer learns a range instead
+/// of a number.</para>
+///
+/// <para>Padding is applied to the <em>encoded frame, before sealing</em>, so it is encrypted and authenticated along
+/// with everything else. Because the payload is length-prefixed, a reader stops at the real end and the padding is
+/// simply never read — no format change and no length field. It does not hide <b>timing</b>: an update per event still
+/// reveals the event rate.</para>
+/// </summary>
+public sealed class AuspicePadding
+{
+    /// <summary>The default block size: small enough to be cheap, large enough that typical deltas collide.</summary>
+    public const int DefaultBlockBytes = 512;
+
+    /// <summary>The smallest bucket <see cref="PowersOfTwo"/> will round up to.</summary>
+    public const int MinPowerOfTwoBucket = 256;
+
+    private readonly int _block;
+    private readonly bool _powerOfTwo;
+
+    private AuspicePadding(int block, bool powerOfTwo)
+    {
+        _block = block;
+        _powerOfTwo = powerOfTwo;
+    }
+
+    /// <summary>No padding — every message is its exact length. Cheapest, and leaks the most.</summary>
+    public static AuspicePadding None { get; } = new(0, false);
+
+    /// <summary>
+    /// Rounds every message up to a multiple of <paramref name="blockBytes"/>. Overhead is bounded by one block per
+    /// message, so all deltas below the block size become indistinguishable from each other.
+    /// </summary>
+    public static AuspicePadding Blocks(int blockBytes)
+    {
+        if (blockBytes is < 1 or > AuspiceCodec.MaxPaddedBytes)
+            throw new ArgumentOutOfRangeException(nameof(blockBytes));
+        return new AuspicePadding(blockBytes, powerOfTwo: false);
+    }
+
+    /// <summary>
+    /// Rounds up to the next power of two (never below <see cref="MinPowerOfTwoBucket"/>), collapsing the whole size
+    /// range into ~10 buckets. The strongest option here, at up to 2× bandwidth.
+    /// </summary>
+    public static AuspicePadding PowersOfTwo { get; } = new(0, powerOfTwo: true);
+
+    /// <summary>The default policy: <see cref="DefaultBlockBytes"/>-byte blocks.</summary>
+    public static AuspicePadding Default { get; } = Blocks(DefaultBlockBytes);
+
+    /// <summary>The length <paramref name="length"/> is padded up to, never beyond <see cref="AuspiceCodec.MaxPaddedBytes"/>.</summary>
+    public int Quantise(int length)
+    {
+        if (length < 0)
+            throw new ArgumentOutOfRangeException(nameof(length));
+
+        var target = this switch
+        {
+            { _powerOfTwo: true } => (int)Math.Min(
+                (uint)AuspiceCodec.MaxPaddedBytes,
+                System.Numerics.BitOperations.RoundUpToPowerOf2((uint)Math.Max(length, MinPowerOfTwoBucket))),
+            { _block: > 0 } => length % _block == 0 ? length : length + (_block - (length % _block)),
+            _ => length,
+        };
+
+        // Never pad a message into a size the transport would refuse; an at-limit frame simply stays as it is.
+        return Math.Clamp(target, length, Math.Max(length, AuspiceCodec.MaxPaddedBytes));
     }
 }

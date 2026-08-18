@@ -21,23 +21,27 @@ public sealed class AuspiceSession
 
     private readonly IStreamChannel _channel;
     private readonly VeilCipher? _veil;
+    private readonly AuspicePadding _padding;
     private readonly SemaphoreSlim _sendLock = new(1, 1);
 
-    public AuspiceSession(IStreamChannel channel, ReadOnlyMemory<byte> sessionKey, ICryptoSuite suite)
+    public AuspiceSession(IStreamChannel channel, ReadOnlyMemory<byte> sessionKey, ICryptoSuite suite, AuspicePadding? padding = null)
     {
         _channel = channel ?? throw new ArgumentNullException(nameof(channel));
         ArgumentNullException.ThrowIfNull(suite);
         _veil = new VeilCipher(sessionKey, suite);
+        _padding = padding ?? AuspicePadding.Default;
     }
 
     /// <summary>
-    /// Binds over an <em>already-encrypted</em> transport (the Pilgrimage's Noise vessel): frames are sent as-is,
-    /// with no Veil layer, because the vessel is itself the confidentiality + authenticity boundary.
+    /// Binds over an <em>already-encrypted</em> transport (the Pilgrimage's Noise vessel): frames are sent with no
+    /// Veil layer, because the vessel is itself the confidentiality + authenticity boundary. Padding still applies —
+    /// encryption hides the bytes, not how many there are.
     /// </summary>
-    public AuspiceSession(IStreamChannel channel)
+    public AuspiceSession(IStreamChannel channel, AuspicePadding? padding = null)
     {
         _channel = channel ?? throw new ArgumentNullException(nameof(channel));
         _veil = null;
+        _padding = padding ?? AuspicePadding.Default;
     }
 
     /// <summary>Pilgrim: begin attending <paramref name="topic"/>. The Shrine answers with a snapshot, then updates.</summary>
@@ -108,7 +112,7 @@ public sealed class AuspiceSession
     // Sends are serialised: a Shrine may emanate several feeds from independent tasks over the one stream.
     private async Task SendAsync(AuspiceFrame frame, CancellationToken cancellationToken)
     {
-        var body = AuspiceCodec.Encode(frame);   // validates the topic and the payload ceiling before any I/O
+        var body = Pad(AuspiceCodec.Encode(frame));   // validates the topic and payload ceiling before any I/O
         var w = new CodexWriter();
         w.WriteBytes(_veil is null ? body : _veil.Seal(body));
         var wire = w.ToArray();
@@ -122,5 +126,21 @@ public sealed class AuspiceSession
         {
             _sendLock.Release();
         }
+    }
+
+    /// <summary>
+    /// Grows an encoded frame to its quantised length so an observer sees a bucket rather than the exact size. The
+    /// padding sits inside what is subsequently sealed, and the decoder never reads it: the payload is
+    /// length-prefixed, so trailing bytes are simply not part of any field.
+    /// </summary>
+    private byte[] Pad(byte[] body)
+    {
+        var target = _padding.Quantise(body.Length);
+        if (target <= body.Length)
+            return body;
+
+        var padded = new byte[target];
+        body.CopyTo(padded, 0);
+        return padded;   // zero-filled tail; it is encrypted with the rest and never parsed
     }
 }
