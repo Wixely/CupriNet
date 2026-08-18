@@ -61,11 +61,15 @@ public class FerrymanTests
         var next = await b.ReceiveAsync(ct);
         Assert.Equal((ushort)1, next!.Value.StreamId);           // the L2 frame was skipped
         Assert.Equal("after", Encoding.UTF8.GetString(next.Value.Payload));
-        Assert.True(counters.DroppedL2 >= 1);
-        Assert.True(counters.ForwardedL1 >= 3);
 
         // Closing one leg tears the bridge down.
         await a.DisposeAsync();
         await bridge;
+
+        // Counters are read only once the bridge has finished. BridgeAsync increments AFTER the forwarding send
+        // completes, so the far side can receive a frame before the counter moves — asserting mid-flight is a race
+        // that passes on a fast machine and fails on a loaded CI runner.
+        Assert.True(counters.DroppedL2 >= 1);
+        Assert.True(counters.ForwardedL1 >= 3);
     }
 }
