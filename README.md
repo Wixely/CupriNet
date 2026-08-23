@@ -70,7 +70,7 @@ Transport (Vessel)   TCP + length-prefixed framing + stream multiplexing · Nois
 | `src/CupriNet.Vessel` · `CupriNet.Noise` | TCP/UDP transport, mux; Noise XX/IK handshake |
 | `src/CupriNet.Concordance` | peer table, gossip, discovery routing |
 | `src/CupriNet.Arcanum` | channel codes, key derivation, adverts, ownership |
-| `src/CupriNet.Rites` | message / data / file / site (Oracle) protocols + retry |
+| `src/CupriNet.Rites` | message / data / file / site (Oracle, Auspice, Relic) protocols + retry |
 | `src/CupriNet.Traversal` | LAN discovery, NAT-PMP, hole punch, reliable-UDP |
 | `src/CupriNet.Persistence` | `ISecretStore` + encrypted file store |
 | `src/CupriNet.Shrine` | **`Pilgrimage`** — visit an L2 site without running a node (socket-free, so browser/WASM-safe) |

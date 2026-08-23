@@ -53,7 +53,7 @@ public static class Pilgrimage
             var pilgrim = NodeIdentity.Generate(suite);
             var conjunction = await NoiseConjunction.InitiateAsync(
                 vessel, pilgrim, network, suite, expectedPeer: expectedSignet, cancellationToken: timed.Token).ConfigureAwait(false);
-            return new ShrineSession(conjunction.Vessel);
+            return new ShrineSession(conjunction.Vessel, suite);
         }
         catch
         {

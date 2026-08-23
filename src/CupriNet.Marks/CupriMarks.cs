@@ -51,6 +51,9 @@ public static class CupriMarks
     /// <summary>The Auspice (a Shrine's live-feed site rite) frame component.</summary>
     public const string Auspice = "auspice";
 
+    /// <summary>The Relic (a Shrine's chunked bulk-content site rite) frame component.</summary>
+    public const string Relic = "relic";
+
     /// <summary>
     /// The single built-in catalogue for the CupriNet protocol suite. Frozen at first access; its
     /// SHA-256 <see cref="Catalogue.Id"/> identifies exactly this set of definitions, so two builds that
@@ -125,6 +128,12 @@ public static class CupriMarks
         new Component(Auspice,
         [
             // v1 — the live-feed frame (attend/depart/snapshot/update/sealed) a Shrine emanates.
+            new ComponentVersion(1, BumpReason.Functionality, VersionStatus.Active),
+        ]),
+        new Component(Relic,
+        [
+            // v1 — the chunked bulk-content frames (manifest and chunk, request and delivery) that carry a
+            // Reliquary transfer over a Pilgrimage.
             new ComponentVersion(1, BumpReason.Functionality, VersionStatus.Active),
         ]),
     ]);

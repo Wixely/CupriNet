@@ -12,7 +12,7 @@ public sealed partial class CupriNode
         new Dictionary<string, IAuspiceSource>();
 
     // The single Shrine this node hosts (v1). Multi-Shrine (per-connection Signet selection) is a later enhancement.
-    private (Signet Signet, IOracleHandler Handler, IReadOnlyDictionary<string, IAuspiceSource> Feeds, bool Advertise)? _shrine;
+    private (Signet Signet, IOracleHandler Handler, IReadOnlyDictionary<string, IAuspiceSource> Feeds, IRelicSource? Relics, bool Advertise)? _shrine;
 
     /// <summary>
     /// Hosts a Shrine (an L2 site) under <paramref name="signet"/>, serving content through <paramref name="handler"/>
@@ -39,10 +39,24 @@ public sealed partial class CupriNode
         IOracleHandler handler,
         IReadOnlyDictionary<string, IAuspiceSource>? feeds,
         bool advertiseInLink = false)
+        => HostShrine(signet, handler, feeds, relics: null, advertiseInLink);
+
+    /// <summary>
+    /// As <see cref="HostShrine(Signet, IOracleHandler, IReadOnlyDictionary{string, IAuspiceSource}, bool)"/>, plus
+    /// named bulk <paramref name="relics"/> the Shrine serves over the Relic rite — chunked and hash-verified, the
+    /// only way content past the message ceiling (an app blob, an asset pack) reaches a Pilgrim
+    /// (see <see cref="IRelicSource"/> / <see cref="StaticRelicSource"/>).
+    /// </summary>
+    public void HostShrine(
+        Signet signet,
+        IOracleHandler handler,
+        IReadOnlyDictionary<string, IAuspiceSource>? feeds,
+        IRelicSource? relics,
+        bool advertiseInLink = false)
     {
         ArgumentNullException.ThrowIfNull(signet);
         ArgumentNullException.ThrowIfNull(handler);
-        _shrine = (signet, handler, feeds ?? NoFeeds, advertiseInLink);
+        _shrine = (signet, handler, feeds ?? NoFeeds, relics, advertiseInLink);
     }
 
     /// <summary>The <c>cupri1…</c> address of the Shrine this node hosts, or null if it hosts none.</summary>
@@ -65,11 +79,24 @@ public sealed partial class CupriNode
     /// As <see cref="AcceptPilgrimageOverVesselAsync(IVessel, Signet, IOracleHandler, CancellationToken)"/>, also
     /// serving named live <paramref name="feeds"/> over the Auspice rite alongside the Oracle.
     /// </summary>
+    public Task AcceptPilgrimageOverVesselAsync(
+        IVessel vessel,
+        Signet signet,
+        IOracleHandler handler,
+        IReadOnlyDictionary<string, IAuspiceSource>? feeds,
+        CancellationToken cancellationToken = default)
+        => AcceptPilgrimageOverVesselAsync(vessel, signet, handler, feeds, relics: null, cancellationToken);
+
+    /// <summary>
+    /// As <see cref="AcceptPilgrimageOverVesselAsync(IVessel, Signet, IOracleHandler, IReadOnlyDictionary{string, IAuspiceSource}, CancellationToken)"/>,
+    /// also serving named bulk <paramref name="relics"/> over the Relic rite alongside the Oracle and the Auspice.
+    /// </summary>
     public async Task AcceptPilgrimageOverVesselAsync(
         IVessel vessel,
         Signet signet,
         IOracleHandler handler,
         IReadOnlyDictionary<string, IAuspiceSource>? feeds,
+        IRelicSource? relics,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(vessel);
@@ -99,11 +126,12 @@ public sealed partial class CupriNode
         {
             OracleHost.ServeAsync(new OracleSession(mux.Stream(OracleSession.RequestStream)), handler, serving.Token),
             AuspiceHost.ServeAsync(new AuspiceSession(mux.Stream(AuspiceSession.AuspiceStream)), feeds ?? NoFeeds, serving.Token),
+            RelicHost.ServeAsync(new RelicSession(mux.Stream(RelicSession.RelicStream), Suite), relics, serving.Token),
         };
 
         try
         {
-            // Either loop ending means the visit is over (the Pilgrim closed, or a rite failed).
+            // Any loop ending means the visit is over (the Pilgrim closed, or a rite failed).
             await Task.WhenAny(loops).ConfigureAwait(false);
         }
         finally

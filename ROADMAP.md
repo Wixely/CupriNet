@@ -8,7 +8,7 @@ Legend: ✅ done & tested · 🔨 in progress / near-term · 🧭 planned · �
 
 ## ✅ Done — the working core
 
-The two-layer stack is real, wired end-to-end, and covered by the test suite (**369** unit tests green).
+The two-layer stack is real, wired end-to-end, and covered by the test suite (**420** unit tests green).
 
 - **Transport (Vessel).** Managed TCP with length-prefixed framing and logical stream multiplexing; a
   reliable-UDP transport for NAT paths. No native deps, no OS TLS, no QUIC.
@@ -41,9 +41,12 @@ The two-layer stack is real, wired end-to-end, and covered by the test suite (**
   it, **pins the Signet** through the existing Noise handshake — nothing identifying goes on the wire, and only the
   key-holder can answer — and fetches over the **Oracle** rite (HTTP-shaped `request → response` with static-file and
   app-callback handlers), or attends an **Auspice**: a named live feed pushed over the same connection (snapshot then
-  updates, no polling and no WebSocket), size-quantised against traffic analysis. No overlay join, direct-only, and
-  browser DataChannels route straight into it. A node may **opt in** to advertising its Shrine in its signed
-  Intonation. See [design/shrines.md](design/shrines.md).
+  updates, no polling and no WebSocket), size-quantised against traffic analysis. Bulk content past the message
+  ceiling (an app blob) travels as a **Relic**: a chunked, hash-verified Reliquary transfer on its own stream, every
+  chunk checked against its manifest — a client proves a blob's integrity **before** executing it. No overlay join,
+  direct-only, and browser DataChannels route straight into it. A node may **opt in** to advertising its Shrine in
+  its signed Intonation. The Pilgrim half needs **no node at all** (`Pilgrimage.OverVesselAsync` in the socket-free
+  `CupriNet.Shrine` package — the browser/WASM entry). See [design/shrines.md](design/shrines.md).
 - **Monikers.** Optional self-asserted node label (a human-readable name a node claims for itself, carried
   **unverified** in its signed link + peer record with length/content Wards); trust always rests on the fingerprint,
   never the name — validating a Moniker is the consuming client's job (fingerprint pinning, allow-list, side channel).

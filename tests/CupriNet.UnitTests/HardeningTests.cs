@@ -31,6 +31,10 @@ public class HardeningTests
             ("Epistle", b => EpistleCodec.Decode(b)),
             ("Conduit", b => ConduitCodec.Decode(b)),
             ("Reliquary", b => ReliquaryCodec.Decode(b)),
+            ("Oracle.Request", b => OracleCodec.DecodeRequest(b)),
+            ("Oracle.Response", b => OracleCodec.DecodeResponse(b)),
+            ("Auspice", b => AuspiceCodec.Decode(b)),
+            ("Relic", b => RelicCodec.Decode(b)),
             ("Seal", b => SealCodec.Decode(b)),
         ];
 

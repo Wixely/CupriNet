@@ -56,6 +56,20 @@ await foreach (var frame in shrine.AttendAsync("constellation", ct))
     Render(frame.Kind, frame.Payload);   // Snapshot, then Update…
 ```
 
+Bulk content — anything past the message ceiling (an app blob, an asset pack) — travels as a named **relic**: a
+Reliquary transfer carried over the same visit, chunk by chunk, each chunk verified against its manifest as it
+arrives and the whole file verified before the bytes are handed back. So a client can prove a blob's integrity
+*before* executing it:
+
+```csharp
+// Host: name the relic once, before hosting; the manifest (and its frame-ceiling fit) is proven at Add time.
+var relics = new StaticRelicSource(node.Suite).Add("app/client.wasm", wasmBytes);
+node.HostShrine(signet, handler, feeds, relics);
+
+// Pilgrim: fetch it — verified end to end, concurrent with the Oracle and the Auspice on the same connection.
+var wasm = await shrine.FetchRelicAsync("app/client.wasm", cancellationToken: ct);
+```
+
 A browser DataChannel arriving at a Shrine-hosting node is routed straight into the Pilgrimage, so browsers are
 served by the same path with no extra wiring.
 
@@ -138,10 +152,13 @@ constraint, not the relief.
 fetches and executes — is **blocked**, not merely inefficient: such a blob is multi-MB and the Oracle materialises a
 whole body into one message. Serving one is therefore not a matter of tuning; it needs a chunked path.
 
-**The route is the Reliquary**, which already exists: chunked, hash-verified, resumable transfer
-([`ReliquaryBuilder`](../src/CupriNet.Rites/ReliquaryBuilder.cs) and friends). Wiring it into the Shrine path is a
-**prerequisite** for any large-payload tier, not an optimisation of one — and it brings a property a single opaque
-response could never have: **per-chunk hashes let the client verify a blob's integrity before executing it.**
+**The route is the Reliquary, and it is now wired in as the Relic rite** (stream 8 on the Pilgrimage, beside the
+Oracle and the Auspice): a named relic resolves to a `ReliquaryManifest`, and each chunk travels as its own
+request/response under the same 192 KiB frame ceiling the Auspice enforces — so bulk content is carried by the one
+rite built for it, and it brings a property a single opaque response could never have: **per-chunk hashes let the
+client verify a blob's integrity before executing it.** A relic tops out around 1.1 GiB (its manifest must itself fit
+one frame); the Oracle still has no size guard of its own — a large response there still fails at the transport
+(phase 9).
 
 ## The Pilgrimage (connect path)
 
@@ -217,9 +234,13 @@ relayed). With reachability riding in the link, even L1 is optional for v1: *fol
 5. ✅ **Publish `CupriNet.WebRtc`** to the Wixely feed, so downstream products can consume the WebRTC binding.
 6. ✅ **Auspice rite** — named live feeds (attend → snapshot → updates) beside the Oracle, muxed onto one Pilgrimage,
    with the payload ceiling enforced both ways and a per-feed source seam (`IAuspiceSource` / `AuspiceHost`).
-7. **Next (protocol): Reliquary over the Shrine path** — a **prerequisite** for any large-payload tier (see *The
-   message ceiling*), not an optimisation. Chunked, hash-verified, resumable, and it gives a client integrity
-   verification of a blob before it executes it.
+7. ✅ **Reliquary over the Shrine path — the Relic rite.** A named relic is fetched as its `ReliquaryManifest` then
+   chunk-by-chunk request/responses on a stream of its own (no head-of-line blocking of the Oracle or the Auspice),
+   every frame under the same 192 KiB ceiling the Auspice enforces, every chunk verified against the manifest as it
+   arrives and the whole file before the bytes are returned — integrity provable **before** a blob is executed. The
+   host names relics through `IRelicSource` (`StaticRelicSource` proves manifest fit at composition time); the
+   Pilgrim end (`ShrineSession.FetchRelicAsync` / `RelicSession`) lives in the node-free client stack, so it runs in
+   a browser WASM build. Frames carry the `relic` CupriMark component.
 8. **Next (product):** the Nodestar repo — the web front, the served client, and the author tooling.
 9. **Later (protocol):** a size guard on Oracle responses (fail at the rite, not the transport); chunked/ranged Oracle
    bodies; Noise NK (a Pilgrim that sends no static key at all); **multi-Shrine** hosting on one endpoint (an encrypted

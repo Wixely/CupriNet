@@ -53,22 +53,24 @@ public class PilgrimageTests
         var hostTask = hostNode.AcceptPilgrimageOverVesselAsync(hostSide, signet, handler, feeds, ct);
 
         // No pilgrim node: just the three values the visit actually needs.
-        await using var shrine = await Pilgrimage.OverVesselAsync(
-            pilgrimSide, signet.Sigil, Network, hostNode.Suite, enableToll: true, ct);
-
-        var response = await shrine.ConsultAsync(OracleRequest.Get("/index.html"), ct);
-        Assert.Equal(200u, response.Status);
-        Assert.Equal("<h1>welcome to /index.html</h1>", response.AsText());
-
-        // Both rites ride the same vessel, so the live feed works off the same node-free session.
-        await foreach (var frame in shrine.AttendAsync("prices", ct))
+        await using (var shrine = await Pilgrimage.OverVesselAsync(
+            pilgrimSide, signet.Sigil, Network, hostNode.Suite, enableToll: true, ct))
         {
-            Assert.Equal(AuspiceFrameKind.Snapshot, frame.Kind);
-            Assert.Equal("42", frame.AsText());
-            break;
+            var response = await shrine.ConsultAsync(OracleRequest.Get("/index.html"), ct);
+            Assert.Equal(200u, response.Status);
+            Assert.Equal("<h1>welcome to /index.html</h1>", response.AsText());
+
+            // Both rites ride the same vessel, so the live feed works off the same node-free session.
+            await foreach (var frame in shrine.AttendAsync("prices", ct))
+            {
+                Assert.Equal(AuspiceFrameKind.Snapshot, frame.Kind);
+                Assert.Equal("42", frame.AsText());
+                break;
+            }
         }
 
-        try { await hostTask; } catch { /* the host tears down once the Pilgrim drops */ }
+        // The visit is over (the session above is disposed), so the host loop ends on its own.
+        try { await hostTask; } catch { /* teardown */ }
     }
 
     [Fact]
@@ -93,6 +95,7 @@ public class PilgrimageTests
                 pilgrimSide, imposter.Sigil, Network, hostNode.Suite, enableToll: true, ct);
         });
 
+        // The handshake failed for both sides, so the host task ends on its own.
         try { await hostTask; } catch { /* expected: the vessel closed under it */ }
     }
 }
