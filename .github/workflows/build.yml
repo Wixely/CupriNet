@@ -78,15 +78,15 @@ jobs:
           else
             echo "version=0.1.0-ci.${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
           fi
-      - name: Pack core packages (plus the WebRTC binding; skips the one needing a feed-only package)
+      - name: Pack every core package (the transport bindings included)
         shell: bash
-        # CupriNet.WebRtc IS packed: downstream products (e.g. Nodestar) need the browser/WebRTC binding from the
-        # feed, and its CupriWebRTC dependency restores here the same way publish-lodestar already restores it.
+        # CupriNet.WebRtc and CupriNet.Tor are both packed: downstream products (e.g. Nodestar) take the browser
+        # on-ramp and the onion transport as package references — without CupriNet.Tor on the feed, the only
+        # concrete IOnionTransport cannot be referenced from outside this repository (issue #2). Their CupriWebRTC /
+        # CupriTor dependencies restore here through the feed this job authenticated above; the old skip predates
+        # that authentication (CupriMark made the feed a core dependency).
         run: |
           for proj in src/*/*.csproj; do
-            case "$proj" in
-              */CupriNet.Tor.csproj) echo "skipping $proj (needs the CupriTor package)"; continue;;
-            esac
             dotnet pack "$proj" -c Release -p:Version=${{ steps.ver.outputs.version }} -o artifacts/nuget
           done
       - name: Push packages to the Wixely GitHub Packages feed (on a v* tag)

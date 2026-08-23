@@ -1,13 +1,14 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <!--
-    Optional Tor transport: a concrete IOnionTransport backed by the CupriTor package.
-    Kept a SEPARATE project (and intentionally NOT in CupriNet.slnx) so the core stays
-    dependency-free of Tor and the main build/CI needs no package feed or token.
+    Optional Tor transport: a concrete IOnionTransport backed by the CupriTor package. Kept a SEPARATE
+    project so the core stays dependency-free of Tor: anyone who wants Tor references this project (or
+    the CupriNet.Tor package - it is packed and pushed to the feed alongside CupriNet.WebRtc, so a
+    downstream can offer an onion transport without transcribing this binding); everyone else ignores it.
 
-    The binding is compile-verified against CupriTor 0.1.5 (the latest release). To build THIS project
-    you need the Wixely GitHub Packages feed (see /nuget.config) + a read:packages token.
-    Anyone who wants Tor references this project; everyone else ignores it.
+    The binding is compile-verified against CupriTor 0.1.5 (the latest release). Building it needs the
+    Wixely GitHub Packages feed (see /nuget.config) + a read:packages token - which the whole build
+    already needs for CupriMark, so this project no longer carries an extra requirement.
   -->
 
   <PropertyGroup>

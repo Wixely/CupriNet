@@ -81,9 +81,9 @@ The two-layer stack is real, wired end-to-end, and covered by the test suite (**
   params (no signalling) and renders a Shrine — the "validate against a real Chromium" milestone. It ships as
   **Nodestar** (a separate repo): an SDK + reference host pairing a CupriNode with a clearnet HTTP front, serving a
   CupriFace WASM client. Must be a hosted page, not a local static file.
-- **Decouple the core build from the private feed, or accept it explicitly.** CupriMark (and now CupriWebRTC via the
-  optional `CupriNet.WebRtc` binding) come from the Wixely GitHub Packages feed, so the build (and CI) needs
-  `read:packages` (`PACKAGES_TOKEN`). Options: publish to nuget.org, or document the token as required. (Tracked;
+- **Decouple the core build from the private feed, or accept it explicitly.** CupriMark (and CupriWebRTC / CupriTor
+  via the optional `CupriNet.WebRtc` / `CupriNet.Tor` bindings — both packed and pushed since #2) come from the
+  Wixely GitHub Packages feed, so the build (and CI) needs `read:packages` (`PACKAGES_TOKEN`). Options: publish to nuget.org, or document the token as required. (Tracked;
   today CI authenticates the feed.)
 - **UPnP / PCP** port mapping alongside the existing NAT-PMP.
 - **Docs/API sweep** — keep READMEs and the public `CupriNode` surface in step as things move.
