@@ -73,6 +73,15 @@ public sealed record OracleResponse
 /// <summary>Canonical serialization for <see cref="OracleRequest"/> and <see cref="OracleResponse"/>.</summary>
 public static class OracleCodec
 {
+    /// <summary>
+    /// The largest body an Oracle request or response may carry (192 KiB) — same number, same cause as
+    /// <see cref="AuspiceCodec.MaxPayloadBytes"/>: a WebRTC DataChannel message tops out at 256 KiB, less headroom
+    /// for rite framing, the vessel header and Noise/DTLS overhead. Enforced when sending <em>and</em> when decoding,
+    /// so an oversized body fails at the rite, with a reason — not at the transport, later and less clearly.
+    /// Content past this ceiling belongs to the Relic rite (chunked, hash-verified), not in one message.
+    /// </summary>
+    public const int MaxBodyBytes = 192 * 1024;
+
     /// <summary>An upper bound on header count, so a malformed frame cannot force a huge allocation.</summary>
     private const ulong MaxHeaders = 4096;
 
@@ -96,6 +105,7 @@ public static class OracleCodec
     public static byte[] EncodeRequest(OracleRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
+        ValidateBody(request.Body);
         var w = new CodexWriter();
         w.WriteByte(Version);
         w.WriteString(request.Method);
@@ -112,13 +122,14 @@ public static class OracleCodec
         var method = r.ReadString();
         var path = r.ReadString();
         var headers = ReadHeaders(ref r);
-        var body = r.ReadBytes().ToArray();
+        var body = ReadBody(ref r);
         return new OracleRequest { Method = method, Path = path, Headers = headers, Body = body };
     }
 
     public static byte[] EncodeResponse(OracleResponse response)
     {
         ArgumentNullException.ThrowIfNull(response);
+        ValidateBody(response.Body);
         var w = new CodexWriter();
         w.WriteByte(Version);
         w.WriteUInt32(response.Status);
@@ -133,8 +144,26 @@ public static class OracleCodec
         ReadAndCheckVersion(ref r);
         var status = r.ReadUInt32();
         var headers = ReadHeaders(ref r);
-        var body = r.ReadBytes().ToArray();
+        var body = ReadBody(ref r);
         return new OracleResponse { Status = status, Headers = headers, Body = body };
+    }
+
+    private static void ValidateBody(byte[] body)
+    {
+        if (body.Length > MaxBodyBytes)
+            throw new ArgumentOutOfRangeException(
+                nameof(body),
+                $"An Oracle body of {body.Length} bytes exceeds the {MaxBodyBytes}-byte limit " +
+                "(the browser DataChannel ceiling, less framing headroom). Serve bulk content as a relic instead.");
+    }
+
+    private static byte[] ReadBody(ref CodexReader r)
+    {
+        var body = r.ReadBytes();
+        if (body.Length > MaxBodyBytes)
+            throw new CodexFormatException(
+                $"An Oracle body of {body.Length} bytes exceeds the {MaxBodyBytes}-byte limit.");
+        return body.ToArray();
     }
 
     private static void WriteHeaders(CodexWriter w, IReadOnlyList<OracleHeader> headers)

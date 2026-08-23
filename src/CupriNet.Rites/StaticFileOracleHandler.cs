@@ -3,8 +3,9 @@ namespace CupriNet.Rites;
 /// <summary>
 /// An <see cref="IOracleHandler"/> that serves static files from a directory. Every request path is validated with
 /// <see cref="FilePathGuard"/> and the resolved path is re-checked against the root, so a Pilgrim cannot escape it.
-/// GET/HEAD only. Reads whole files into memory — fine for documents and app bundles; streaming is a later
-/// enhancement (see design/shrines.md).
+/// GET/HEAD only. Reads whole files into memory, and refuses (500, without reading) a file past
+/// <see cref="OracleCodec.MaxBodyBytes"/> — the Oracle carries pages and documents; a bigger artifact is served as a
+/// relic (chunked, hash-verified), not as one message.
 /// </summary>
 public sealed class StaticFileOracleHandler : IOracleHandler
 {
@@ -32,6 +33,13 @@ public sealed class StaticFileOracleHandler : IOracleHandler
         var fullPath = Path.GetFullPath(Path.Combine(_root, relative));
         if (!IsUnderRoot(fullPath) || !File.Exists(fullPath))
             return OracleResponse.NotFound();
+
+        // Check the size before touching the content: a file past the message ceiling is refused with the reason
+        // (and never read into memory), for GET and HEAD alike — a HEAD that promises what GET refuses helps no one.
+        if (new FileInfo(fullPath).Length > OracleCodec.MaxBodyBytes)
+            return OracleResponse.Text(
+                $"'{relative}' exceeds the {OracleCodec.MaxBodyBytes}-byte message ceiling. " +
+                "Serve it as a relic (chunked, hash-verified) instead.") with { Status = 500 };
 
         var body = await File.ReadAllBytesAsync(fullPath, cancellationToken).ConfigureAwait(false);
         var response = OracleResponse.Ok(body, ContentTypeFor(fullPath));

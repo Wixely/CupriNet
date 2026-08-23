@@ -80,6 +80,63 @@ public class OracleHandlerTests : IDisposable
     }
 
     [Fact]
+    public async Task StaticFile_RefusesAFilePastTheMessageCeiling_WithTheReason()
+    {
+        var full = Path.Combine(_root.FullName, "huge.bin");
+        File.WriteAllBytes(full, new byte[OracleCodec.MaxBodyBytes + 1]);
+
+        var handler = new StaticFileOracleHandler(_root.FullName);
+        var response = await handler.HandleAsync(OracleRequest.Get("/huge.bin"));
+        Assert.Equal(500u, response.Status);
+        Assert.Contains("relic", response.AsText());       // the refusal points at the right tool
+
+        // A HEAD that promises what GET refuses helps no one: same refusal.
+        var head = await handler.HandleAsync(new OracleRequest { Method = "HEAD", Path = "/huge.bin" });
+        Assert.Equal(500u, head.Status);
+    }
+
+    [Fact]
+    public async Task OracleHost_TurnsAnOversizedResponseIntoA500_AndTheSessionSurvives()
+    {
+        using var cts = new CancellationTokenSource(Timeout);
+        var ct = cts.Token;
+        var suite = CryptoSuites.Secure();
+        var sessionKey = RandomNumberGenerator.GetBytes(suite.Aead.KeySize);
+
+        var listener = new VesselListener(new IPEndPoint(IPAddress.Loopback, 0));
+        listener.Start();
+        var acceptTask = listener.AcceptAsync(ct);
+        VesselSession va = await TcpVessel.ConnectAsync("127.0.0.1", listener.LocalEndPoint.Port, cancellationToken: ct);
+        VesselSession vb = await acceptTask;
+        await using var _a = va;
+        await using var _b = vb;
+        await using var _l = listener;
+
+        var pilgrim = new OracleSession(va, sessionKey, suite);
+        var shrine = new OracleSession(vb, sessionKey, suite);
+
+        // A handler that produces a body the rite cannot carry: the host must answer 500 (pointing at the Relic
+        // rite) instead of throwing at send time and tearing the visit down.
+        var handler = new DelegateOracleHandler(req => req.Path == "/huge"
+            ? OracleResponse.Ok(new byte[OracleCodec.MaxBodyBytes + 1], "application/octet-stream")
+            : OracleResponse.Text("small"));
+
+        using var hostCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        var hostTask = OracleHost.ServeAsync(shrine, handler, hostCts.Token);
+
+        var refused = await pilgrim.ConsultAsync(OracleRequest.Get("/huge"), ct);
+        Assert.Equal(500u, refused.Status);
+        Assert.Contains("relic", refused.AsText());
+
+        var ok = await pilgrim.ConsultAsync(OracleRequest.Get("/fine"), ct);   // the visit lives on
+        Assert.Equal(200u, ok.Status);
+        Assert.Equal("small", ok.AsText());
+
+        await hostCts.CancelAsync();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => hostTask);
+    }
+
+    [Fact]
     public async Task OracleHost_Serves_MultipleRequests_OverOneSession()
     {
         Write("index.html", "<h1>home</h1>");

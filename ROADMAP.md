@@ -8,7 +8,7 @@ Legend: ✅ done & tested · 🔨 in progress / near-term · 🧭 planned · �
 
 ## ✅ Done — the working core
 
-The two-layer stack is real, wired end-to-end, and covered by the test suite (**420** unit tests green).
+The two-layer stack is real, wired end-to-end, and covered by the test suite (**423** unit tests green).
 
 - **Transport (Vessel).** Managed TCP with length-prefixed framing and logical stream multiplexing; a
   reliable-UDP transport for NAT paths. No native deps, no OS TLS, no QUIC.

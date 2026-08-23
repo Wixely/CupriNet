@@ -66,6 +66,14 @@ public static class OracleHost
                 response = new OracleResponse { Status = 500 };
             }
 
+            // A handler that produced a body past the message ceiling would throw at send time — outside its own
+            // try — and tear the visit down. Turn it into a clear refusal at the rite instead: the request is
+            // answered, the visit lives, and the reason points at the right tool.
+            if (response.Body.Length > OracleCodec.MaxBodyBytes)
+                response = OracleResponse.Text(
+                    $"The response body ({response.Body.Length} bytes) exceeds the {OracleCodec.MaxBodyBytes}-byte " +
+                    "message ceiling. Serve bulk content as a relic (chunked, hash-verified).") with { Status = 500 };
+
             await session.SendResponseAsync(response, cancellationToken).ConfigureAwait(false);
         }
     }

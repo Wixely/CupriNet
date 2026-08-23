@@ -49,6 +49,27 @@ public class OracleTests
     }
 
     [Fact]
+    public void Codec_EnforcesTheBodyCeiling_BothWays()
+    {
+        var big = new byte[OracleCodec.MaxBodyBytes + 1];
+
+        // Encoding an over-ceiling body is refused before any I/O, with the reason pointing at the Relic rite …
+        var request = new OracleRequest { Method = "POST", Path = "/up", Body = big };
+        var reqEx = Assert.Throws<ArgumentOutOfRangeException>(() => OracleCodec.EncodeRequest(request));
+        Assert.Contains("relic", reqEx.Message);
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => OracleCodec.EncodeResponse(OracleResponse.Ok(big, "application/octet-stream")));
+
+        // … and a hostile frame declaring one is refused at decode: fail at the rite, not the transport.
+        var w = new CodexWriter();
+        w.WriteByte((byte)CupriMarks.Supported(CupriMarks.Oracle).Max);
+        w.WriteUInt32(200);
+        w.WriteVarUInt(0);                                 // no headers
+        w.WriteBytes(big);
+        Assert.Throws<CodexFormatException>(() => OracleCodec.DecodeResponse(w.ToArray()));
+    }
+
+    [Fact]
     public void Codec_StampsAndChecksTheFrameVersion()
     {
         // Both directions lead with the catalogue version, so a peer that predates the rite (or speaks a version this

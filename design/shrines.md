@@ -146,7 +146,10 @@ constraint, not the relief.
 - The **Auspice** enforces its own cap (`AuspiceCodec.MaxPayloadBytes`, 192 KiB) when encoding *and* decoding, so an
   oversized payload fails at the rite with a clear message instead of deep inside the transport. The remaining 64 KiB
   is headroom for rite framing, the vessel header and Noise/DTLS overhead.
-- The **Oracle** has no such guard today: a large response fails at the transport, later and less clearly.
+- The **Oracle** enforces its own body cap (`OracleCodec.MaxBodyBytes`, the same 192 KiB) when encoding *and*
+  decoding. `OracleHost` turns an oversized handler response into a clear 500 (naming the Relic rite) rather than a
+  torn-down visit, and `StaticFileOracleHandler` refuses an over-ceiling file *before reading it* — so a large body
+  fails at the rite, with a reason, never at the transport.
 
 **The consequence is structural, not cosmetic.** A hosted-app tier — serving a WASM application blob that the client
 fetches and executes — is **blocked**, not merely inefficient: such a blob is multi-MB and the Oracle materialises a
@@ -157,8 +160,8 @@ Oracle and the Auspice): a named relic resolves to a `ReliquaryManifest`, and ea
 request/response under the same 192 KiB frame ceiling the Auspice enforces — so bulk content is carried by the one
 rite built for it, and it brings a property a single opaque response could never have: **per-chunk hashes let the
 client verify a blob's integrity before executing it.** A relic tops out around 1.1 GiB (its manifest must itself fit
-one frame); the Oracle still has no size guard of its own — a large response there still fails at the transport
-(phase 9).
+one frame). The Oracle now guards its own bodies against the same ceiling, so the two rites meet cleanly: at or under
+192 KiB a body may ride the Oracle; past it, the Oracle refuses with a reason and the Relic rite carries it.
 
 ## The Pilgrimage (connect path)
 
@@ -242,7 +245,7 @@ relayed). With reachability riding in the link, even L1 is optional for v1: *fol
    Pilgrim end (`ShrineSession.FetchRelicAsync` / `RelicSession`) lives in the node-free client stack, so it runs in
    a browser WASM build. Frames carry the `relic` CupriMark component.
 8. **Next (product):** the Nodestar repo — the web front, the served client, and the author tooling.
-9. **Later (protocol):** a size guard on Oracle responses (fail at the rite, not the transport); chunked/ranged Oracle
+9. **Later (protocol):** chunked/ranged Oracle
    bodies; Noise NK (a Pilgrim that sends no static key at all); **multi-Shrine** hosting on one endpoint (an encrypted
    target selector — deliberately *not* pre-Noise cleartext, so the network never learns which site); brokered WebRTC
    to NAT'd hosts; private (Watchword-gated) Shrines.
