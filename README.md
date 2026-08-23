@@ -73,6 +73,7 @@ Transport (Vessel)   TCP + length-prefixed framing + stream multiplexing · Nois
 | `src/CupriNet.Rites` | message / data / file / site (Oracle) protocols + retry |
 | `src/CupriNet.Traversal` | LAN discovery, NAT-PMP, hole punch, reliable-UDP |
 | `src/CupriNet.Persistence` | `ISecretStore` + encrypted file store |
+| `src/CupriNet.Shrine` | **`Pilgrimage`** — visit an L2 site without running a node (socket-free, so browser/WASM-safe) |
 | `src/CupriNet.Hosting` | **`CupriNode`** — the public API |
 | `src/CupriNet.Marks` | CupriMark version negotiation — the [catalogue](src/CupriNet.Marks/README.md) & floors |
 | `src/CupriNet.Tor` | CupriTor onion transport binding (needs the CupriTor feed) |

@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- Deliberately socket-free: a Pilgrim visits a Shrine, it does not run an overlay node, so this package must be
+         usable where System.Net.Sockets is not (a browser WebAssembly build, an embedded host with no listener).
+         Keep the reference set below free of anything that binds a socket. -->
+    <Description>CupriNet Shrine — the Pilgrim side of an L2 site visit (Oracle + Auspice over one Noise vessel), with no dependency on running an overlay node.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\CupriNet.Abstractions\CupriNet.Abstractions.csproj" />
+    <ProjectReference Include="..\CupriNet.Alembic\CupriNet.Alembic.csproj" />
+    <ProjectReference Include="..\CupriNet.Conjunction\CupriNet.Conjunction.csproj" />
+    <ProjectReference Include="..\CupriNet.Core\CupriNet.Core.csproj" />
+    <ProjectReference Include="..\CupriNet.Rites\CupriNet.Rites.csproj" />
+    <ProjectReference Include="..\CupriNet.Vessel\CupriNet.Vessel.csproj" />
+  </ItemGroup>
+</Project>

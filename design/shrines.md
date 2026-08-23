@@ -23,6 +23,19 @@ await using var shrine = await node.PilgrimageOverVesselAsync(vessel, signetSigi
 var page = await shrine.ConsultAsync(OracleRequest.Get("/index.html"), ct);
 ```
 
+A Pilgrim needs no node. Visiting is not being on the overlay — the visit mints a throwaway identity and skips the
+join — so the same rite is reachable without one, from `CupriNet.Shrine` (a deliberately socket-free package):
+
+```csharp
+await using var shrine = await Pilgrimage.OverVesselAsync(vessel, signetSigil, network, suite, enableToll: true, ct);
+```
+
+That is the entry a browser uses: a WebAssembly build has no sockets, so it cannot construct a `CupriNode` (which
+binds a listener), and `node.PilgrimageOverVesselAsync` is just this call with the node's own three values passed in.
+It is equally the entry for a CLI that only wants to fetch a page, a test with no overlay, or an embedded host with no
+listener. The point is that there is exactly **one** implementation of the Pilgrimage handshake — a second one
+transcribed downstream would drift the first time the wire changes (0.3.2's Oracle version byte, for instance).
+
 Live data rides the same connection. The host registers named feeds; the Pilgrim attends one and reads a snapshot
 followed by updates, concurrently with any Oracle fetch:
 
@@ -196,7 +209,9 @@ relayed). With reachability riding in the link, even L1 is optional for v1: *fol
 3. ✅ **Pilgrimage** — `HostShrine` / `AcceptPilgrimageOverVesselAsync` / `PilgrimageOverVesselAsync`. The host
    presents *only* the Signet through the existing Noise XX + identity binding, so it is self-authenticating with
    **no new crypto** and nothing identifying on the wire; the Pilgrim pins it under a throwaway per-visit identity;
-   no overlay join. A browser DataChannel routes into it automatically when a Shrine is hosted.
+   no overlay join. A browser DataChannel routes into it automatically when a Shrine is hosted. The Pilgrim half is
+   also reachable **without a node** — `Pilgrimage.OverVesselAsync` in `CupriNet.Shrine`, which references nothing
+   that binds a socket, so it runs in a browser WASM build; `CupriNode.PilgrimageOverVesselAsync` delegates to it.
 4. ✅ **Intonation Signet field** — optional signed `Shrine` field (`shrine-address` CupriMark component),
    **opt-in** via `HostShrine(…, advertiseInLink: true)`, with the L1-linkage trade documented at the call site.
 5. ✅ **Publish `CupriNet.WebRtc`** to the Wixely feed, so downstream products can consume the WebRTC binding.
