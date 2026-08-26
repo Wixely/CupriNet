@@ -107,10 +107,12 @@ jobs:
           path: |
             artifacts/nuget/*.nupkg
             artifacts/nuget/*.snupkg
+          retention-days: 3
       - uses: actions/upload-artifact@v4
         with:
           name: cuprinet-library
           path: artifacts/lib
+          retention-days: 3
 
   # ---------------------------------------------------------------------------
   # Downloadable CupriChatLite executables: one self-contained single file per OS.
@@ -176,6 +178,7 @@ jobs:
         with:
           name: cuprichatlite-${{ matrix.rid }}
           path: out/app
+          retention-days: 3
 
       - name: Upload NativeAOT app (only if it built)
         if: steps.aot.outcome == 'success'
@@ -183,6 +186,7 @@ jobs:
         with:
           name: cuprichatlite-aot-${{ matrix.rid }}
           path: out/aot
+          retention-days: 3
 
   # ---------------------------------------------------------------------------
   # Downloadable Lodestar (headless overlay node) executables: self-contained
@@ -242,6 +246,7 @@ jobs:
         with:
           name: lodestar-${{ matrix.rid }}
           path: out/lodestar
+          retention-days: 3
 
   # ---------------------------------------------------------------------------
   # Lodestar container image. Built on every run; pushed to GHCR on a v* tag.
