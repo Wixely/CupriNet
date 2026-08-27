@@ -70,6 +70,23 @@ node.HostShrine(signet, handler, feeds, relics);
 var wasm = await shrine.FetchRelicAsync("app/client.wasm", cancellationToken: ct);
 ```
 
+A protocol that is neither request/response nor snapshot-then-updates gets the raw duplex rite: a **conduit**, on the
+same visit, framed and sealed but otherwise uninterpreted. This is the seam an existing framed protocol lands on when
+it moves to L2 — the transport below it changes, the protocol above it does not:
+
+```csharp
+// Host: one conduit per visit; the application's own ProtocolId discriminates protocols within it.
+node.HostShrine(signet, handler, feeds, relics, conduit: new DelegateConduitHandler(async (session, token) =>
+{
+    while (await session.ReceiveAsync(token) is { } frame && !frame.IsSealed)
+        await session.SendAsync(Handle(frame), token);
+}));
+
+// Pilgrim: send and receive, in whatever order the protocol above dictates.
+await shrine.Conduits.SendAsync(new ConduitFrame { ProtocolId = 7, SchemaVersion = 1, Flags = 0, Payload = bytes }, ct);
+var reply = await shrine.Conduits.ReceiveAsync(ct);   // null when the peer closed; IsSealed when the rite ended
+```
+
 A browser DataChannel arriving at a Shrine-hosting node is routed straight into the Pilgrimage, so browsers are
 served by the same path with no extra wiring.
 
@@ -110,8 +127,8 @@ Today [`Conduit`](../src/CupriNet.Rites/Conduit.cs) carries raw `ProtocolId`/`Fl
 The **Oracle** rite adds an HTTP-shaped exchange: `request(method, path, headers) → response(status, headers, body)`.
 A **content handler** maps a request to a directory of static files (reusing
 [`FilePathGuard`](../src/CupriNet.Rites/FilePathGuard.cs) for path-traversal defence) or an app callback. For a
-*non*-Oracle L2 protocol, a consumer can still drive raw `Arcanum`/`Conduit` directly — the Oracle is the
-batteries-included path, not the only one.
+*non*-Oracle L2 protocol, a consumer can still drive the raw `Conduit` directly — over an `Arcanum` channel, or (since
+0.3.5) over a Pilgrimage through `ShrineSession.Conduits`. The Oracle is the batteries-included path, not the only one.
 
 **Bodies are whole messages, not streams.** A request and a response each carry one fully-materialised `byte[]`, sent
 as a single message. There is no chunking, no backpressure and no ranges — see *The message ceiling* below for what
@@ -146,6 +163,10 @@ constraint, not the relief.
 - The **Auspice** enforces its own cap (`AuspiceCodec.MaxPayloadBytes`, 192 KiB) when encoding *and* decoding, so an
   oversized payload fails at the rite with a clear message instead of deep inside the transport. The remaining 64 KiB
   is headroom for rite framing, the vessel header and Noise/DTLS overhead.
+- The **Conduit**, on a Pilgrimage, enforces the same 192 KiB (`ConduitCodec.MaxPayloadBytes`) both ways. On an
+  `Arcanum` channel it keeps the 16 MiB a Vessel frame allows — no browser is on that path, and the cap exists to
+  serve the transport, not to be a house style. A protocol needing more than one message's worth chunks it, or
+  carries the bytes as a relic.
 - The **Oracle** enforces its own body cap (`OracleCodec.MaxBodyBytes`, the same 192 KiB) when encoding *and*
   decoding. `OracleHost` turns an oversized handler response into a clear 500 (naming the Relic rite) rather than a
   torn-down visit, and `StaticFileOracleHandler` refuses an over-ceiling file *before reading it* — so a large body
@@ -244,8 +265,16 @@ relayed). With reachability riding in the link, even L1 is optional for v1: *fol
    host names relics through `IRelicSource` (`StaticRelicSource` proves manifest fit at composition time); the
    Pilgrim end (`ShrineSession.FetchRelicAsync` / `RelicSession`) lives in the node-free client stack, so it runs in
    a browser WASM build. Frames carry the `relic` CupriMark component.
-8. **Next (product):** the Nodestar repo — the web front, the served client, and the author tooling.
-9. **Later (protocol):** chunked/ranged Oracle
+8. ✅ **Conduit over the Shrine path.** The raw duplex rite, reachable from a Pilgrimage at last: `IConduitHandler`
+   / `ConduitHost.ServeAsync` on the host, `ShrineSession.Conduits` on the Pilgrim, on stream 4 beside the other
+   three. The Pilgrimage constructor is **keyless** (the Noise vessel is already the boundary, as it is for the
+   Oracle, Auspice and Relic — no session key is plumbed anywhere) and takes **no author identity**, so a Pilgrim
+   stays unlinkable by construction. Padded by default (`ConduitPadding`) and capped at the browser ceiling; a
+   Shrine hosting no conduit answers with a sealed frame rather than silence, and a handler that throws seals only
+   the conduit. Carries the `conduit` CupriMark component on the Pilgrimage wire only — the Arcanum conduit predates
+   the catalogue and its bytes are unchanged.
+9. **Next (product):** the Nodestar repo — the web front, the served client, and the author tooling.
+10. **Later (protocol):** chunked/ranged Oracle
    bodies; Noise NK (a Pilgrim that sends no static key at all); **multi-Shrine** hosting on one endpoint (an encrypted
    target selector — deliberately *not* pre-Noise cleartext, so the network never learns which site); brokered WebRTC
    to NAT'd hosts; private (Watchword-gated) Shrines.

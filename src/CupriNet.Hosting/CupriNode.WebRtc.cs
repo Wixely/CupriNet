@@ -47,7 +47,7 @@ public sealed partial class CupriNode
             // and serves the site over the Oracle rite (no overlay join). Otherwise it is a normal channel peer.
             if (_shrine is { } shrine)
             {
-                await AcceptPilgrimageOverVesselAsync(vessel, shrine.Signet, shrine.Handler, shrine.Feeds, shrine.Relics, cancellationToken).ConfigureAwait(false);
+                await AcceptPilgrimageOverVesselAsync(vessel, shrine.Signet, shrine.Handler, shrine.Feeds, shrine.Relics, shrine.Conduit, cancellationToken).ConfigureAwait(false);
                 return;
             }
 

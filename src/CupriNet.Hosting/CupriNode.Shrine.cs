@@ -12,7 +12,8 @@ public sealed partial class CupriNode
         new Dictionary<string, IAuspiceSource>();
 
     // The single Shrine this node hosts (v1). Multi-Shrine (per-connection Signet selection) is a later enhancement.
-    private (Signet Signet, IOracleHandler Handler, IReadOnlyDictionary<string, IAuspiceSource> Feeds, IRelicSource? Relics, bool Advertise)? _shrine;
+    private (Signet Signet, IOracleHandler Handler, IReadOnlyDictionary<string, IAuspiceSource> Feeds, IRelicSource? Relics,
+        IConduitHandler? Conduit, bool Advertise)? _shrine;
 
     /// <summary>
     /// Hosts a Shrine (an L2 site) under <paramref name="signet"/>, serving content through <paramref name="handler"/>
@@ -53,10 +54,25 @@ public sealed partial class CupriNode
         IReadOnlyDictionary<string, IAuspiceSource>? feeds,
         IRelicSource? relics,
         bool advertiseInLink = false)
+        => HostShrine(signet, handler, feeds, relics, conduit: null, advertiseInLink);
+
+    /// <summary>
+    /// As <see cref="HostShrine(Signet, IOracleHandler, IReadOnlyDictionary{string, IAuspiceSource}, IRelicSource, bool)"/>,
+    /// plus a raw duplex <paramref name="conduit"/> — the seam an application's own framed protocol sits on when it is
+    /// neither request/response nor snapshot-then-updates (see <see cref="IConduitHandler"/>). One conduit per visit;
+    /// <see cref="ConduitFrame.ProtocolId"/> discriminates protocols within it.
+    /// </summary>
+    public void HostShrine(
+        Signet signet,
+        IOracleHandler handler,
+        IReadOnlyDictionary<string, IAuspiceSource>? feeds,
+        IRelicSource? relics,
+        IConduitHandler? conduit,
+        bool advertiseInLink = false)
     {
         ArgumentNullException.ThrowIfNull(signet);
         ArgumentNullException.ThrowIfNull(handler);
-        _shrine = (signet, handler, feeds ?? NoFeeds, relics, advertiseInLink);
+        _shrine = (signet, handler, feeds ?? NoFeeds, relics, conduit, advertiseInLink);
     }
 
     /// <summary>The <c>cupri1…</c> address of the Shrine this node hosts, or null if it hosts none.</summary>
@@ -91,12 +107,26 @@ public sealed partial class CupriNode
     /// As <see cref="AcceptPilgrimageOverVesselAsync(IVessel, Signet, IOracleHandler, IReadOnlyDictionary{string, IAuspiceSource}, CancellationToken)"/>,
     /// also serving named bulk <paramref name="relics"/> over the Relic rite alongside the Oracle and the Auspice.
     /// </summary>
+    public Task AcceptPilgrimageOverVesselAsync(
+        IVessel vessel,
+        Signet signet,
+        IOracleHandler handler,
+        IReadOnlyDictionary<string, IAuspiceSource>? feeds,
+        IRelicSource? relics,
+        CancellationToken cancellationToken = default)
+        => AcceptPilgrimageOverVesselAsync(vessel, signet, handler, feeds, relics, conduit: null, cancellationToken);
+
+    /// <summary>
+    /// As <see cref="AcceptPilgrimageOverVesselAsync(IVessel, Signet, IOracleHandler, IReadOnlyDictionary{string, IAuspiceSource}, IRelicSource, CancellationToken)"/>,
+    /// also serving a raw duplex <paramref name="conduit"/> alongside the other three rites.
+    /// </summary>
     public async Task AcceptPilgrimageOverVesselAsync(
         IVessel vessel,
         Signet signet,
         IOracleHandler handler,
         IReadOnlyDictionary<string, IAuspiceSource>? feeds,
         IRelicSource? relics,
+        IConduitHandler? conduit,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(vessel);
@@ -119,7 +149,8 @@ public sealed partial class CupriNode
             throw;
         }
 
-        // Serve both rites over the now-encrypted vessel, demultiplexed so a fetch and a live feed run concurrently.
+        // Serve every rite over the now-encrypted vessel, demultiplexed so a fetch, a live feed, a relic and a
+        // raw session all run concurrently on the one visit.
         using var serving = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var mux = new VesselMux(conjunction.Vessel, ownsVessel: false);
         var loops = new[]
@@ -127,6 +158,7 @@ public sealed partial class CupriNode
             OracleHost.ServeAsync(new OracleSession(mux.Stream(OracleSession.RequestStream)), handler, serving.Token),
             AuspiceHost.ServeAsync(new AuspiceSession(mux.Stream(AuspiceSession.AuspiceStream)), feeds ?? NoFeeds, serving.Token),
             RelicHost.ServeAsync(new RelicSession(mux.Stream(RelicSession.RelicStream), Suite), relics, serving.Token),
+            ConduitHost.ServeAsync(new ConduitSession(mux.Stream(ConduitSession.DataStream)), conduit, serving.Token),
         };
 
         try

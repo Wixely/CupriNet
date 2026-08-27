@@ -54,6 +54,9 @@ public static class CupriMarks
     /// <summary>The Relic (a Shrine's chunked bulk-content site rite) frame component.</summary>
     public const string Relic = "relic";
 
+    /// <summary>The Conduit (a Shrine's raw duplex site rite) frame component.</summary>
+    public const string Conduit = "conduit";
+
     /// <summary>
     /// The single built-in catalogue for the CupriNet protocol suite. Frozen at first access; its
     /// SHA-256 <see cref="Catalogue.Id"/> identifies exactly this set of definitions, so two builds that
@@ -134,6 +137,13 @@ public static class CupriMarks
         [
             // v1 — the chunked bulk-content frames (manifest and chunk, request and delivery) that carry a
             // Reliquary transfer over a Pilgrimage.
+            new ComponentVersion(1, BumpReason.Functionality, VersionStatus.Active),
+        ]),
+        new Component(Conduit,
+        [
+            // v1 — the raw duplex frames a Pilgrim and a Shrine exchange under an application's own ProtocolId.
+            // Versioned only on the Pilgrimage path: the Arcanum conduit predates the catalogue and keeps
+            // inheriting its compatibility from the Consecration handshake, so its bytes are untouched.
             new ComponentVersion(1, BumpReason.Functionality, VersionStatus.Active),
         ]),
     ]);

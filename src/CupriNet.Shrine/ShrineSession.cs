@@ -10,9 +10,10 @@ namespace CupriNet.Hosting;
 
 /// <summary>
 /// A live Pilgrim-side visit to a Shrine: an encrypted, Signet-authenticated connection carrying the site rites at
-/// once — the <b>Oracle</b> (request/response), the <b>Auspice</b> (live feeds) and the <b>Relic</b> (chunked bulk
-/// content) — demultiplexed over one vessel, so a page can be fetched, its live data attended, and its app blob
-/// pulled down on the same connection. Owns the vessel; disposing ends the visit.
+/// once — the <b>Oracle</b> (request/response), the <b>Auspice</b> (live feeds), the <b>Relic</b> (chunked bulk
+/// content) and the <b>Conduit</b> (a raw duplex session for an application's own protocol) — demultiplexed over one
+/// vessel, so a page can be fetched, its live data attended, its app blob pulled down and its session driven on the
+/// same connection. Owns the vessel; disposing ends the visit.
 /// </summary>
 public sealed class ShrineSession : IAsyncDisposable
 {
@@ -28,6 +29,7 @@ public sealed class ShrineSession : IAsyncDisposable
         _oracle = new OracleSession(_mux.Stream(OracleSession.RequestStream));
         Auspices = new AuspiceSession(_mux.Stream(AuspiceSession.AuspiceStream));
         Relics = new RelicSession(_mux.Stream(RelicSession.RelicStream), suite);
+        Conduits = new ConduitSession(_mux.Stream(ConduitSession.DataStream));
     }
 
     /// <summary>The live-feed rite: attend a named Auspice and receive a snapshot then updates.</summary>
@@ -35,6 +37,15 @@ public sealed class ShrineSession : IAsyncDisposable
 
     /// <summary>The bulk-content rite: fetch a named relic chunk by chunk, each chunk verified against its manifest.</summary>
     public RelicSession Relics { get; }
+
+    /// <summary>
+    /// The raw duplex rite: send and receive application-framed messages under your own <c>ProtocolId</c>, for a
+    /// protocol that is neither request/response nor snapshot-then-updates. Runs concurrently with the other three on
+    /// the same connection. Frames are padded and capped at <see cref="ConduitCodec.MaxPayloadBytes"/> — past that,
+    /// chunk, or carry the bytes as a relic. A Shrine hosting no conduit answers the first frame with a sealed frame
+    /// (<see cref="ConduitFlags.Sealed"/>) rather than silence.
+    /// </summary>
+    public ConduitSession Conduits { get; }
 
     /// <summary>Consults the Shrine: sends an Oracle request and reads the response.</summary>
     public Task<OracleResponse> ConsultAsync(OracleRequest request, CancellationToken cancellationToken = default)

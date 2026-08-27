@@ -50,8 +50,9 @@ Transport (Vessel)   TCP + length-prefixed framing + stream multiplexing · Nois
 - **Shrines — sites hosted over L2** — a node can serve content at a **self-authenticating `cupri1…` address** (a
   generated key, like a `.onion`, kept separate from the node's overlay identity so hosting leaks nothing about it).
   A visitor pins that address during the handshake — only the key-holder can answer, and nothing identifying crosses
-  the wire — then fetches over an HTTP-shaped request/response rite, with static-file or app-callback handlers, and
-  subscribes to **named live feeds** pushed over the same connection (no polling, no WebSocket). Direct-only, no
+  the wire — then fetches over an HTTP-shaped request/response rite, with static-file or app-callback handlers,
+  subscribes to **named live feeds** pushed over the same connection (no polling, no WebSocket), and — for a protocol
+  that is neither shape — drives a **raw duplex session** over that same visit. Direct-only, no
   overlay join, and browser DataChannels route straight in. See [design/shrines.md](design/shrines.md).
 - **Traffic-analysis cover** — overlay gossip fuzzing, long-lived decoy connections (hot fuzz), decoy
   channel sessions (effigies), and fake groups (pageants).
@@ -70,7 +71,7 @@ Transport (Vessel)   TCP + length-prefixed framing + stream multiplexing · Nois
 | `src/CupriNet.Vessel` · `CupriNet.Noise` | TCP/UDP transport, mux; Noise XX/IK handshake |
 | `src/CupriNet.Concordance` | peer table, gossip, discovery routing |
 | `src/CupriNet.Arcanum` | channel codes, key derivation, adverts, ownership |
-| `src/CupriNet.Rites` | message / data / file / site (Oracle, Auspice, Relic) protocols + retry |
+| `src/CupriNet.Rites` | message / data / file / site (Oracle, Auspice, Relic, Conduit) protocols + retry |
 | `src/CupriNet.Traversal` | LAN discovery, NAT-PMP, hole punch, reliable-UDP |
 | `src/CupriNet.Persistence` | `ISecretStore` + encrypted file store |
 | `src/CupriNet.Shrine` | **`Pilgrimage`** — visit an L2 site without running a node (socket-free, so browser/WASM-safe) |

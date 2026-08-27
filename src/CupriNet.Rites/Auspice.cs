@@ -150,7 +150,7 @@ public sealed class AuspicePadding
     public const int DefaultBlockBytes = 512;
 
     /// <summary>The smallest bucket <see cref="PowersOfTwo"/> will round up to.</summary>
-    public const int MinPowerOfTwoBucket = 256;
+    public const int MinPowerOfTwoBucket = PaddingMath.MinPowerOfTwoBucket;
 
     private readonly int _block;
     private readonly bool _powerOfTwo;
@@ -186,20 +186,5 @@ public sealed class AuspicePadding
 
     /// <summary>The length <paramref name="length"/> is padded up to, never beyond <see cref="AuspiceCodec.MaxPaddedBytes"/>.</summary>
     public int Quantise(int length)
-    {
-        if (length < 0)
-            throw new ArgumentOutOfRangeException(nameof(length));
-
-        var target = this switch
-        {
-            { _powerOfTwo: true } => (int)Math.Min(
-                (uint)AuspiceCodec.MaxPaddedBytes,
-                System.Numerics.BitOperations.RoundUpToPowerOf2((uint)Math.Max(length, MinPowerOfTwoBucket))),
-            { _block: > 0 } => length % _block == 0 ? length : length + (_block - (length % _block)),
-            _ => length,
-        };
-
-        // Never pad a message into a size the transport would refuse; an at-limit frame simply stays as it is.
-        return Math.Clamp(target, length, Math.Max(length, AuspiceCodec.MaxPaddedBytes));
-    }
+        => PaddingMath.Quantise(length, _block, _powerOfTwo, AuspiceCodec.MaxPaddedBytes);
 }
