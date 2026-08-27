@@ -9,6 +9,13 @@ namespace CupriNet.Rites;
 /// <para>An existing framed protocol moving onto L2 meets the seam here: the handler is handed a
 /// <see cref="ConduitSession"/> whose <see cref="ConduitSession.SendAsync"/> / <see cref="ConduitSession.ReceiveAsync"/>
 /// pair is the whole contract, so the protocol above it needs no CupriNet vocabulary.</para>
+///
+/// <para><b>On <see cref="ConduitFrame.ProtocolId"/>.</b> The rite never dispatches on it — there is no registry, and
+/// the numbers are the application's own; CupriNet only frames and seals what it is given. A handler serving one
+/// protocol should therefore check the id itself and answer an unrecognised one with
+/// <see cref="ConduitSession.SendSealedAsync"/> ("unknown protocol") rather than ignoring the frame, so a peer that
+/// dialled the wrong thing is told instead of left waiting. Doing it any other way is what makes two consumers behave
+/// differently in the same situation.</para>
 /// </summary>
 public interface IConduitHandler
 {

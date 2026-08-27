@@ -16,7 +16,12 @@ public static class ConduitFlags
     /// </summary>
     public const uint Sealed = 0x8000_0000;
 
-    /// <summary>The bits the rite reserves. An application must keep its own flags clear of these.</summary>
+    /// <summary>
+    /// The mask of bits the rite reserves — <see cref="Sealed"/> is the only one today, but test against
+    /// <c>Reserved</c> rather than against <see cref="Sealed"/>: the two are equal now and would diverge the moment a
+    /// second reserved bit lands. The low 31 bits are the application's, and <see cref="ConduitFrame.ApplicationFlags"/>
+    /// hands them back already masked.
+    /// </summary>
     public const uint Reserved = Sealed;
 }
 
@@ -43,6 +48,12 @@ public sealed record ConduitFrame
 
     /// <summary>The reason carried by a sealed frame, or an empty string.</summary>
     public string SealReason => IsSealed ? System.Text.Encoding.UTF8.GetString(Payload) : string.Empty;
+
+    /// <summary>
+    /// This frame's flags with every rite-reserved bit cleared — the application's own bits, and the only ones it
+    /// should read. Stays correct if the rite ever reserves a second bit.
+    /// </summary>
+    public uint ApplicationFlags => Flags & ~ConduitFlags.Reserved;
 }
 
 /// <summary>Canonical serialization for <see cref="ConduitFrame"/>.</summary>
@@ -193,6 +204,7 @@ public sealed class ConduitSession
     private readonly int _maxPayloadBytes;
     private readonly bool _versioned;
     private readonly SemaphoreSlim _sendLock = new(1, 1);
+    private bool _sealed;
 
     public ConduitSession(IStreamChannel channel, ReadOnlyMemory<byte> sessionKey, ICryptoSuite suite,
         RiteIdentity? author = null, bool requireAuthor = false,
@@ -283,9 +295,21 @@ public sealed class ConduitSession
             Payload = System.Text.Encoding.UTF8.GetBytes(reason ?? string.Empty),
         }, cancellationToken);
 
-    /// <summary>Reads the next frame, or null when the peer closed the connection.</summary>
+    /// <summary>
+    /// Reads the next frame, or null once the conduit is over — either the peer closed the connection, or (on a
+    /// Pilgrimage) it sealed the rite. A sealed frame is yielded once, carrying its <see cref="ConduitFrame.SealReason"/>,
+    /// and every read after it returns null: the host holds the visit open for the other rites, so waiting for a close
+    /// that will not come would hang. Read it as "a sealed frame means the reason, then end of stream".
+    ///
+    /// <para>Assumes a <b>single reader</b>. Concurrent readers will not corrupt anything — the demultiplexer hands
+    /// each frame to exactly one of them — but which reader gets which frame is arbitrary, so ordering is only
+    /// meaningful to one. Sends carry no such caveat; those are serialised.</para>
+    /// </summary>
     public async Task<ConduitFrame?> ReceiveAsync(CancellationToken cancellationToken = default)
     {
+        if (_sealed)
+            return null;
+
         var payload = await _channel.ReceiveAsync(cancellationToken).ConfigureAwait(false);
         if (payload is null)
             return null;
@@ -305,6 +329,12 @@ public sealed class ConduitSession
             if (!RiteAuthor.Verify(AuthorDomain, content, frame.AuthorSealPublicKey, frame.AuthorSignature, _suite, _requireAuthor))
                 throw new EpistleException("Conduit author authentication failed.");
         }
+
+        // Only on the Pilgrimage wire. The Arcanum conduit predates the reserved bit, so an application there may
+        // already be using the top flag for its own purposes — reading it as a seal would end that conduit silently,
+        // which is exactly the flag-day CupriMark exists to avoid. There the bit stays the application's.
+        if (_versioned && frame.IsSealed)
+            _sealed = true;
 
         return frame;
     }

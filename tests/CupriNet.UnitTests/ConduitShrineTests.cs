@@ -258,6 +258,126 @@ public class ConduitShrineTests
     }
 
     [Fact]
+    public async Task SealedFrame_IsTheReasonThenEndOfStream()
+    {
+        using var cts = new CancellationTokenSource(Timeout);
+        var ct = cts.Token;
+
+        await using var hostNode = await CupriNode.CreateAsync(new CupriNodeOptions { Concordium = "sites.example" }, ct);
+        await using var pilgrimNode = await CupriNode.CreateAsync(new CupriNodeOptions { Concordium = "sites.example" }, ct);
+
+        var signet = Signet.Generate(hostNode.Suite);
+
+        var (pilgrimSide, hostSide, listener) = await ConnectAsync(ct);
+        await using var _listener = listener;
+
+        // A Shrine with no conduit: it seals, then holds the visit open for the Oracle.
+        var hostTask = hostNode.AcceptPilgrimageOverVesselAsync(hostSide, signet, new DelegateOracleHandler(NoPage), ct);
+
+        await using var shrine = await pilgrimNode.PilgrimageOverVesselAsync(pilgrimSide, signet.Sigil, ct);
+        await shrine.Conduits.SendAsync(
+            new ConduitFrame { ProtocolId = 9, SchemaVersion = 1, Flags = 0, Payload = "anyone?"u8.ToArray() }, ct);
+
+        var first = await shrine.Conduits.ReceiveAsync(ct);
+        Assert.NotNull(first);
+        Assert.True(first.IsSealed);
+        Assert.Equal("no conduit hosted", first.SealReason);
+
+        // The reason once, then end of stream — never a wait for a close the host will not send, since it is still
+        // serving the Oracle over the same visit.
+        Assert.Null(await shrine.Conduits.ReceiveAsync(ct));
+        Assert.Null(await shrine.Conduits.ReceiveAsync(ct));
+
+        var page = await shrine.ConsultAsync(OracleRequest.Get("/still-here"), ct);
+        Assert.Equal(200u, page.Status);
+    }
+
+    [Fact]
+    public async Task ArcanumConduit_LeavesTheTopFlagBitToTheApplication()
+    {
+        // The channel wire predates the reserved bit. A pre-0.3.5 application may already be using the top flag, so
+        // reading it as a seal there would end that conduit silently — the flag day CupriMark exists to avoid.
+        using var cts = new CancellationTokenSource(Timeout);
+        var ct = cts.Token;
+        var suite = CryptoSuites.Secure();
+        var sessionKey = System.Security.Cryptography.RandomNumberGenerator.GetBytes(suite.Aead.KeySize);
+
+        var (a, b, listener) = await ConnectAsync(ct);
+        await using var _a = a;
+        await using var _b = b;
+        await using var _l = listener;
+
+        var sender = new ConduitSession(a, sessionKey, suite);
+        var receiver = new ConduitSession(b, sessionKey, suite);
+
+        await sender.SendAsync(new ConduitFrame
+        {
+            ProtocolId = 1,
+            SchemaVersion = 1,
+            Flags = ConduitFlags.Sealed | 0x2,      // an application using the top bit as its own
+            Payload = "still mine"u8.ToArray(),
+        }, ct);
+
+        var got = await receiver.ReceiveAsync(ct);
+        Assert.NotNull(got);
+        Assert.Equal("still mine"u8.ToArray(), got.Payload);
+
+        // The stream is NOT latched shut on the channel path: a second frame still arrives.
+        await sender.SendAsync(new ConduitFrame
+        { ProtocolId = 1, SchemaVersion = 1, Flags = 0, Payload = "and another"u8.ToArray() }, ct);
+
+        var second = await receiver.ReceiveAsync(ct);
+        Assert.NotNull(second);
+        Assert.Equal("and another"u8.ToArray(), second.Payload);
+    }
+
+    [Fact]
+    public void ApplicationFlags_MaskEveryReservedBit()
+    {
+        var frame = new ConduitFrame
+        {
+            ProtocolId = 1,
+            SchemaVersion = 1,
+            Flags = ConduitFlags.Sealed | 0x2 | 0x40,
+            Payload = [],
+        };
+
+        Assert.Equal(0x42u, frame.ApplicationFlags);
+        Assert.True(frame.IsSealed);
+        Assert.Equal(0u, frame.ApplicationFlags & ConduitFlags.Reserved);
+    }
+
+    [Fact]
+    public async Task PilgrimageConduit_AcceptsExactlyTheCeiling()
+    {
+        // The number a consumer sizes its chunking against: the check is on the raw payload, before any padding.
+        using var cts = new CancellationTokenSource(Timeout);
+        var ct = cts.Token;
+
+        var (a, b, listener) = await ConnectAsync(ct);
+        await using var _a = a;
+        await using var _b = b;
+        await using var _l = listener;
+
+        var sender = new ConduitSession(new VesselStreamChannel(a, ConduitSession.DataStream));
+        var receiver = new ConduitSession(new VesselStreamChannel(b, ConduitSession.DataStream));
+
+        Assert.Equal(ConduitCodec.MaxPayloadBytes, sender.MaxPayloadBytes);
+
+        await sender.SendAsync(new ConduitFrame
+        {
+            ProtocolId = 1,
+            SchemaVersion = 1,
+            Flags = 0,
+            Payload = new byte[ConduitCodec.MaxPayloadBytes],
+        }, ct);
+
+        var got = await receiver.ReceiveAsync(ct);
+        Assert.NotNull(got);
+        Assert.Equal(ConduitCodec.MaxPayloadBytes, got.Payload.Length);
+    }
+
+    [Fact]
     public async Task Conduit_SerialisesConcurrentSends()
     {
         using var cts = new CancellationTokenSource(Timeout);

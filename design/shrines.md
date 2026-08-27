@@ -84,7 +84,7 @@ node.HostShrine(signet, handler, feeds, relics, conduit: new DelegateConduitHand
 
 // Pilgrim: send and receive, in whatever order the protocol above dictates.
 await shrine.Conduits.SendAsync(new ConduitFrame { ProtocolId = 7, SchemaVersion = 1, Flags = 0, Payload = bytes }, ct);
-var reply = await shrine.Conduits.ReceiveAsync(ct);   // null when the peer closed; IsSealed when the rite ended
+var reply = await shrine.Conduits.ReceiveAsync(ct);   // a sealed frame carries the reason, then null: end of stream
 ```
 
 A browser DataChannel arriving at a Shrine-hosting node is routed straight into the Pilgrimage, so browsers are
@@ -271,7 +271,10 @@ relayed). With reachability riding in the link, even L1 is optional for v1: *fol
    Oracle, Auspice and Relic — no session key is plumbed anywhere) and takes **no author identity**, so a Pilgrim
    stays unlinkable by construction. Padded by default (`ConduitPadding`) and capped at the browser ceiling; a
    Shrine hosting no conduit answers with a sealed frame rather than silence, and a handler that throws seals only
-   the conduit. Carries the `conduit` CupriMark component on the Pilgrimage wire only — the Arcanum conduit predates
+   the conduit. A sealed frame is yielded once, with its reason, and every read after it returns null — the host
+   holds the visit open for the other rites, so a consumer waiting for a close that will never come would hang.
+   The reserved bit is honoured on the Pilgrimage wire only: on an `Arcanum` channel the top flag predates it and
+   stays the application's, so no pre-0.3.5 conduit is ended by a bit it was already using. Carries the `conduit` CupriMark component on the Pilgrimage wire only — the Arcanum conduit predates
    the catalogue and its bytes are unchanged.
 9. **Next (product):** the Nodestar repo — the web front, the served client, and the author tooling.
 10. **Later (protocol):** chunked/ranged Oracle
