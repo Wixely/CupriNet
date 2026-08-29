@@ -71,10 +71,25 @@ public static class ConduitCodec
     public const int MaxPaddedBytes = 224 * 1024;
 
     /// <summary>
-    /// The ceiling on an <b>Arcanum</b> (channel) conduit: what a Vessel frame allows, so a payload that encoded
-    /// before this check existed still encodes. No browser is on that path.
+    /// Headroom the channel ceiling leaves under the Vessel frame size, for the same reason the Pilgrimage ceiling
+    /// leaves 64 KiB under the browser's 256 KiB: a payload is not what goes on the wire. Around it sit this rite's
+    /// framing, the Veil's nonce and tag, the vessel's own header, and Noise's ciphertext expansion. Measured, that
+    /// is about 50 bytes for an unsigned frame and a few hundred for a signed one; 64 KiB is a round number far above
+    /// either, and negligible against 16 MiB.
     /// </summary>
-    public const int MaxChannelPayloadBytes = FrameCodec.DefaultMaxFrameSize;
+    public const int ChannelFramingHeadroom = 64 * 1024;
+
+    /// <summary>
+    /// The ceiling on an <b>Arcanum</b> (channel) conduit: a Vessel frame, less <see cref="ChannelFramingHeadroom"/>.
+    /// No browser is on that path, so the limit is the transport's rather than the DataChannel's.
+    ///
+    /// <para>It is deliberately <em>below</em> <see cref="FrameCodec.DefaultMaxFrameSize"/> rather than equal to it.
+    /// Equal was wrong: a payload at exactly the frame size encoded to 17 bytes more than a frame may carry, so the
+    /// documented maximum could never be sent, and the refusal came from <see cref="FrameCodec"/> talking about frame
+    /// bytes — at the transport, naming a number the caller never chose. Every other ceiling in the rites fails at the
+    /// rite with a reason; this one now does too.</para>
+    /// </summary>
+    public const int MaxChannelPayloadBytes = FrameCodec.DefaultMaxFrameSize - ChannelFramingHeadroom;
 
     public static byte[] Encode(ConduitFrame frame, int maxPayloadBytes = MaxChannelPayloadBytes)
     {
@@ -300,6 +315,11 @@ public sealed class ConduitSession
     /// Pilgrimage) it sealed the rite. A sealed frame is yielded once, carrying its <see cref="ConduitFrame.SealReason"/>,
     /// and every read after it returns null: the host holds the visit open for the other rites, so waiting for a close
     /// that will not come would hang. Read it as "a sealed frame means the reason, then end of stream".
+    ///
+    /// <para><b>Call this promptly and continuously.</b> Frames queue in the demultiplexer while you are away, and past
+    /// that queue's bound they are dropped rather than back-pressuring the connection — see <see cref="ConduitFrame"/>
+    /// for why, and for why the loss cannot be detected from the frames themselves. Taking each frame and coming
+    /// straight back — handing the work to something else — is the shape that cannot lose anything.</para>
     ///
     /// <para>Assumes a <b>single reader</b>. Concurrent readers will not corrupt anything — the demultiplexer hands
     /// each frame to exactly one of them — but which reader gets which frame is arbitrary, so ordering is only

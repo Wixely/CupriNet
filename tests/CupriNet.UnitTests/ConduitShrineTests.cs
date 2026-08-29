@@ -378,6 +378,56 @@ public class ConduitShrineTests
     }
 
     [Fact]
+    public async Task ArcanumConduit_MaxPayload_ActuallyFitsAVesselFrame()
+    {
+        // The ceiling must be reachable. Set equal to the frame size it was not: a payload at exactly 16 MiB encoded
+        // to 17 bytes more than a frame may carry, so the documented maximum could never be sent, and the refusal
+        // came from FrameCodec at the transport rather than from the rite.
+        using var cts = new CancellationTokenSource(Timeout);
+        var ct = cts.Token;
+        var suite = CryptoSuites.Secure();
+        var sessionKey = System.Security.Cryptography.RandomNumberGenerator.GetBytes(suite.Aead.KeySize);
+
+        var (a, b, listener) = await ConnectAsync(ct);
+        await using var _a = a;
+        await using var _b = b;
+        await using var _l = listener;
+
+        var sender = new ConduitSession(a, sessionKey, suite);
+        var receiver = new ConduitSession(b, sessionKey, suite);
+
+        Assert.True(ConduitCodec.MaxChannelPayloadBytes < FrameCodec.DefaultMaxFrameSize,
+            "the channel ceiling must leave room for framing, the Veil and the vessel header");
+
+        await sender.SendAsync(new ConduitFrame
+        {
+            ProtocolId = 1,
+            SchemaVersion = 1,
+            Flags = 0,
+            Payload = new byte[ConduitCodec.MaxChannelPayloadBytes],
+        }, ct);
+
+        var got = await receiver.ReceiveAsync(ct);
+        Assert.NotNull(got);
+        Assert.Equal(ConduitCodec.MaxChannelPayloadBytes, got.Payload.Length);
+    }
+
+    [Fact]
+    public void ArcanumConduit_RefusesPastItsCeiling_AtTheRite()
+    {
+        var error = Assert.Throws<CodexFormatException>(() => ConduitCodec.Encode(new ConduitFrame
+        {
+            ProtocolId = 1,
+            SchemaVersion = 1,
+            Flags = 0,
+            Payload = new byte[ConduitCodec.MaxChannelPayloadBytes + 1],
+        }));
+
+        // Named by the rite, with the rite's own number — never FrameCodec talking about frame bytes.
+        Assert.Contains($"{ConduitCodec.MaxChannelPayloadBytes}", error.Message);
+    }
+
+    [Fact]
     public async Task Conduit_SerialisesConcurrentSends()
     {
         using var cts = new CancellationTokenSource(Timeout);

@@ -89,14 +89,26 @@ exchange carries no correlation id, so concurrent consults would take each other
 did underneath). That places the protection on the party that suffers if it is missing, which is the same rule the
 decode-side ceilings follow: **the Ward belongs where the damage lands, not upstream on trust.**
 
-In practice, then, concurrent sends on an authenticated session are safe on every transport — but because the rite
-and the Noise layer each take care of it, never because the transport was assumed to.
+**So where does the guarantee actually come from?** Two independent places, and this is the authoritative account —
+[CupriNet#4](https://github.com/Wixely/CupriNet/issues/4) reached it in stages and is superseded by what follows.
+
+1. **`NoiseVessel`, on every authenticated path.** Its lock is not optional and not defensive: the Noise nonce order
+   must match the wire order or the far side cannot decrypt. Every Arcanum channel and every Pilgrimage runs over one,
+   so on any shipped path sends are already strictly serial before they reach a transport at all.
+2. **Each rite, for itself.** The per-rite locks are what hold when a rite is driven over a *bare* vessel with no
+   Noise above it — direct or embedded use, and every test in this repo that constructs a session over a raw
+   `TcpVessel`.
+
+Neither makes the other pointless. (1) covers production and (2) covers everything else, and (2) is the one that
+survives a future `IVessel` implementation that quietly does the wrong thing. What is *not* true, and was briefly
+believed here, is that `IVessel` owes serialisation: it does not, it never did, and requiring it would have added an
+unenforceable promise that rites might then have stopped protecting themselves against.
 
 ## Which ceiling applies to you
 
 Read down the column for the path you are on:
 
-| | Arcanum channel over TCP / UDP / Tor | Pilgrimage (Shrine), any transport | Pilgrimage from a **browser** |
+| | Arcanum channel over TCP / UDP / Tor | Pilgrimage (Shrine) — see note | Pilgrimage from a **browser** |
 |---|---|---|---|
 | Transport frame ceiling | 16 MiB | 16 MiB or 256 KiB, per transport | **256 KiB, hard** |
 | Epistle (message) | vessel frame | — | — |
@@ -112,6 +124,17 @@ that breaks the first time someone opens it in a browser. One number, enforced e
 in a test works in Chromium.
 
 The Arcanum column has no browser on it and keeps the transport's own ceiling.
+
+> **"Any transport" is true of the rite, not of how you get one.** A Pilgrimage runs over any vessel — but a browser
+> DataChannel is the only one a node routes into a Shrine *by itself*. A node's L1 listen port does **not**: it
+> answers with `NoiseConjunction.AcceptAsync(vessel, Identity, …)`, presenting the node's own Sigil, because that port
+> exists to pair overlay peers. Over TCP, Tor, or anything else, the **caller owns the vessel** and hands it to
+> `AcceptPilgrimageOverVesselAsync` / `Pilgrimage.OverVesselAsync`.
+>
+> Get this wrong and the failure is quiet rather than loud: pinning the Signet fails correctly, but pinning the
+> *node's* Sigil **succeeds** into a healthy session with nothing hosting behind it, after which every rite answers
+> with a closed stream. That reads as a broken rite and is not one. Full write-up:
+> [*How a Pilgrim actually reaches a Shrine*](shrines.md#how-a-pilgrim-actually-reaches-a-shrine).
 
 ### Why 192 and not 256
 
@@ -138,7 +161,7 @@ Three kinds of number live here, and they are not equally negotiable:
 | `AuspiceCodec.MaxPaddedBytes` | 224 KiB | fixed | encoded Auspice frame after padding |
 | `RelicCodec.MaxPayloadBytes` | 192 KiB | fixed | one chunk, manifest, or reason |
 | `ConduitCodec.MaxPayloadBytes` | 192 KiB | fixed (the default) | one Pilgrimage conduit frame |
-| `ConduitCodec.MaxChannelPayloadBytes` | 16 MiB | fixed (the default) | one Arcanum conduit frame |
+| `ConduitCodec.MaxChannelPayloadBytes` | 16 MiB − 64 KiB | fixed (the default) | one Arcanum conduit frame |
 | `ConduitCodec.MaxPaddedBytes` | 224 KiB | fixed | encoded conduit frame after padding |
 | `ConduitSession.MaxPayloadBytes` | per session | **per-connection** | what *this* conduit accepts; set via the constructor's `maxPayloadBytes` |
 | `ReliquaryLimits.MaxChunkSize` | 8 MiB | **per-call** | largest Reliquary chunk (`DefaultChunkSize` is 64 KiB) |
@@ -191,9 +214,19 @@ constructor.
 
 ### 3. Stay on a channel, if a browser genuinely never will
 
-An `ArcanumSession.Conduits` frame may be up to the vessel's 16 MiB. This is the right answer only when the peers are
-channel members on a stream transport and the traffic will never be served to a browser. It is the wrong answer for
-anything a Shrine hosts.
+An `ArcanumSession.Conduits` frame may be up to `ConduitCodec.MaxChannelPayloadBytes` — a vessel frame less 64 KiB of
+headroom, so **16 MiB − 64 KiB**, not a flat 16 MiB. The headroom is there for the same reason the Pilgrimage path
+leaves 64 KiB under the browser's 256 KiB: the payload is not what goes on the wire, and this rite's framing, the
+Veil's nonce and tag, the vessel header and Noise's expansion all sit around it.
+
+> Before 0.3.7 this constant was set to the frame size exactly, which meant the documented maximum could not actually
+> be sent: a payload at 16 MiB encoded to 17 bytes more than a frame may carry, and the refusal came from `FrameCodec`
+> talking about frame bytes — at the transport, naming a number the caller never chose. That was the one place the
+> library broke its own rule about failing at the rite. Read the figure from
+> `ConduitSession.MaxPayloadBytes` rather than hard-coding it and the change is invisible to you.
+
+This path is the right answer only when the peers are channel members on a stream transport and the traffic will never
+be served to a browser. It is the wrong answer for anything a Shrine hosts.
 
 ### Why the rite refuses instead of the transport
 
@@ -259,6 +292,27 @@ destroy. Indistinguishability is the feature; the shared id is how it is achieve
 share a vessel.** A Pilgrimage is not a pairing: different handshake, different identity, different lifetime. The ids
 are scoped by connection kind, so reusing a number across kinds costs nothing.
 
+### What is guaranteed to arrive, and what is not
+
+**Ordered, never torn, not retried.** The transports underneath are all ordered and each frame is one whole message,
+so frames arrive in the order they were sent and never interleave or duplicate. What no rite except the Epistle adds
+is *recovery*: only the Epistle has the **Vigil**, which acknowledges and retries. The Oracle, Auspice, Relic and
+Conduit have no acknowledgement and no sequence number.
+
+That matters because of the Ward below. When a stream's inbound queue is full, further frames are **dropped**, and
+dropped silently — the demultiplexer's write reports success, and nothing in a `ConduitFrame` or an `AuspiceFrame`
+lets a receiver notice a gap. An Epistle lost that way comes back on the next retry. **A conduit frame lost that way
+is gone**, and neither end finds out.
+
+In practice this is reachable only by a receiver that stops draining: a thousand frames must already be queued for
+that stream. The shape that cannot lose anything is the obvious one — take each frame and come straight back, handing
+the work to something else, rather than processing inline in the receive loop. If a protocol genuinely must *detect*
+loss rather than avoid it, it carries its own sequence number in its own payload; the rite will not do it for you.
+
+The Relic is the exception worth noting, and not by having retries: every chunk is verified against the manifest and
+the whole file before bytes are returned, so a lost chunk surfaces as a failed fetch rather than a silently short
+file.
+
 Wards: at most 64 concurrent streams per connection and 1,024 queued frames per stream, after which inbound frames
 are dropped rather than growing memory without limit — the reliable rites recover anything dropped that way. **Dropping
 rather than blocking is the point:** a queue that blocks under flood lets one hostile stream stall the mux pump and so
@@ -292,6 +346,10 @@ The ceremonial vocabulary maps one-to-one onto ordinary components. The transpor
 On an **Arcanum channel** the rites are Veil-sealed: an inner encryption layer keyed from the channel's session key,
 which is why those constructors take a session key and a crypto suite. On a **Pilgrimage** they are not — every rite
 has a **keyless** constructor for that path, and no session key is ever plumbed out of `Pilgrimage.OverVesselAsync`.
+
+*(Every rite, as of 0.3.6. The Conduit was the exception until then: it had only key-taking constructors, which is why
+it could be reached on a channel and not from a visit at all —
+[CupriNet#3](https://github.com/Wixely/CupriNet/issues/3). The rule below is the one it should always have followed.)*
 
 The rule of thumb: *if you are holding a channel key to construct a rite, you are on the channel path; if you are
 handing it only a stream, you are on the Shrine path.*
