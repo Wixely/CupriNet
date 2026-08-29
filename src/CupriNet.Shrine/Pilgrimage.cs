@@ -2,6 +2,7 @@ using CupriNet.Abstractions;
 using CupriNet.Alembic;
 using CupriNet.Conjunction;
 using CupriNet.Core;
+using CupriNet.Rites;
 using CupriNet.Vessel;
 
 namespace CupriNet.Hosting;
@@ -40,6 +41,7 @@ public static class Pilgrimage
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(vessel);
+        RiteTransport.EnsureCarriesRiteFrames(vessel);
         try
         {
             // Inside the try: every failure past this point owes the caller a disposed vessel.

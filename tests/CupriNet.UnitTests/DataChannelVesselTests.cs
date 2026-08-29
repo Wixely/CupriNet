@@ -87,6 +87,9 @@ public class DataChannelVesselTests
     /// <summary>An in-memory, reliable, ordered message duplex — the test stand-in for a WebRTC DataChannel.</summary>
     private sealed class LoopbackDataChannel : IDataChannel
     {
+        /// <summary>Unbounded: an in-memory pair caps nothing, which is what 0 means.</summary>
+        public int MaxMessageBytes => 0;
+
         private readonly Channel<byte[]> _inbound;
         private readonly Channel<byte[]> _outbound;
 

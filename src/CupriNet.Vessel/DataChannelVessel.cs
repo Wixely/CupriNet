@@ -16,6 +16,19 @@ public interface IDataChannel : IAsyncDisposable
     /// <summary>This side's local endpoint, if known.</summary>
     EndPoint? LocalEndPoint { get; }
 
+    /// <summary>
+    /// The largest single message this channel will carry, as <b>negotiated with the peer</b> — not a constant of
+    /// this library. On WebRTC it is the SCTP association's agreed <c>a=max-message-size</c>, which an adapter reads
+    /// from the live connection (in a browser, <c>RTCPeerConnection.sctp.maxMessageSize</c>). The interoperable floor
+    /// is 64 KiB, so a peer or a middlebox may agree to far less than this stack offers.
+    ///
+    /// <para>Return <b>0 for "not known or not bounded"</b>. An adapter that genuinely has no limit — or cannot learn
+    /// one — returns 0 and is not checked; one that can learn it should report it, because
+    /// <see cref="DataChannelVessel"/> sends exactly one message per frame and <b>never fragments</b>. Nothing below
+    /// a rite will split an oversized frame up, so a limit the rites cannot see is one they will walk into.</para>
+    /// </summary>
+    int MaxMessageBytes { get; }
+
     /// <summary>Sends one whole message. The channel preserves the boundary.</summary>
     ValueTask SendAsync(ReadOnlyMemory<byte> message, CancellationToken cancellationToken = default);
 
@@ -30,9 +43,12 @@ public interface IDataChannel : IAsyncDisposable
 /// <c>ConjoinOverVesselAsync</c> seam and the Toll / Noise / Consecration / Rites run over it unchanged. See
 /// <c>design/webrtc-clients.md</c>.
 /// </summary>
-public sealed class DataChannelVessel(IDataChannel channel) : IVessel
+public sealed class DataChannelVessel(IDataChannel channel) : IVessel, IMessageSizeLimited
 {
     private readonly IDataChannel _channel = channel ?? throw new ArgumentNullException(nameof(channel));
+
+    /// <inheritdoc />
+    public int MaxMessageBytes => _channel.MaxMessageBytes;
 
     public EndPoint? RemoteEndPoint => _channel.RemoteEndPoint;
     public EndPoint? LocalEndPoint => _channel.LocalEndPoint;

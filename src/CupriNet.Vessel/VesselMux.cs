@@ -23,6 +23,7 @@ public sealed class VesselMux : IAsyncDisposable
     private readonly ConcurrentDictionary<ushort, Channel<byte[]>> _streams = new();
     private readonly CancellationTokenSource _cts = new();
     private readonly Task _pump;
+    private int _disposed;
 
     /// <summary>Starts pumping frames off the Vessel. If <paramref name="ownsVessel"/>, disposal also closes it.</summary>
     public VesselMux(IVessel vessel, bool ownsVessel = false,
@@ -99,6 +100,13 @@ public sealed class VesselMux : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        // Disposal must be safe to repeat: IAsyncDisposable requires it, and a caller can reach a second call
+        // without writing one — a session torn down from the far side disposes this, and the owner's own dispose
+        // then lands on it. Cancelling an already-disposed CancellationTokenSource would throw while cleaning up
+        // correctly, which is the one failure a close should never produce.
+        if (Interlocked.Exchange(ref _disposed, 1) == 1)
+            return;
+
         await _cts.CancelAsync().ConfigureAwait(false);
         try
         {

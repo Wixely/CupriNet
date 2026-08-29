@@ -24,6 +24,7 @@ public sealed class Vessel : IVessel
     private readonly Func<ValueTask>? _onDispose;
     private readonly SemaphoreSlim _writeLock = new(1, 1);
     private readonly int _maxFrameSize;
+    private int _disposed;
 
     /// <summary>
     /// Wraps any duplex byte stream (TCP's NetworkStream, or an <see cref="ArqStream"/> over reliable UDP) as a
@@ -81,6 +82,9 @@ public sealed class Vessel : IVessel
 
     public async ValueTask DisposeAsync()
     {
+        if (Interlocked.Exchange(ref _disposed, 1) == 1)
+            return;                                     // idempotent: see VesselMux.DisposeAsync
+
         try
         {
             await _stream.DisposeAsync().ConfigureAwait(false);

@@ -14,6 +14,7 @@ public sealed class NoiseVessel : IVessel
     private readonly IVessel _inner;
     private readonly NoiseTransport _transport;
     private readonly SemaphoreSlim _sendLock = new(1, 1);
+    private int _disposed;
 
     public NoiseVessel(IVessel inner, NoiseTransport transport)
     {
@@ -51,6 +52,9 @@ public sealed class NoiseVessel : IVessel
 
     public async ValueTask DisposeAsync()
     {
+        if (Interlocked.Exchange(ref _disposed, 1) == 1)
+            return;                                     // idempotent: see VesselMux.DisposeAsync
+
         _sendLock.Dispose();
         await _inner.DisposeAsync().ConfigureAwait(false);
     }

@@ -57,10 +57,25 @@ preserves message boundaries, so there is **no length prefix**: one CupriNet fra
 shaped `[varuint streamId][payload]`. That is precisely why a browser drops into the same
 `ConjoinOverVesselAsync` seam with no adapter — and it is also where the tight ceiling comes from.
 
-**Message ceiling: 256 KiB, and it is not ours to raise.** A DataChannel message cannot exceed the
-`a=max-message-size` an endpoint advertises; CupriWebRTC's SCTP association fixes that at 256 KiB
-(`SctpAssociation.MaxMessageBytes`) and **rejects** anything larger in both directions rather than truncating or
-fragmenting it. There is no `maxFrameSize` knob here. This is the constraint the whole Shrine path is sized against.
+**Message ceiling: negotiated, and 256 KiB is only what *we* offer.** A DataChannel message cannot exceed the
+`a=max-message-size` the two ends agree on. CupriWebRTC's SCTP association offers 256 KiB
+(`SctpAssociation.MaxMessageBytes`) and **rejects** anything larger rather than truncating or fragmenting it, but the
+effective limit is the **minimum of the two ends** — and the interoperable floor is **64 KiB**
+(`RTCSctpTransport.maxMessageSize`), far below what the rites use. Every pairing measured so far agrees to 256 KiB;
+that is a property of those pairings, not a guarantee.
+
+> This document previously called the 256 KiB "fixed". That was wrong, and worth correcting in place because the
+> advice below — read the ceiling from the session rather than hard-coding it — was given on the strength of it.
+> Nothing between a rite and the wire reconciles the two numbers: `DataChannelVessel` sends exactly one message per
+> frame and **never fragments**. So a peer negotiating low would have a legal frame refused by the transport.
+>
+> `IDataChannel.MaxMessageBytes` now carries the negotiated figure, and `RiteTransport.EnsureCarriesRiteFrames`
+> refuses such a transport **when you connect**, naming both numbers — the same bargain every other ceiling makes.
+> An adapter that cannot learn the figure reports 0 and is not checked, which is the honest answer rather than a
+> guess. The CupriWebRTC adapter reports 0 today: the value lives on the SCTP association and the channel does not
+> surface it, so the check is inert on that path until it does.
+
+There is no `maxFrameSize` knob here. This is the constraint the whole Shrine path is sized against.
 
 > **Which vessel does a Shrine accept?** Any of them — but the vessel has to be handed to
 > `AcceptPilgrimageOverVesselAsync` / `Pilgrimage.OverVesselAsync` by a caller who owns it. A node's own L1 listen port
@@ -157,7 +172,8 @@ Three kinds of number live here, and they are not equally negotiable:
 
 | Where | Value | Kind | Meaning |
 |---|---|---|---|
-| `SctpAssociation.MaxMessageBytes` (CupriWebRTC) | 256 KiB | **fixed, and not ours** | WebRTC message ceiling |
+| `IDataChannel.MaxMessageBytes` | negotiated | **not ours, and not constant** | what the two ends agreed; 256 KiB is what CupriWebRTC offers, 64 KiB the interoperable floor |
+| `RiteTransport.RequiredMessageBytes` | 232 KiB | fixed | what a message transport must carry for the site rites; checked at connect |
 | `FrameCodec.DefaultMaxFrameSize` | 16 MiB | per-connection | byte-stream frame ceiling; every factory takes `maxFrameSize` |
 | `OracleCodec.MaxBodyBytes` | 192 KiB | fixed | one request or response body |
 | `AuspiceCodec.MaxPayloadBytes` | 192 KiB | fixed | one snapshot or update |

@@ -28,6 +28,20 @@ internal sealed class WebRtcDataChannel : IDataChannel
         _channel.Closed += () => _inbound.Writer.TryComplete();
     }
 
+    /// <summary>
+    /// 0 — unknown — because CupriWebRTC does not surface it yet. The negotiated value exists on the SCTP
+    /// association (<c>SctpAssociation.MaxMessageBytes</c>), but <see cref="WebRtcChannel"/> does not expose it, so
+    /// this adapter has no way to read what the two ends actually agreed to.
+    ///
+    /// <para>Reporting 0 means <see cref="RiteTransport.EnsureCarriesRiteFrames"/> passes rather than guessing, which
+    /// is the right failure while the number is unavailable: this stack offers 256 KiB and every pairing measured so
+    /// far agrees to it, so refusing on a value we cannot see would break working connections. The moment CupriWebRTC
+    /// exposes the association's figure on the channel, return it here and the check starts doing its job — that is
+    /// the whole of what is left to make a low-negotiating peer a clear connect-time error instead of a frame the
+    /// wire silently refuses.</para>
+    /// </summary>
+    public int MaxMessageBytes => 0;
+
     public EndPoint? RemoteEndPoint => _channel.Remote;
     public EndPoint? LocalEndPoint { get; }
 

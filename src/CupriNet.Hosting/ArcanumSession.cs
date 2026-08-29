@@ -14,6 +14,7 @@ namespace CupriNet.Hosting;
 public sealed class ArcanumSession : IAsyncDisposable
 {
     private readonly VesselMux _mux;
+    private int _disposed;
 
     internal ArcanumSession(VesselSession vessel, long epoch, ReadOnlyMemory<byte> sessionKey, ICryptoSuite suite,
         RiteIdentity author, bool requireSignedAuthors)
@@ -37,5 +38,11 @@ public sealed class ArcanumSession : IAsyncDisposable
     public Task SendTextAsync(string text, DateTimeOffset now, CancellationToken cancellationToken = default)
         => Epistles.SendMessageAsync(Epistle.Text(text, now), cancellationToken);
 
-    public ValueTask DisposeAsync() => _mux.DisposeAsync();
+    public ValueTask DisposeAsync()
+    {
+        if (Interlocked.Exchange(ref _disposed, 1) == 1)
+            return ValueTask.CompletedTask;             // idempotent: see VesselMux.DisposeAsync
+
+        return _mux.DisposeAsync();
+    }
 }

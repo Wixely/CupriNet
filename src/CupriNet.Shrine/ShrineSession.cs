@@ -20,6 +20,7 @@ public sealed class ShrineSession : IAsyncDisposable
     private readonly IVessel _vessel;
     private readonly VesselMux _mux;
     private readonly OracleSession _oracle;
+    private int _disposed;
 
     internal ShrineSession(IVessel vessel, ICryptoSuite suite)
     {
@@ -76,6 +77,9 @@ public sealed class ShrineSession : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        if (Interlocked.Exchange(ref _disposed, 1) == 1)
+            return;                                     // idempotent: see VesselMux.DisposeAsync
+
         await _mux.DisposeAsync().ConfigureAwait(false);
         await _vessel.DisposeAsync().ConfigureAwait(false);
     }

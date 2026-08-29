@@ -252,6 +252,7 @@ public sealed partial class CupriNode
             throw new InvalidOperationException("This node hosts no Shrine; call HostShrine first.");
 
         await EnsureAddressAllowedAsync(vessel).ConfigureAwait(false);
+        RiteTransport.EnsureCarriesRiteFrames(vessel);
 
         HostedShrine? chosen = null;
         NoiseConjunctionResult conjunction;
@@ -402,6 +403,7 @@ public sealed partial class CupriNode
         ArgumentNullException.ThrowIfNull(handler);
 
         await EnsureAddressAllowedAsync(vessel).ConfigureAwait(false);
+        RiteTransport.EnsureCarriesRiteFrames(vessel);
 
         NoiseConjunctionResult conjunction;
         try
