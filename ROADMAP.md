@@ -8,7 +8,7 @@ Legend: ✅ done & tested · 🔨 in progress / near-term · 🧭 planned · �
 
 ## ✅ Done — the working core
 
-The two-layer stack is real, wired end-to-end, and covered by the test suite (**459** unit tests green).
+The two-layer stack is real, wired end-to-end, and covered by the test suite (**461** unit tests green).
 
 - **Transport (Vessel).** Managed TCP with length-prefixed framing and logical stream multiplexing; a
   reliable-UDP transport for NAT paths. No native deps, no OS TLS, no QUIC.
@@ -96,8 +96,8 @@ The two-layer stack is real, wired end-to-end, and covered by the test suite (**
   "the Rites (Epistle/Conduit/Reliquary)" and predated Signet, the Pilgrimage, the site rites, the listener and
   multi-Shrine entirely. Six findings; the two that were defects are fixed (an accept-boundary exhaustion, and a
   resolver whose loop length leaked how many Shrines an endpoint hosts). All six are now settled: a
-  node publishes several sites with one link each (`Intone(..., signet)`), and the subnet-fence asymmetry on the
-  caller-owned accept path is documented where a consumer will meet it.
+  node publishes several sites with one link each (`Intone(..., signet)`), and the subnet fence now holds on every Shrine
+  path in both directions, since it is a containment policy rather than an inbound filter.
 
 ## 🧭 Planned — larger pieces
 

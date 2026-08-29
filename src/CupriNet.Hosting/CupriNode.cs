@@ -245,6 +245,24 @@ public sealed partial class CupriNode : IAsyncDisposable
     private bool IsAddressAllowed(IPAddress address)
         => _options.Mode == ReachabilityMode.TorOnly || _addressPolicy.IsEmpty || _addressPolicy.IsAllowed(address);
 
+    /// <summary>
+    /// Enforces the subnet policy on a vessel the caller handed us, in either direction. The policy is a containment
+    /// control — an operator restricting a node to a subnet means it should not talk outside that subnet, by any
+    /// path — so it applies to a caller-owned vessel exactly as it does to one this node accepted or dialled itself.
+    /// A transport with no IP endpoint (an in-memory pair, a DataChannel) has nothing to filter on and passes, the
+    /// same way <see cref="IsBeaconAllowed"/> lets an onion or hostname beacon through.
+    /// </summary>
+    private async Task EnsureAddressAllowedAsync(IVessel vessel)
+    {
+        if (vessel.RemoteEndPoint is not IPEndPoint remote || IsAddressAllowed(remote.Address))
+            return;
+
+        await vessel.DisposeAsync().ConfigureAwait(false);
+        throw new InvalidOperationException(
+            $"The address policy does not permit {remote.Address}. This node is fenced to a subnet, and that applies " +
+            "to a vessel you supply as much as to one it accepts or dials itself.");
+    }
+
     /// <summary>Whether the subnet policy permits dialing this beacon. Onion and (unresolved) hostname beacons are
     /// not IP-filtered.</summary>
     private bool IsBeaconAllowed(Beacon beacon)

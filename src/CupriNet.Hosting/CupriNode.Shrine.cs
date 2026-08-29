@@ -245,17 +245,13 @@ public sealed partial class CupriNode
     /// wrong site or by silence. Serves whatever this node currently hosts, so <see cref="HostShrine(Signet, IOracleHandler, bool)"/>
     /// governs it rather than the call site. On failure the vessel is disposed.
     /// </summary>
-    /// <remarks>
-    /// <b>No subnet fence is applied here.</b> The caller accepted this vessel, so the caller owns the policy — and
-    /// for a transport with no meaningful address (an in-memory pair, a DataChannel) there is nothing to fence on.
-    /// <see cref="ListenForPilgrims"/> does apply <c>AddressPolicy</c>, as the overlay accept loop does, so moving
-    /// between the two changes what is enforced: check the address yourself if you need the same guard here.
-    /// </remarks>
     public async Task AcceptPilgrimageOverVesselAsync(IVessel vessel, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(vessel);
         if (_shrines.Count == 0)
             throw new InvalidOperationException("This node hosts no Shrine; call HostShrine first.");
+
+        await EnsureAddressAllowedAsync(vessel).ConfigureAwait(false);
 
         HostedShrine? chosen = null;
         NoiseConjunctionResult conjunction;
@@ -405,6 +401,8 @@ public sealed partial class CupriNode
         ArgumentNullException.ThrowIfNull(signet);
         ArgumentNullException.ThrowIfNull(handler);
 
+        await EnsureAddressAllowedAsync(vessel).ConfigureAwait(false);
+
         NoiseConjunctionResult conjunction;
         try
         {
@@ -511,6 +509,14 @@ public sealed partial class CupriNode
     /// browser, a CLI, or a test, where constructing a node (and its listener) is impossible or unwanted.
     /// </para>
     /// </summary>
-    public Task<ShrineSession> PilgrimageOverVesselAsync(IVessel vessel, Sigil expectedSignet, CancellationToken cancellationToken = default)
-        => Pilgrimage.OverVesselAsync(vessel, expectedSignet, Network, Suite, _options.EnableToll, cancellationToken);
+    public async Task<ShrineSession> PilgrimageOverVesselAsync(IVessel vessel, Sigil expectedSignet, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(vessel);
+
+        // Outbound is fenced too. A node restricted to a subnet should not reach outside it by any path, and
+        // ConjoinAsync already refuses a beacon the policy disallows; visiting a Shrine is the same act.
+        await EnsureAddressAllowedAsync(vessel).ConfigureAwait(false);
+        return await Pilgrimage.OverVesselAsync(vessel, expectedSignet, Network, Suite, _options.EnableToll, cancellationToken)
+            .ConfigureAwait(false);
+    }
 }

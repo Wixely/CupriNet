@@ -291,6 +291,81 @@ public class ShrineListenerTests
     }
 
     [Fact]
+    public async Task TheSubnetFence_AppliesToAVesselTheCallerSupplies_InBothDirections()
+    {
+        using var cts = new CancellationTokenSource(Timeout);
+        var ct = cts.Token;
+
+        // The policy is a containment control — its own documentation says "allowed to connect to AND accept from" —
+        // so it has to hold on every path, not only the ones the node opened itself. A caller-owned vessel was the
+        // gap: fenced on the listener, unfenced on the two public methods that take one.
+        var fenced = new CupriNodeOptions
+        {
+            Concordium = "sites.example",
+            DeniedSubnets = ["127.0.0.0/8"],
+        };
+
+        await using var host = await CupriNode.CreateAsync(fenced, ct);
+        await using var visitor = await CupriNode.CreateAsync(fenced, ct);
+        await using var open = await NodeAsync(ct);
+
+        var signet = Signet.Generate(host.Suite);
+        host.HostShrine(signet, new DelegateOracleHandler(_ => OracleResponse.Text("ok")));
+        var endpoint = open.LocalEndPoint;      // somewhere to point a vessel at
+
+        // Inbound: serving a visit over a vessel from a denied address is refused.
+        var inbound = await TcpVessel.ConnectAsync(endpoint.Address.ToString(), endpoint.Port, cancellationToken: ct);
+        var accepting = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => host.AcceptPilgrimageOverVesselAsync(inbound, ct));
+        Assert.Contains("address policy", accepting.Message, StringComparison.OrdinalIgnoreCase);
+
+        // Outbound: visiting one is refused the same way. A fenced node should not reach outside by any path.
+        var outbound = await TcpVessel.ConnectAsync(endpoint.Address.ToString(), endpoint.Port, cancellationToken: ct);
+        var visiting = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => visitor.PilgrimageOverVesselAsync(outbound, signet.Sigil, ct));
+        Assert.Contains("address policy", visiting.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task AVesselWithNoAddress_PassesTheFence()
+    {
+        using var cts = new CancellationTokenSource(Timeout);
+        var ct = cts.Token;
+
+        // An in-memory pair or a DataChannel has nothing to filter on, and must not be refused for lacking it —
+        // the same allowance IsBeaconAllowed makes for an onion or a hostname.
+        await using var host = await CupriNode.CreateAsync(new CupriNodeOptions
+        {
+            Concordium = "sites.example",
+            DeniedSubnets = ["0.0.0.0/0"],
+        }, ct);
+
+        host.HostShrine(Signet.Generate(host.Suite), new DelegateOracleHandler(_ => OracleResponse.Text("ok")));
+
+        // No RemoteEndPoint, so no address to judge. The guard must let it through — the visit then fails on the
+        // handshake, which is a different failure and the point of the assertion.
+        var error = await Assert.ThrowsAnyAsync<Exception>(
+            () => host.AcceptPilgrimageOverVesselAsync(new AddresslessVessel(), ct));
+
+        Assert.DoesNotContain("address policy", error.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>A vessel with no endpoint whose peer has already gone — stands in for an in-memory pair.</summary>
+    private sealed class AddresslessVessel : IVessel
+    {
+        public System.Net.EndPoint? RemoteEndPoint => null;
+        public System.Net.EndPoint? LocalEndPoint => null;
+
+        public ValueTask SendAsync(ushort streamId, ReadOnlyMemory<byte> payload, CancellationToken cancellationToken = default)
+            => ValueTask.CompletedTask;
+
+        public ValueTask<VesselFrame?> ReceiveAsync(CancellationToken cancellationToken = default)
+            => ValueTask.FromResult<VesselFrame?>(null);          // closed: the handshake fails at once
+
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
+
+    [Fact]
     public async Task DisposingTheNode_ClosesThePort()
     {
         using var cts = new CancellationTokenSource(Timeout);
