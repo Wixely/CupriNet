@@ -307,6 +307,9 @@ jobs:
   release:
     if: startsWith(github.ref, 'refs/tags/v')
     needs: [ pack, publish-app, publish-lodestar, docker-lodestar ]
+    permissions:
+      contents: write   # attach assets to the release
+      actions: write    # delete this run's artifacts once the release holds them (issue #7)
     runs-on: ubuntu-latest
     steps:
       - name: Download all artifacts
@@ -327,3 +330,19 @@ jobs:
         with:
           files: assets/*
           fail_on_unmatched_files: false
+      # Every artifact this run produced is now an asset on the release (separate storage, not billed against the
+      # Actions quota), so the Actions copy is a duplicate. Delete it here rather than wait out retention-days: at
+      # five releases a day even a 1-day retention kept ~1 GB in the quota and blocked downstream repos (issue #7).
+      # Runs only after the release step succeeded — if the release fails, the artifacts stay for a re-run.
+      - name: Delete this run's artifacts (the release now holds every one of them)
+        continue-on-error: true   # a failed cleanup must not fail a release that already exists
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api --paginate "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts" \
+            --jq '.artifacts[] | "\(.id) \(.name)"' |
+          while read -r id name; do
+            echo "deleting $name ($id)"
+            gh api -X DELETE "repos/${GITHUB_REPOSITORY}/actions/artifacts/$id"
+          done
