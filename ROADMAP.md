@@ -8,7 +8,7 @@ Legend: ✅ done & tested · 🔨 in progress / near-term · 🧭 planned · �
 
 ## ✅ Done — the working core
 
-The two-layer stack is real, wired end-to-end, and covered by the test suite (**440** unit tests green).
+The two-layer stack is real, wired end-to-end, and covered by the test suite (**447** unit tests green).
 
 - **Transport (Vessel).** Managed TCP with length-prefixed framing and logical stream multiplexing; a
   reliable-UDP transport for NAT paths. No native deps, no OS TLS, no QUIC.
@@ -47,8 +47,10 @@ The two-layer stack is real, wired end-to-end, and covered by the test suite (**
   none of those three shapes gets a **Conduit**: a raw duplex session on the same visit, framed and sealed but
   otherwise uninterpreted — the seam an existing framed protocol lands on when it moves to L2, keyless and
   author-less so a Pilgrim stays unlinkable. No overlay join, direct-only, and browser DataChannels route straight
-  into it. A node may **opt in** to advertising its Shrine in
-  its signed Intonation. The Pilgrim half needs **no node at all** (`Pilgrimage.OverVesselAsync` in the socket-free
+  into it, as does anything dialling the Shrine's **own listen port** (`ListenForPilgrims`) — a port that presents the
+  Signet unconditionally, so a visitor never has to write an accept loop and a mis-pinned address fails loudly at the
+  handshake instead of pairing into a session with nothing behind it. A node may **opt in** to advertising its Shrine
+  in its signed Intonation. The Pilgrim half needs **no node at all** (`Pilgrimage.OverVesselAsync` in the socket-free
   `CupriNet.Shrine` package — the browser/WASM entry). See [design/shrines.md](design/shrines.md).
 - **Monikers.** Optional self-asserted node label (a human-readable name a node claims for itself, carried
   **unverified** in its signed link + peer record with length/content Wards); trust always rests on the fingerprint,

@@ -205,12 +205,29 @@ in an `Arcanum` (Watchword-gated) and it becomes a **private Shrine**, reusing e
 There are **two** ways in, and a third that looks like one but is not. This trips people up often enough to be worth
 stating plainly.
 
-**1. A browser DataChannel — automatic.** A WebRTC connection arriving at a node that hosts a Shrine is routed straight
+**1. A Shrine listener — a port of its own.** The node serves the Shrine on its own port, presenting the Signet to
+everything that arrives, so no caller needs an accept loop:
+
+```csharp
+node.HostShrine(signet, handler, feeds, relics, conduit);
+var endpoint = node.ListenForPilgrims();          // 0 → an OS-assigned port; read it back to publish it
+Console.WriteLine($"{node.ShrineAddress} at {endpoint}");
+```
+
+A Pilgrim then just dials it and pins the address — no listener, no accept loop, nothing to get wrong:
+
+```csharp
+var vessel = await TcpVessel.ConnectAsync(host, port, cancellationToken: ct);
+await using var shrine = await Pilgrimage.OverVesselAsync(vessel, signetSigil, network, suite, enableToll, ct);
+```
+
+**2. A browser DataChannel — automatic.** A WebRTC connection arriving at a node that hosts a Shrine is routed straight
 into the Pilgrimage: `AcceptWebRtcAsync` checks whether a Shrine is hosted and, if so, presents the Signet instead of
 pairing a channel. Nothing to wire up.
 
-**2. A vessel you own — everything else.** For TCP, Tor, an in-memory pair in a test, or anything else, the *caller*
-connects and hands the vessel over:
+**3. A vessel you own — for everything the listener does not cover.** Tor, an in-memory pair in a test, a WASM client
+with no sockets, an embedded host that binds nothing of its own: the *caller* connects and hands the vessel over. This
+is the seam the other two are built on, and it is not going away:
 
 ```csharp
 // Host: your listener, your accept loop.
@@ -222,7 +239,7 @@ var vessel = await TcpVessel.ConnectAsync(host, port, cancellationToken: ct);
 await using var shrine = await Pilgrimage.OverVesselAsync(vessel, signetSigil, network, suite, enableToll, ct);
 ```
 
-**3. The node's own L1 listen port — this does *not* serve Shrines.** A TCP connection there is answered by
+**And one that is not a way in: the node's own L1 listen port.** A TCP connection there is answered by
 `NoiseConjunction.AcceptAsync(vessel, Identity, …)`: the node presents **its own Sigil**, unconditionally, because that
 port exists to pair overlay peers.
 
@@ -253,10 +270,15 @@ phased plan). A cleartext "I am here for the site" would tell every observer on 
 site visit rather than overlay traffic — exactly the distinction the direct-only, identity-separated design works to
 erase.
 
-So a caller-owned vessel is the intended answer today, and a **dedicated Shrine listener on its own port** is the
-natural next step — the host presents the Signet unconditionally on that port, so no selector is needed, nothing is
-leaked beyond the existence of the port, and a node not serving a Shrine simply refuses the connection instead of
-handing back a session with nothing behind it. Tracked as a design question, not yet built.
+So the answer is a **dedicated listener**, which is what `ListenForPilgrims` is: the host presents the Signet
+unconditionally on that port, so no selector is needed and nothing leaks beyond the existence of the port. It also
+inverts the failure. On the L1 port, pinning the node's Sigil succeeds into nothing; on the Shrine port it *cannot*
+complete, because the host has no Sigil to offer there — the mistake is loud, at the handshake, where it belongs. And
+a node serving no Shrine never opens the port at all, so dialling it is refused outright.
+
+The pre-Noise selector stays refused, and this composes with the multi-Shrine work rather than blocking it: when one
+endpoint must route to one of several Signets, the encrypted selector goes *here*, after the handshake, on a port
+whose only purpose is already Shrines.
 
 ## Intonation Signet field (opt-in)
 
@@ -338,8 +360,14 @@ relayed). With reachability riding in the link, even L1 is optional for v1: *fol
    The reserved bit is honoured on the Pilgrimage wire only: on an `Arcanum` channel the top flag predates it and
    stays the application's, so no pre-0.3.5 conduit is ended by a bit it was already using. Carries the `conduit` CupriMark component on the Pilgrimage wire only — the Arcanum conduit predates
    the catalogue and its bytes are unchanged.
-9. **Next (product):** the Nodestar repo — the web front, the served client, and the author tooling.
-10. **Later (protocol):** chunked/ranged Oracle
+9. ✅ **A Shrine listener of its own** — `CupriNode.ListenForPilgrims(port)` binds a port on which every connection
+   is a Pilgrimage and the Signet is presented unconditionally, so reaching a Shrine over TCP no longer needs the
+   caller to write an accept loop. Bounded by `MaxConcurrentPilgrimages` (a visit slot is held for the whole visit,
+   not just the handshake, because that is what a site actually spends), subnet-fenced like the L1 path, and closed
+   with the node. Pinning the wrong key now fails at the handshake rather than pairing into a session with nothing
+   behind it.
+10. **Next (product):** the Nodestar repo — the web front, the served client, and the author tooling.
+11. **Later (protocol):** chunked/ranged Oracle
    bodies; Noise NK (a Pilgrim that sends no static key at all); **multi-Shrine** hosting on one endpoint (an encrypted
    target selector — deliberately *not* pre-Noise cleartext, so the network never learns which site); brokered WebRTC
    to NAT'd hosts; private (Watchword-gated) Shrines.

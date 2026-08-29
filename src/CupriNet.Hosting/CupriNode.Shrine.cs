@@ -1,3 +1,4 @@
+using System.Net;
 using CupriNet.Abstractions;
 using CupriNet.Conjunction;
 using CupriNet.Core;
@@ -77,6 +78,120 @@ public sealed partial class CupriNode
 
     /// <summary>The <c>cupri1…</c> address of the Shrine this node hosts, or null if it hosts none.</summary>
     public string? ShrineAddress => _shrine?.Signet.Address;
+
+    // A Shrine gets its own listener rather than sharing the node's L1 port, because the identity to present must be
+    // chosen BEFORE the Noise handshake and nothing on the wire says which the caller wants. Demultiplexing the L1
+    // port would need the client to signal "I am here for the site" in cleartext — the same pre-Noise selector
+    // multi-Shrine hosting refuses, so that the network never learns which site a connection is for. A dedicated port
+    // needs no selector at all: everything arriving here is a Pilgrimage, and the Signet is presented unconditionally.
+    private VesselListener? _shrineListener;
+    private SemaphoreSlim? _pilgrimSlots;
+
+    /// <summary>The endpoint this node serves Pilgrims on, or null if <see cref="ListenForPilgrims"/> was never called.</summary>
+    public IPEndPoint? ShrineEndPoint => _shrineListener?.LocalEndPoint;
+
+    /// <summary>
+    /// Starts serving the hosted Shrine on a listener of its own, and returns the endpoint it bound (pass
+    /// <paramref name="port"/> 0 for an OS-assigned one). Every connection arriving here is treated as a Pilgrimage:
+    /// the host presents <b>only the Signet</b>, so a Pilgrim that pins the site's address completes and one that
+    /// pins this node's Sigil does not — the reverse of the L1 port, where the node presents its Sigil and a visit
+    /// pairs as an overlay peer with no Shrine behind it.
+    ///
+    /// <para>Binds the same <see cref="CupriNodeOptions.ListenAddress"/> as the node, on a different port. A node
+    /// serving no Shrine simply does not listen here, so dialling it is refused outright rather than answering with
+    /// a session nothing is behind.</para>
+    ///
+    /// <para>Call <see cref="HostShrine(Signet, IOracleHandler, bool)"/> first — this listener exists to present that
+    /// Signet, so there must be one. Visits are bounded by
+    /// <see cref="CupriNodeOptions.MaxConcurrentPilgrimages"/>; the listener is closed when the node is disposed.</para>
+    /// </summary>
+    /// <param name="port">TCP port to bind, or 0 for an OS-assigned one (read it back from the return value).</param>
+    public IPEndPoint ListenForPilgrims(int port = 0)
+    {
+        if (_shrine is null)
+            throw new InvalidOperationException(
+                "No Shrine is hosted. This listener presents the Signet as its handshake identity, so there must be " +
+                "one to present — call HostShrine before ListenForPilgrims.");
+        if (_shrineListener is not null)
+            throw new InvalidOperationException($"Already serving Pilgrims on {_shrineListener.LocalEndPoint}.");
+
+        var listener = new VesselListener(new IPEndPoint(_options.ListenAddress, port));
+        listener.Start();
+        _shrineListener = listener;
+        _pilgrimSlots = new SemaphoreSlim(Math.Max(1, _options.MaxConcurrentPilgrimages));
+        _ = PilgrimAcceptLoopAsync(listener, _pilgrimSlots, _lifetime.Token);
+        return listener.LocalEndPoint;
+    }
+
+    /// <summary>
+    /// Accepts visits and hands each to a bounded background worker. The slot is taken BEFORE accepting, so a flood
+    /// queues in the kernel backlog rather than stalling the loop — the same shape the L1 dispatch loop uses, except
+    /// that a visit slot is held for the whole visit rather than just the handshake, because that is the resource a
+    /// site actually spends.
+    /// </summary>
+    private async Task PilgrimAcceptLoopAsync(VesselListener listener, SemaphoreSlim slots, CancellationToken cancellationToken)
+    {
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            try { await slots.WaitAsync(cancellationToken).ConfigureAwait(false); }
+            catch (OperationCanceledException) { break; }
+
+            IVessel vessel;
+            try
+            {
+                vessel = await listener.AcceptAsync(cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) { slots.Release(); break; }
+            catch { slots.Release(); continue; }          // transient accept error — keep serving
+
+            _ = Task.Run(async () =>
+            {
+                try { await ServePilgrimAsync(vessel, cancellationToken).ConfigureAwait(false); }
+                finally { slots.Release(); }
+            }, cancellationToken);
+        }
+    }
+
+    /// <summary>Serves one visit. A failed or refused visit drops its own connection and never affects the loop.</summary>
+    private async Task ServePilgrimAsync(IVessel vessel, CancellationToken cancellationToken)
+    {
+        // Subnet fence first, before any handshake work — the same guard the L1 path applies.
+        if (vessel.RemoteEndPoint is IPEndPoint remote && !IsAddressAllowed(remote.Address))
+        {
+            await vessel.DisposeAsync().ConfigureAwait(false);
+            return;
+        }
+
+        if (_shrine is not { } shrine)
+        {
+            await vessel.DisposeAsync().ConfigureAwait(false);
+            return;
+        }
+
+        try
+        {
+            await AcceptPilgrimageOverVesselAsync(
+                vessel, shrine.Signet, shrine.Handler, shrine.Feeds, shrine.Relics, shrine.Conduit, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch
+        {
+            // AcceptPilgrimageOverVesselAsync owns the vessel and disposes it on the way out; nothing to clean up,
+            // and one visitor's failure is never the Shrine's problem.
+        }
+    }
+
+    private async ValueTask DisposeShrineListenerAsync()
+    {
+        if (_shrineListener is not null)
+        {
+            await _shrineListener.DisposeAsync().ConfigureAwait(false);
+            _shrineListener = null;
+        }
+
+        _pilgrimSlots?.Dispose();
+        _pilgrimSlots = null;
+    }
 
     /// <summary>The Shrine Signet to stamp into a minted Intonation — only when hosting one AND opted in.</summary>
     internal Sigil? ShrineToAdvertise => _shrine is { Advertise: true } shrine ? shrine.Signet.Sigil : null;

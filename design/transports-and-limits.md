@@ -125,15 +125,18 @@ in a test works in Chromium.
 
 The Arcanum column has no browser on it and keeps the transport's own ceiling.
 
-> **"Any transport" is true of the rite, not of how you get one.** A Pilgrimage runs over any vessel — but a browser
-> DataChannel is the only one a node routes into a Shrine *by itself*. A node's L1 listen port does **not**: it
-> answers with `NoiseConjunction.AcceptAsync(vessel, Identity, …)`, presenting the node's own Sigil, because that port
-> exists to pair overlay peers. Over TCP, Tor, or anything else, the **caller owns the vessel** and hands it to
-> `AcceptPilgrimageOverVesselAsync` / `Pilgrimage.OverVesselAsync`.
+> **"Any transport" is true of the rite, not of how you get one.** A Pilgrimage runs over any vessel, but a node
+> answers three different ways depending on where you knock. `node.ListenForPilgrims()` opens a **port of its own**
+> that presents the Signet to everything arriving — dial it and pin the address, no accept loop required. A browser
+> DataChannel is routed into the Shrine automatically. Anything else — Tor, a test pair, a WASM client — is a vessel
+> the **caller** owns and hands to `AcceptPilgrimageOverVesselAsync` / `Pilgrimage.OverVesselAsync`.
 >
-> Get this wrong and the failure is quiet rather than loud: pinning the Signet fails correctly, but pinning the
-> *node's* Sigil **succeeds** into a healthy session with nothing hosting behind it, after which every rite answers
-> with a closed stream. That reads as a broken rite and is not one. Full write-up:
+> The node's **L1 listen port is not one of the three**: it answers with
+> `NoiseConjunction.AcceptAsync(vessel, Identity, …)`, presenting the node's own Sigil, because it exists to pair
+> overlay peers. Knock there for a site and the failure is quiet rather than loud — pinning the Signet fails
+> correctly, but pinning the *node's* Sigil **succeeds**, into a healthy session with nothing hosting behind it and
+> every rite answering with a closed stream. That reads as a broken rite and is not one. On the Shrine port the same
+> mistake cannot complete at all. Full write-up:
 > [*How a Pilgrim actually reaches a Shrine*](shrines.md#how-a-pilgrim-actually-reaches-a-shrine).
 
 ### Why 192 and not 256

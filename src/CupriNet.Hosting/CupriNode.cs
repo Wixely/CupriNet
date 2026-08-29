@@ -754,6 +754,7 @@ public sealed partial class CupriNode : IAsyncDisposable
         await DisposeTorAsync().ConfigureAwait(false);
         await DisposeWebRtcAsync().ConfigureAwait(false);
         await DisposeOverlayAsync().ConfigureAwait(false);
+        await DisposeShrineListenerAsync().ConfigureAwait(false);
         await _listener.DisposeAsync().ConfigureAwait(false);
         _handshakeSlots.Dispose();
         _lifetime.Dispose();

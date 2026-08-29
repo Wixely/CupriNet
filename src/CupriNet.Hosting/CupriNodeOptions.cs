@@ -236,6 +236,14 @@ public sealed record CupriNodeOptions
     /// </summary>
     public int MaxConcurrentHandshakes { get; init; } = 64;
 
+    /// <summary>
+    /// Concurrent Pilgrim visits a Shrine listener will serve (a Ward). Unlike a handshake slot, a visit slot is held
+    /// for the life of the visit — a Pilgrim may hold a page fetch, a live feed and a raw session open for as long as
+    /// it likes — so this bounds *visitors*, not handshakes, and is set higher accordingly. Past it, further
+    /// connections queue in the kernel backlog rather than stalling the accept loop.
+    /// </summary>
+    public int MaxConcurrentPilgrimages { get; init; } = 256;
+
     /// <summary>Max concurrent overlay-control connections from a single peer (Sigil), so one peer cannot multiply its budget.</summary>
     public int MaxControlConnectionsPerPeer { get; init; } = 8;
 
