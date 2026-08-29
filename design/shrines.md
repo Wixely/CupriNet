@@ -154,6 +154,10 @@ So it sits beside the Oracle, and a downstream host re-exposes it as its own sug
 
 ## The message ceiling (and what it rules out)
 
+*(For the whole picture across both transport families — which ceiling applies where, every constant, and the three
+ways past one — see [transports-and-limits.md](transports-and-limits.md). This section covers why the Shrine path has
+the number it has.)*
+
 Every rite here sends **whole messages**, and the browser sets a hard ceiling on how big one may be. A WebRTC
 DataChannel message cannot exceed the `a=max-message-size` an endpoint advertises, and CupriWebRTC's SCTP association
 fixes that at **256 KiB** (`SctpAssociation.MaxMessageBytes`), **rejecting** anything larger rather than truncating it,

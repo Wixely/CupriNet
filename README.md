@@ -26,6 +26,11 @@ Overlay (L1, Concordance)   pseudonymous · ROUTABLE  — only L1 metadata is re
 Transport (Vessel)   TCP + length-prefixed framing + stream multiplexing · Noise XX/IK · UDP for NAT
 ```
 
+> **Which transport, and what will it carry?** Vessels come in two families — byte-stream (TCP, reliable UDP, Tor;
+> 16 MiB frames) and message (WebRTC DataChannel; a hard 256 KiB) — and that difference is the source of every size
+> limit in the stack, including the 192 KiB the site rites enforce. Full reference, with how to carry more than one
+> frame's worth: [design/transports-and-limits.md](design/transports-and-limits.md).
+
 - **Layer 1 (Concordance)** — a shared overlay many unrelated groups use. Nodes participate under a
   pseudonymous identity (a *Sigil*), exchange minimal metadata, route discovery/referrals, and **never
   forward application traffic**.

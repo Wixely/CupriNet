@@ -145,5 +145,6 @@ browser piece is that page — the **Nodestar** product, a separate repo — tra
 ---
 
 *Naming: this repo uses a ceremonial vocabulary (Sigil, Beacon, Intonation, Concordance, Arcanum, Vessel,
-Rites, Alembic…). Each term maps 1:1 to an ordinary technical component — see the design notes for the full
-lexicon.*
+Rites, Alembic…). Each term maps 1:1 to an ordinary technical component — the transport and rite half of the lexicon,
+with every size limit and which transport it comes from, is in
+[design/transports-and-limits.md](design/transports-and-limits.md).*
