@@ -200,6 +200,64 @@ one frame). The Oracle now guards its own bodies against the same ceiling, so th
 **Public vs private.** A public Shrine has no access control by design — the Signet handshake *is* the security. Wrap it
 in an `Arcanum` (Watchword-gated) and it becomes a **private Shrine**, reusing existing L2 access control.
 
+## How a Pilgrim actually reaches a Shrine
+
+There are **two** ways in, and a third that looks like one but is not. This trips people up often enough to be worth
+stating plainly.
+
+**1. A browser DataChannel — automatic.** A WebRTC connection arriving at a node that hosts a Shrine is routed straight
+into the Pilgrimage: `AcceptWebRtcAsync` checks whether a Shrine is hosted and, if so, presents the Signet instead of
+pairing a channel. Nothing to wire up.
+
+**2. A vessel you own — everything else.** For TCP, Tor, an in-memory pair in a test, or anything else, the *caller*
+connects and hands the vessel over:
+
+```csharp
+// Host: your listener, your accept loop.
+var vessel = await listener.AcceptAsync(ct);
+await node.AcceptPilgrimageOverVesselAsync(vessel, signet, handler, feeds, relics, conduit, ct);
+
+// Pilgrim: your connection, pinning the site's Signet.
+var vessel = await TcpVessel.ConnectAsync(host, port, cancellationToken: ct);
+await using var shrine = await Pilgrimage.OverVesselAsync(vessel, signetSigil, network, suite, enableToll, ct);
+```
+
+**3. The node's own L1 listen port — this does *not* serve Shrines.** A TCP connection there is answered by
+`NoiseConjunction.AcceptAsync(vessel, Identity, …)`: the node presents **its own Sigil**, unconditionally, because that
+port exists to pair overlay peers.
+
+### The failure this produces, and how to recognise it
+
+The two ways it goes wrong look completely different, and only one of them looks like an error:
+
+- **You pin the Signet.** The handshake fails, correctly — the node is presenting its Sigil, not the site's key, so
+  key-pinning rejects it. This is the good case: a clear failure at the handshake.
+- **You pin the node's Sigil.** The handshake **succeeds**, and you get a perfectly healthy `ShrineSession` in which
+  every rite answers with a closed stream, because there is no `OracleHost`, `AuspiceHost`, `RelicHost` or
+  `ConduitHost` behind it — the node paired you as a *channel peer* and is waiting for a Consecration that will never
+  come.
+
+The second reads as "the rites are broken". They are not. **A live session whose every rite is silent means you
+reached the node, not the Shrine.** The Signet is not a node Sigil, and passing one where the other belongs is the
+single most likely cause.
+
+### Why the L1 port cannot simply demultiplex
+
+The obvious fix — have the listener notice that a Pilgrim wants the site and present the Signet instead — needs the
+host to choose **which identity to present before the Noise handshake begins**. That means the client must signal its
+intent in the clear, before any encryption exists.
+
+That is the same thing multi-Shrine hosting needs, and it is refused there for a stated reason: the selector must be
+*"deliberately **not** pre-Noise cleartext, so the network never learns which site"* (see *Later (protocol)* in the
+phased plan). A cleartext "I am here for the site" would tell every observer on the path that this connection is a
+site visit rather than overlay traffic — exactly the distinction the direct-only, identity-separated design works to
+erase.
+
+So a caller-owned vessel is the intended answer today, and a **dedicated Shrine listener on its own port** is the
+natural next step — the host presents the Signet unconditionally on that port, so no selector is needed, nothing is
+leaked beyond the existence of the port, and a node not serving a Shrine simply refuses the connection instead of
+handing back a session with nothing behind it. Tracked as a design question, not yet built.
+
 ## Intonation Signet field (opt-in)
 
 An Intonation **may** carry a Shrine's Signet (a signed, optional field, same backward-compatible trailing-field pattern

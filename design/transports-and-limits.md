@@ -62,16 +62,35 @@ shaped `[varuint streamId][payload]`. That is precisely why a browser drops into
 (`SctpAssociation.MaxMessageBytes`) and **rejects** anything larger in both directions rather than truncating or
 fragmenting it. There is no `maxFrameSize` knob here. This is the constraint the whole Shrine path is sized against.
 
+> **Which vessel does a Shrine accept?** Any of them — but the vessel has to be handed to
+> `AcceptPilgrimageOverVesselAsync` / `Pilgrimage.OverVesselAsync` by a caller who owns it. A node's own L1 listen port
+> does **not** serve Shrines: it presents the node's Sigil, so a visit there pairs you as an overlay peer and every
+> rite goes quiet. See *How a Pilgrim actually reaches a Shrine* in [shrines.md](shrines.md#how-a-pilgrim-actually-reaches-a-shrine)
+> — that silence is the single most misread symptom in this stack.
+
 ### And one wrapper that is not a transport
 
 [`NoiseVessel`](../src/CupriNet.Conjunction/NoiseVessel.cs) is an `IVessel` that wraps another and encrypts every
 frame with a completed Noise transport. Stream ids are preserved; only payloads are sealed. Every authenticated
 session — an Arcanum channel, a Pilgrimage — runs over one, whatever transport is underneath.
 
-**It serialises sends**, because the Noise nonce order must match the wire order. That has a consequence worth
-stating plainly: **concurrent sends on an authenticated session are safe on every transport**, not because each
-transport guarantees it (`Vessel` does, `DataChannelVessel` leaves it to the channel) but because the Noise layer
-above them both does. Receives are single-consumer — the mux pump — so decryption stays in step.
+**It serialises sends**, because the Noise nonce order must match the wire order — one lock for the whole vessel, all
+streams through it. Receives are single-consumer, the mux pump, so decryption stays in step.
+
+**What `IVessel` does and does not promise.** It promises nothing about concurrent sends, deliberately. Several
+implementations serialise, each for a reason of its own: a byte-stream `Vessel` must or frames would interleave into
+one unparseable stream; `NoiseVessel` must or the nonce order would drift; `DataChannelVessel` need not, because SCTP
+preserves its message boundaries for it. Those are three different reasons, not one shared guarantee, and **reading
+the promise off whichever implementation you are looking at is the mistake the interface now warns against.**
+
+A caller that sends from several tasks serialises them itself — which is exactly what `AuspiceSession`,
+`RelicSession` and `ConduitSession` each do with a lock of their own, and why `OracleSession` needs none (its
+exchange carries no correlation id, so concurrent consults would take each other's responses whatever the transport
+did underneath). That places the protection on the party that suffers if it is missing, which is the same rule the
+decode-side ceilings follow: **the Ward belongs where the damage lands, not upstream on trust.**
+
+In practice, then, concurrent sends on an authenticated session are safe on every transport — but because the rite
+and the Noise layer each take care of it, never because the transport was assumed to.
 
 ## Which ceiling applies to you
 
