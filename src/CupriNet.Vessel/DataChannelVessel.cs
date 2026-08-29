@@ -17,8 +17,8 @@ public interface IDataChannel : IAsyncDisposable
     EndPoint? LocalEndPoint { get; }
 
     /// <summary>
-    /// The largest single message this channel will carry, as <b>negotiated with the peer</b> — not a constant of
-    /// this library. On WebRTC it is the SCTP association's agreed <c>a=max-message-size</c>, which an adapter reads
+    /// The largest single message this channel will carry — <b>not a constant of this library</b>, and not
+    /// necessarily a negotiated figure either: report the most an implementation can honestly promise. On WebRTC it is the SCTP association's agreed <c>a=max-message-size</c>, which an adapter reads
     /// from the live connection (in a browser, <c>RTCPeerConnection.sctp.maxMessageSize</c>). The interoperable floor
     /// is 64 KiB, so a peer or a middlebox may agree to far less than this stack offers.
     ///

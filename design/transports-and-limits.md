@@ -69,11 +69,21 @@ that is a property of those pairings, not a guarantee.
 > Nothing between a rite and the wire reconciles the two numbers: `DataChannelVessel` sends exactly one message per
 > frame and **never fragments**. So a peer negotiating low would have a legal frame refused by the transport.
 >
-> `IDataChannel.MaxMessageBytes` now carries the negotiated figure, and `RiteTransport.EnsureCarriesRiteFrames`
-> refuses such a transport **when you connect**, naming both numbers — the same bargain every other ceiling makes.
-> An adapter that cannot learn the figure reports 0 and is not checked, which is the honest answer rather than a
-> guess. The CupriWebRTC adapter reports 0 today: the value lives on the SCTP association and the channel does not
-> surface it, so the check is inert on that path until it does.
+> `IDataChannel.MaxMessageBytes` now carries what a transport can honestly promise, and
+> `RiteTransport.EnsureCarriesRiteFrames` refuses one too small **when you connect**, naming both numbers — the same
+> bargain every other ceiling makes. An adapter that cannot learn a figure reports 0 and is not checked, which is the
+> honest answer rather than a guess.
+>
+> **On the WebRTC path, read that number as "what we will send", not "what the pair agreed."** The peer's half is an
+> SDP attribute, and this path has no signalling by design — a browser synthesises its answer from the published
+> static parameters, so its offer never reaches the node. CupriWebRTC 0.4.0 reports our own limit capped by the peer's
+> *if one was supplied* (`CupriWebRtcTransport(peerMaxMessageBytes:)`), and there is usually nobody to supply it. So a
+> browser that negotiated below the rites' requirement is **not** caught here; it is caught at the browser end, which
+> can read `pc.sctp.maxMessageSize`. Between the two ends the case is covered — neither covers it alone.
+>
+> One asymmetry worth knowing, and it is deliberate upstream: a peer's advertised figure caps what we **send** it,
+> and never what we **accept**. The receive limit was published in this endpoint's static parameters before any peer
+> arrived, so one peer's low advertisement must not retroactively narrow the promise every other peer read.
 
 There is no `maxFrameSize` knob here. This is the constraint the whole Shrine path is sized against.
 

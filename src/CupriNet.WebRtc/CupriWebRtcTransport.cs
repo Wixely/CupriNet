@@ -26,10 +26,23 @@ public sealed class CupriWebRtcTransport : IWebRtcTransport
     /// are generated fresh; an Intonation is a short-lived snapshot, so stable creds across restarts aren't needed.
     /// <paramref name="maxSessions"/> caps concurrent browser peers (a Ward against a public endpoint being swamped);
     /// <paramref name="sessionIdleTimeout"/> evicts a peer that has gone silent (null = the library default).</summary>
-    public CupriWebRtcTransport(IPEndPoint bind, int maxSessions = WebRtcListener.DefaultMaxSessions, TimeSpan? sessionIdleTimeout = null)
+    /// <param name="peerMaxMessageBytes">
+    /// The largest single message peers advertise they can receive, when that is known — it caps what this endpoint
+    /// will <em>send</em> them. Leave null and this stack's own 256 KiB stands, which is what every measured pairing
+    /// agrees to.
+    ///
+    /// <para>There is usually nobody to learn it from. The value lives in a peer's SDP, and this path has no
+    /// signalling: the node publishes static parameters in a signed link and a browser synthesises its answer
+    /// locally, so its offer never reaches us. Set this only if you know the peers you serve are limited — a stack
+    /// or middlebox at the 64 KiB interoperable floor — in which case saying so here stops this endpoint sending
+    /// frames it will refuse.</para>
+    /// </param>
+    public CupriWebRtcTransport(IPEndPoint bind, int maxSessions = WebRtcListener.DefaultMaxSessions,
+        TimeSpan? sessionIdleTimeout = null, int? peerMaxMessageBytes = null)
     {
         ArgumentNullException.ThrowIfNull(bind);
-        _listener = new WebRtcListener(bind, IceCredentials.Generate(), maxSessions: maxSessions, sessionIdleTimeout: sessionIdleTimeout);
+        _listener = new WebRtcListener(bind, IceCredentials.Generate(), maxSessions: maxSessions,
+            sessionIdleTimeout: sessionIdleTimeout, peerMaxMessageBytes: peerMaxMessageBytes ?? 0);
         _listener.ChannelOpened += OnChannelOpened;
         _listener.SessionSecured += (remote, version) => SessionSecured?.Invoke(remote, version);
         _listener.SessionFaulted += (remote, error) => SessionFaulted?.Invoke(remote, error);
