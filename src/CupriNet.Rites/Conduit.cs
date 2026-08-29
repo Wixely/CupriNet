@@ -28,7 +28,19 @@ public static class ConduitFlags
 /// <summary>
 /// A generic, application-negotiated data frame. Applications agree on a ProtocolId and SchemaVersion and
 /// exchange opaque payloads; CupriNet only frames and seals them. Ordering and backpressure are inherited
-/// from the Vessel stream — never buffer unbounded data above this layer.
+/// from the Vessel stream — never buffer unbounded data above this layer, and note that a frame large enough to
+/// exceed the transport's buffers will not finish sending until the far end is draining: a peer that sends big
+/// frames with no reader running concurrently deadlocks itself.
+///
+/// <para><b>Delivery is ordered but not guaranteed.</b> Frames arrive in the order they were sent and are never
+/// duplicated or torn, because the transport underneath is ordered and each frame is one whole message. They are not
+/// <em>retried</em>: the Conduit has no acknowledgement, no sequence number, and no equivalent of the Epistle's Vigil.
+/// A receiver that stops draining lets its demultiplexer queue fill, and past
+/// <see cref="Vessel.VesselMux.DefaultMaxQueuedFramesPerStream"/> further inbound frames are dropped — silently, since
+/// the queue write reports success, and with nothing in a frame from which a gap could be inferred. An Epistle lost
+/// that way returns on the next retry; a Conduit frame is gone and neither end learns of it. Read promptly into your
+/// own buffer rather than processing inline, and if your protocol must <em>detect</em> loss rather than avoid it,
+/// carry your own sequence number in <see cref="Payload"/>.</para>
 /// </summary>
 public sealed record ConduitFrame
 {

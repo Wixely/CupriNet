@@ -399,6 +399,10 @@ public class ConduitShrineTests
         Assert.True(ConduitCodec.MaxChannelPayloadBytes < FrameCodec.DefaultMaxFrameSize,
             "the channel ceiling must leave room for framing, the Veil and the vessel header");
 
+        // Read concurrently with the send. A payload this size exceeds the socket buffers, so a send that waits for
+        // its own completion before anyone drains the other end blocks forever — TCP flow control, not a rite bug.
+        var receiving = receiver.ReceiveAsync(ct);
+
         await sender.SendAsync(new ConduitFrame
         {
             ProtocolId = 1,
@@ -407,7 +411,7 @@ public class ConduitShrineTests
             Payload = new byte[ConduitCodec.MaxChannelPayloadBytes],
         }, ct);
 
-        var got = await receiver.ReceiveAsync(ct);
+        var got = await receiving;
         Assert.NotNull(got);
         Assert.Equal(ConduitCodec.MaxChannelPayloadBytes, got.Payload.Length);
     }
