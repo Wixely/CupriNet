@@ -9,7 +9,7 @@ security is [Noise](https://noiseprotocol.org/) over TCP; cryptography is manage
 ([BouncyCastle](https://www.bouncycastle.org/) primitives behind a swappable seam).
 
 > Status: pre-1.0, evolving. The cryptographic core (Noise_XX identity binding, channel Consecration,
-> signed documents) is real and reviewed; **409 unit tests** pass. Not yet audited for production use.
+> signed documents) is real and reviewed; **453 unit tests** pass. Not yet audited for production use.
 > See the [roadmap](ROADMAP.md) for what's done, next, and deliberately out of scope.
 
 ## The model — two layers
@@ -23,7 +23,7 @@ Channel (L2, Arcanum)   authenticated · DIRECT-ONLY  — channel content is nev
 Overlay (L1, Concordance)   pseudonymous · ROUTABLE  — only L1 metadata is relayed
   bucketed peer table · sampled gossip · iterative discovery · channel advertisements (PoW-priced)
 ──────────────────────────────────────────────────────────────────────────────────────────
-Transport (Vessel)   TCP + length-prefixed framing + stream multiplexing · Noise XX/IK · UDP for NAT
+Transport (Vessel)   TCP + length-prefixed framing + stream multiplexing · Noise XX · UDP for NAT
 ```
 
 > **Which transport, and what will it carry?** Vessels come in two families — byte-stream (TCP, reliable UDP, Tor;
@@ -57,8 +57,13 @@ Transport (Vessel)   TCP + length-prefixed framing + stream multiplexing · Nois
   A visitor pins that address during the handshake — only the key-holder can answer, and nothing identifying crosses
   the wire — then fetches over an HTTP-shaped request/response rite, with static-file or app-callback handlers,
   subscribes to **named live feeds** pushed over the same connection (no polling, no WebSocket), and — for a protocol
-  that is neither shape — drives a **raw duplex session** over that same visit. Direct-only, no
-  overlay join, and browser DataChannels route straight in. See [design/shrines.md](design/shrines.md).
+  that is neither shape — drives a **raw duplex session** over that same visit. Bulk content past the message ceiling
+  travels as a chunked, hash-verified **relic**, so a client proves a blob's integrity before executing it.
+  `node.ListenForPilgrims()` opens a port of its own where the Signet is presented unconditionally — dial it and pin
+  the address, no accept loop to write — and **one endpoint can serve many sites**: a visitor names the one it wants
+  *blinded* inside the encrypted handshake, so no selector is ever sent in the clear and an endpoint that does not
+  host it learns only that. Direct-only, no overlay join, and browser DataChannels route straight in. See
+  [design/shrines.md](design/shrines.md).
 - **Traffic-analysis cover** — overlay gossip fuzzing, long-lived decoy connections (hot fuzz), decoy
   channel sessions (effigies), and fake groups (pageants).
 - **Warm start** — an encrypted local cache of known peers so a node reconnects directly after restart.
@@ -73,13 +78,14 @@ Transport (Vessel)   TCP + length-prefixed framing + stream multiplexing · Nois
 | `src/CupriNet.Abstractions` | IDs, options, records (Sigil, Seal, Beacon, Intonation…) |
 | `src/CupriNet.Alembic*` | crypto seam + BouncyCastle suite (+ a gated insecure dev suite) |
 | `src/CupriNet.Codex` | canonical serialization, framing, versioning |
-| `src/CupriNet.Vessel` · `CupriNet.Noise` | TCP/UDP transport, mux; Noise XX/IK handshake |
+| `src/CupriNet.Vessel` · `CupriNet.Noise` | TCP/UDP transport, mux; Noise XX handshake |
 | `src/CupriNet.Concordance` | peer table, gossip, discovery routing |
 | `src/CupriNet.Arcanum` | channel codes, key derivation, adverts, ownership |
 | `src/CupriNet.Rites` | message / data / file / site (Oracle, Auspice, Relic, Conduit) protocols + retry |
 | `src/CupriNet.Traversal` | LAN discovery, NAT-PMP, hole punch, reliable-UDP |
 | `src/CupriNet.Persistence` | `ISecretStore` + encrypted file store |
 | `src/CupriNet.Shrine` | **`Pilgrimage`** — visit an L2 site without running a node (socket-free, so browser/WASM-safe) |
+| `design/` | the design notes: [shrines](design/shrines.md), [transports & limits](design/transports-and-limits.md), [ferryman](design/ferryman.md), [webrtc clients](design/webrtc-clients.md) |
 | `src/CupriNet.Hosting` | **`CupriNode`** — the public API |
 | `src/CupriNet.Marks` | CupriMark version negotiation — the [catalogue](src/CupriNet.Marks/README.md) & floors |
 | `src/CupriNet.Tor` | CupriTor onion transport binding (needs the CupriTor feed) |
@@ -104,6 +110,20 @@ var peer = await node.ConjoinAsync(intonation, DateTimeOffset.UtcNow);   // pair
 // Open an authenticated channel over the paired peer.
 var watchword = Watchword.Parse("Dungeons&Dragons#<salt>");
 var channel = await node.ConsecrateAsync(peer, watchword, DateTimeOffset.UtcNow);
+```
+
+Or host a site instead — no channel, no overlay join, and a visitor needs no node of its own:
+
+```csharp
+// Host: the Signet's cupri1… address IS the site URL. Host several and one port serves them all.
+node.HostShrine(signet, new StaticFileOracleHandler("wwwroot-l2"));
+var endpoint = node.ListenForPilgrims();          // 0 → an OS-assigned port
+Console.WriteLine($"{node.ShrineAddress} at {endpoint}");
+
+// Visit: dial it, pin the address, fetch.
+var vessel = await TcpVessel.ConnectAsync(host, port, cancellationToken: ct);
+await using var shrine = await Pilgrimage.OverVesselAsync(vessel, signetSigil, network, suite, enableToll: true, ct);
+var page = await shrine.ConsultAsync(OracleRequest.Get("/index.html"), ct);
 ```
 
 ## Building

@@ -15,8 +15,8 @@ public sealed record Conjunction(Sigil PeerSigil, byte[] PeerSealPublicKey);
 /// A minimal mutually-authenticated pairing handshake over a <see cref="Vessel"/>. Both sides exchange
 /// a Hello (identity + nonce), derive a shared transcript, and sign it; each verifies the other's
 /// signature through the Alembic seam. This has the shape of a transcript-bound Noise handshake; the
-/// real Noise_XX/IK state machine replaces the internals at the Tempering (Phase 1b) without changing
-/// the message flow. Under the Simulacrum the signatures are trivially accepted.
+/// real Noise_XX state machine (see <c>NoiseConjunction</c>) carries production pairing, and this path
+/// remains for the Simulacrum, where the signatures are trivially accepted.
 /// </summary>
 public static class ConjunctionHandshake
 {
