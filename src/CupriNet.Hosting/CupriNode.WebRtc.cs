@@ -45,9 +45,11 @@ public sealed partial class CupriNode
         {
             // When this node hosts a Shrine, a browser DataChannel is a Pilgrimage: the host presents the Signet
             // and serves the site over the Oracle rite (no overlay join). Otherwise it is a normal channel peer.
-            if (_shrine is { } shrine)
+            // Whichever Shrine the browser asked for: the target rides blinded inside the handshake, so one node can
+            // serve several sites over one WebRTC endpoint exactly as it does over the Shrine port.
+            if (HostsAnyShrine)
             {
-                await AcceptPilgrimageOverVesselAsync(vessel, shrine.Signet, shrine.Handler, shrine.Feeds, shrine.Relics, shrine.Conduit, cancellationToken).ConfigureAwait(false);
+                await AcceptPilgrimageOverVesselAsync(vessel, cancellationToken).ConfigureAwait(false);
                 return;
             }
 

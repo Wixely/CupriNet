@@ -280,6 +280,61 @@ The pre-Noise selector stays refused, and this composes with the multi-Shrine wo
 endpoint must route to one of several Signets, the encrypted selector goes *here*, after the handshake, on a port
 whose only purpose is already Shrines.
 
+## Several Shrines on one endpoint
+
+One node can host any number of Shrines, and one listener serves them all:
+
+```csharp
+node.HostShrine(alpha, alphaHandler);      // hosting a second Signet adds a site;
+node.HostShrine(beta, betaHandler);        // hosting the same one again replaces it
+node.ListenForPilgrims();                  // one port, both sites
+```
+
+A visitor does nothing differently: it pins the address it wants, and the endpoint answers **as that Signet** or not
+at all.
+
+### How the endpoint knows which site is wanted
+
+The obvious problem is that the host must choose which key to present before it can authenticate itself, and the
+visitor is the only one who knows which site it came for. The obvious solution — say so before the handshake — is the
+one this design refuses, because a cleartext selector tells every observer on the path both that the connection is a
+site visit and which site.
+
+It turns out no pre-handshake signal is needed. **The Noise static key is generated fresh per connection and has
+nothing to do with any Signet** (`suite.Agreement.Generate()`); identity is proved *afterwards*, in the binding
+exchange, by an Ed25519 signature over the handshake hash — and that exchange is already inside the encrypted
+transport. The responder also already reads the initiator's binding before sending its own. So the selector has a
+natural home: it arrives exactly when it is needed, and never in the clear.
+
+### Blinded, not named
+
+The visitor does not send the Signet. It sends
+
+```
+HKDF(ikm: target Sigil, salt: Noise handshake hash, info: "cuprinet:shrine-target:v1")
+```
+
+and the host recomputes that for each Signet it hosts, comparing in fixed time. Two properties follow, and both
+matter because a visitor must name its target *before* the host has proved it holds anything:
+
+- **A host that does not serve the site learns only "not one of mine".** Dialling an endpoint to see whether it hosts
+  something therefore does not tell that endpoint what you were looking for.
+- **The value differs every visit**, because the handshake hash salts it — so it is no use as a handle for linking
+  one visit to the next.
+
+It is not a secret: anyone holding the address can compute it for a session whose handshake hash they know. It hides
+the target from parties who do not already know it, which is exactly the set that should not learn it.
+
+### What happens when nothing matches
+
+The host answers with a typed refusal inside the encrypted channel — never silence, and never by presenting a
+different site that it *does* host. The visitor reads "the host refused the visit: no such Shrine at this endpoint",
+which is a sentence someone can act on, rather than a handshake that mysteriously fails.
+
+A visitor that names no target at all (anything built before this) is served the first Shrine hosted, which is the
+only one it could have meant.
+
+
 ## Intonation Signet field (opt-in)
 
 An Intonation **may** carry a Shrine's Signet (a signed, optional field, same backward-compatible trailing-field pattern
@@ -367,17 +422,22 @@ relayed). With reachability riding in the link, even L1 is optional for v1: *fol
    with the node. Pinning the wrong key now fails at the handshake rather than pairing into a session with nothing
    behind it.
 10. **Next (product):** the Nodestar repo — the web front, the served client, and the author tooling.
-11. **Later (protocol):** chunked/ranged Oracle
-   bodies; Noise NK (a Pilgrim that sends no static key at all); **multi-Shrine** hosting on one endpoint (an encrypted
-   target selector — deliberately *not* pre-Noise cleartext, so the network never learns which site); brokered WebRTC
-   to NAT'd hosts; private (Watchword-gated) Shrines.
+11. ✅ **Multi-Shrine hosting on one endpoint.** Several Signets behind one listener, chosen by a **blinded** target
+    the visitor sends inside the Noise-encrypted binding — so no selector is ever pre-Noise cleartext, and an endpoint
+    that does not host the target learns only that. It needed no new handshake pattern: the Noise static is
+    per-connection and unrelated to any Signet, so the choice of which key to present was always deferrable to the
+    binding exchange, which the responder already reads first. An unmatched target gets a typed refusal.
+12. **Later (protocol):** chunked/ranged Oracle bodies; Noise NK (a Pilgrim that sends no static key at all);
+    brokered WebRTC to NAT'd hosts; private (Watchword-gated) Shrines.
 
 ### A note on the session kind
 
 The original sketch had a `Shrine` marker alongside `Channel` in the post-Noise session-kind byte. It turned out to be
 unnecessary: because the host presents the Signet *as* its handshake identity, a Pilgrimage is already unambiguous to
-both ends, and adding a marker would only have created a second way to say the same thing. It becomes relevant again
-for multi-Shrine hosting, where one endpoint must route to one of several Signets.
+both ends, and adding a marker would only have created a second way to say the same thing. It stayed unnecessary for
+multi-Shrine hosting too, which was expected to need it: routing one endpoint to one of several Signets turned out to
+require nothing new on the wire before Noise, because the identity is chosen in the encrypted binding exchange rather
+than during the handshake. See *Several Shrines on one endpoint*.
 
 ## Consumers
 

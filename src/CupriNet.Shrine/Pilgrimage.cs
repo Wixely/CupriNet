@@ -51,8 +51,12 @@ public static class Pilgrimage
             // Throwaway per-visit identity: the Pilgrim reveals no durable identity; pinning the Signet ensures only
             // the real site host (holding the key) completes the handshake.
             var pilgrim = NodeIdentity.Generate(suite);
+            // Name the Shrine as well as pinning it: an endpoint may host several, and `target` is how it learns
+            // which one to answer as. It travels blinded and inside Noise, so neither the network nor an endpoint
+            // that does not host it learns which site was wanted.
             var conjunction = await NoiseConjunction.InitiateAsync(
-                vessel, pilgrim, network, suite, expectedPeer: expectedSignet, cancellationToken: timed.Token).ConfigureAwait(false);
+                vessel, pilgrim, network, suite, expectedPeer: expectedSignet, cancellationToken: timed.Token,
+                target: expectedSignet).ConfigureAwait(false);
             return new ShrineSession(conjunction.Vessel, suite);
         }
         catch
