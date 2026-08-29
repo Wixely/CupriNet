@@ -172,6 +172,125 @@ public class ShrineListenerTests
     }
 
     [Fact]
+    public async Task AnIdleVisit_IsClosed_SoItCannotHoldItsSlotForever()
+    {
+        using var cts = new CancellationTokenSource(Timeout);
+        var ct = cts.Token;
+
+        // The attack this closes: complete the handshake, then say nothing, and hold a visit slot indefinitely.
+        await using var host = await CupriNode.CreateAsync(new CupriNodeOptions
+        {
+            Concordium = "sites.example",
+            PilgrimageIdleTimeout = TimeSpan.FromSeconds(2),
+        }, ct);
+        await using var visitor = await NodeAsync(ct);
+
+        var signet = Signet.Generate(host.Suite);
+        host.HostShrine(signet, new DelegateOracleHandler(_ => OracleResponse.Text("ok")));
+        var endpoint = host.ListenForPilgrims();
+
+        var vessel = await TcpVessel.ConnectAsync(endpoint.Address.ToString(), endpoint.Port, cancellationToken: ct);
+        await using var shrine = await visitor.PilgrimageOverVesselAsync(vessel, signet.Sigil, ct);
+
+        // It works while it is being used...
+        Assert.Equal("ok", (await shrine.ConsultAsync(OracleRequest.Get("/"), ct)).AsText());
+
+        // ...and the host hangs up once it goes quiet. The Oracle stream closing is how that surfaces here.
+        await Task.Delay(TimeSpan.FromSeconds(5), ct);
+        await Assert.ThrowsAnyAsync<Exception>(() => shrine.ConsultAsync(OracleRequest.Get("/"), ct));
+    }
+
+    [Fact]
+    public async Task AttendingAFeed_KeepsAVisitAlive_ThoughThePilgrimSendsNothingMore()
+    {
+        using var cts = new CancellationTokenSource(Timeout);
+        var ct = cts.Token;
+
+        // The false positive an inbound-only deadline would cause: a Pilgrim attends a feed, sends nothing further,
+        // and listens. That is the Auspice working as designed, not an idle connection.
+        await using var host = await CupriNode.CreateAsync(new CupriNodeOptions
+        {
+            Concordium = "sites.example",
+            PilgrimageIdleTimeout = TimeSpan.FromSeconds(2),
+        }, ct);
+        await using var visitor = await NodeAsync(ct);
+
+        var signet = Signet.Generate(host.Suite);
+        host.HostShrine(signet, new DelegateOracleHandler(_ => OracleResponse.Text("ok")),
+            new Dictionary<string, IAuspiceSource>
+            {
+                ["ticks"] = new DelegateAuspiceSource(async (publisher, token) =>
+                {
+                    await publisher.SnapshotAsync("start"u8.ToArray(), token);
+                    while (!token.IsCancellationRequested)
+                    {
+                        await Task.Delay(TimeSpan.FromMilliseconds(400), token);
+                        await publisher.UpdateAsync("tick"u8.ToArray(), token);
+                    }
+                }),
+            });
+        var endpoint = host.ListenForPilgrims();
+
+        var vessel = await TcpVessel.ConnectAsync(endpoint.Address.ToString(), endpoint.Port, cancellationToken: ct);
+        await using var shrine = await visitor.PilgrimageOverVesselAsync(vessel, signet.Sigil, ct);
+
+        var seen = 0;
+        await foreach (var frame in shrine.AttendAsync("ticks", ct))
+        {
+            if (++seen >= 12)                       // ~5s of updates, well past the 2s deadline
+                break;
+        }
+
+        Assert.Equal(12, seen);
+    }
+
+    [Fact]
+    public async Task OneAddress_CannotTakeEveryVisitSlot()
+    {
+        using var cts = new CancellationTokenSource(Timeout);
+        var ct = cts.Token;
+
+        await using var host = await CupriNode.CreateAsync(new CupriNodeOptions
+        {
+            Concordium = "sites.example",
+            MaxPilgrimagesPerAddress = 2,
+            PilgrimageIdleTimeout = TimeSpan.Zero,       // isolate the cap from the deadline
+        }, ct);
+        await using var visitor = await NodeAsync(ct);
+
+        var signet = Signet.Generate(host.Suite);
+        host.HostShrine(signet, new DelegateOracleHandler(_ => OracleResponse.Text("ok")));
+        var endpoint = host.ListenForPilgrims();
+
+        // Two concurrent visits from this address are fine.
+        var first = await VisitAsync(visitor, endpoint, signet, ct);
+        var second = await VisitAsync(visitor, endpoint, signet, ct);
+        Assert.Equal("ok", (await first.ConsultAsync(OracleRequest.Get("/"), ct)).AsText());
+        Assert.Equal("ok", (await second.ConsultAsync(OracleRequest.Get("/"), ct)).AsText());
+
+        // The third is dropped before the handshake, so it cannot hold a slot.
+        await Assert.ThrowsAnyAsync<Exception>(async () =>
+        {
+            await using var _ = await VisitAsync(visitor, endpoint, signet, ct);
+        });
+
+        // Releasing one frees the budget again — the cap is concurrent, not cumulative.
+        await first.DisposeAsync();
+        await Task.Delay(TimeSpan.FromMilliseconds(500), ct);
+        await using var third = await VisitAsync(visitor, endpoint, signet, ct);
+        Assert.Equal("ok", (await third.ConsultAsync(OracleRequest.Get("/"), ct)).AsText());
+
+        await second.DisposeAsync();
+    }
+
+    private static async Task<ShrineSession> VisitAsync(
+        CupriNode visitor, System.Net.IPEndPoint endpoint, Signet signet, CancellationToken ct)
+    {
+        var vessel = await TcpVessel.ConnectAsync(endpoint.Address.ToString(), endpoint.Port, cancellationToken: ct);
+        return await visitor.PilgrimageOverVesselAsync(vessel, signet.Sigil, ct);
+    }
+
+    [Fact]
     public async Task DisposingTheNode_ClosesThePort()
     {
         using var cts = new CancellationTokenSource(Timeout);

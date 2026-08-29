@@ -8,7 +8,7 @@ Legend: ✅ done & tested · 🔨 in progress / near-term · 🧭 planned · �
 
 ## ✅ Done — the working core
 
-The two-layer stack is real, wired end-to-end, and covered by the test suite (**453** unit tests green).
+The two-layer stack is real, wired end-to-end, and covered by the test suite (**456** unit tests green).
 
 - **Transport (Vessel).** Managed TCP with length-prefixed framing and logical stream multiplexing; a
   reliable-UDP transport for NAT paths. No native deps, no OS TLS, no QUIC.
@@ -92,10 +92,12 @@ The two-layer stack is real, wired end-to-end, and covered by the test suite (**
   today CI authenticates the feed.)
 - **UPnP / PCP** port mapping alongside the existing NAT-PMP.
 - **Docs/API sweep** — keep READMEs and the public `CupriNode` surface in step as things move.
-- **Security-review the Shrine surface.** The standing review (2026-07-20) is scoped to "the Rites
-  (Epistle/Conduit/Reliquary)" and predates every part of the Shrine layer — Signet, Pilgrimage, the site rites,
-  the Shrine listener, and multi-Shrine selection. That layer is now what a downstream product is built on, and
-  the blinded target tag is a cryptographic construction nothing has reviewed.
+- ~~**Security-review the Shrine surface.**~~ **Done (2026-08-29)** — the standing review of 2026-07-20 was scoped to
+  "the Rites (Epistle/Conduit/Reliquary)" and predated Signet, the Pilgrimage, the site rites, the listener and
+  multi-Shrine entirely. Six findings; the two that were defects are fixed (an accept-boundary exhaustion, and a
+  resolver whose loop length leaked how many Shrines an endpoint hosts). Two remain as decisions rather than
+  defects: only the first advertise-flagged Shrine reaches an Intonation, and the public
+  `AcceptPilgrimageOverVesselAsync` applies no subnet fence where the listener path does.
 
 ## 🧭 Planned — larger pieces
 

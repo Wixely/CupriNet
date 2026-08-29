@@ -244,6 +244,22 @@ public sealed record CupriNodeOptions
     /// </summary>
     public int MaxConcurrentPilgrimages { get; init; } = 256;
 
+    /// <summary>
+    /// Concurrent visits one source address may hold (a Ward). The global cap alone is not enough: a visit slot is
+    /// held for the whole visit, so without this one address could complete <see cref="MaxConcurrentPilgrimages"/>
+    /// handshakes, hold every slot idle, and take the Shrine off the air for the price of that many Toll solves.
+    /// The overlay path has held a per-peer budget beside its global cap for exactly this reason; a Pilgrim is
+    /// anonymous, so the address is what there is to key on.
+    /// </summary>
+    public int MaxPilgrimagesPerAddress { get; init; } = 8;
+
+    /// <summary>
+    /// How long a visit may pass with no traffic in <em>either</em> direction before it is closed (a Ward). Counting
+    /// both directions matters: a Pilgrim that attends a live feed sends one request and then only receives, so an
+    /// inbound-only deadline would hang up on the very thing the Auspice exists to do.
+    /// </summary>
+    public TimeSpan PilgrimageIdleTimeout { get; init; } = TimeSpan.FromMinutes(5);
+
     /// <summary>Max concurrent overlay-control connections from a single peer (Sigil), so one peer cannot multiply its budget.</summary>
     public int MaxControlConnectionsPerPeer { get; init; } = 8;
 

@@ -141,6 +141,36 @@ public sealed partial class CupriNode
     private VesselListener? _shrineListener;
     private SemaphoreSlim? _pilgrimSlots;
 
+    // Concurrent visits per source address. The global slot count alone leaves the Shrine trivially exhaustible: a
+    // visit slot is held for the WHOLE visit, so one address could take every slot and hold them idle for the price
+    // of that many Toll solves. The overlay path has held a per-peer budget beside its global cap since the first
+    // review; a Pilgrim is anonymous, so the address is what there is to key on.
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<System.Net.IPAddress, int> _visitsPerAddress = new();
+
+    private bool TryReserveVisit(IPEndPoint? remote)
+    {
+        if (remote is null)
+            return true;                    // not an IP transport (an in-memory pair in a test); nothing to key on
+
+        var allowed = Math.Max(1, _options.MaxPilgrimagesPerAddress);
+        var taken = _visitsPerAddress.AddOrUpdate(remote.Address, 1, (_, current) => current + 1);
+        if (taken <= allowed)
+            return true;
+
+        ReleaseVisit(remote);
+        return false;
+    }
+
+    private void ReleaseVisit(IPEndPoint? remote)
+    {
+        if (remote is null)
+            return;
+
+        _visitsPerAddress.AddOrUpdate(remote.Address, 0, (_, current) => current - 1);
+        // Drop the entry once it reaches zero so a long-lived node does not accumulate one per address ever seen.
+        _visitsPerAddress.TryRemove(new KeyValuePair<System.Net.IPAddress, int>(remote.Address, 0));
+    }
+
     /// <summary>The endpoint this node serves Pilgrims on, or null if <see cref="ListenForPilgrims"/> was never called.</summary>
     public IPEndPoint? ShrineEndPoint => _shrineListener?.LocalEndPoint;
 
@@ -255,8 +285,10 @@ public sealed partial class CupriNode
     /// <summary>Serves one visit. A failed or refused visit drops its own connection and never affects the loop.</summary>
     private async Task ServePilgrimAsync(IVessel vessel, CancellationToken cancellationToken)
     {
+        var remote = vessel.RemoteEndPoint as IPEndPoint;
+
         // Subnet fence first, before any handshake work — the same guard the L1 path applies.
-        if (vessel.RemoteEndPoint is IPEndPoint remote && !IsAddressAllowed(remote.Address))
+        if (remote is not null && !IsAddressAllowed(remote.Address))
         {
             await vessel.DisposeAsync().ConfigureAwait(false);
             return;
@@ -264,6 +296,14 @@ public sealed partial class CupriNode
 
         if (_shrines.Count == 0)
         {
+            await vessel.DisposeAsync().ConfigureAwait(false);
+            return;
+        }
+
+        if (!TryReserveVisit(remote))
+        {
+            // This address already holds its share. Dropping before the handshake keeps the cost of being refused
+            // on the caller rather than on us.
             await vessel.DisposeAsync().ConfigureAwait(false);
             return;
         }
@@ -276,6 +316,10 @@ public sealed partial class CupriNode
         {
             // AcceptPilgrimageOverVesselAsync owns the vessel and disposes it on the way out; nothing to clean up,
             // and one visitor's failure is never the Shrine's problem.
+        }
+        finally
+        {
+            ReleaseVisit(remote);
         }
     }
 
@@ -380,7 +424,14 @@ public sealed partial class CupriNode
         CancellationToken cancellationToken)
     {
         using var serving = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        var mux = new VesselMux(vessel, ownsVessel: false);
+
+        // A visit holds its slot until it ends, and until now nothing ended it but the peer. That made the Shrine
+        // exhaustible by connections that simply say nothing: complete the handshake, then wait. The deadline counts
+        // traffic in EITHER direction, so a Pilgrim watching a live feed — which sends once and then only listens —
+        // is not mistaken for one that has gone away.
+        var tracked = new ActivityTrackingVessel(vessel);
+        var mux = new VesselMux(tracked, ownsVessel: false);
+        var idle = WatchForIdleAsync(tracked, serving, cancellationToken);
         var loops = new[]
         {
             OracleHost.ServeAsync(new OracleSession(mux.Stream(OracleSession.RequestStream)), handler, serving.Token),
@@ -399,8 +450,40 @@ public sealed partial class CupriNode
             await serving.CancelAsync().ConfigureAwait(false);
             // Observe every outcome so none faults unobserved; cancellation here is the expected path.
             try { await Task.WhenAll(loops).ConfigureAwait(false); } catch { /* teardown */ }
+            try { await idle.ConfigureAwait(false); } catch { /* the watchdog ends with the visit */ }
             await mux.DisposeAsync().ConfigureAwait(false);
             await vessel.DisposeAsync().ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
+    /// Ends a visit that has gone quiet in both directions for <see cref="CupriNodeOptions.PilgrimageIdleTimeout"/>.
+    /// Polls at a fraction of the deadline rather than arming a timer per frame: a visit is cheap to check and this
+    /// costs nothing per message.
+    /// </summary>
+    private async Task WatchForIdleAsync(
+        ActivityTrackingVessel tracked, CancellationTokenSource serving, CancellationToken cancellationToken)
+    {
+        var deadline = _options.PilgrimageIdleTimeout;
+        if (deadline <= TimeSpan.Zero)
+            return;                                             // disabled
+
+        var tick = TimeSpan.FromMilliseconds(Math.Max(1000, deadline.TotalMilliseconds / 4));
+        try
+        {
+            while (!serving.IsCancellationRequested)
+            {
+                await Task.Delay(tick, serving.Token).ConfigureAwait(false);
+                if (tracked.IdleMilliseconds >= deadline.TotalMilliseconds)
+                {
+                    await serving.CancelAsync().ConfigureAwait(false);
+                    return;
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // The visit ended first, which is the ordinary case.
         }
     }
 
