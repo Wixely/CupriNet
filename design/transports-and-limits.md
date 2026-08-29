@@ -1,16 +1,27 @@
-# Transports and limits — what each part is, what it is called, and what it will carry
+# Transports and limits — what each part is, what it is called, what it will carry, and why
 
 **Every size limit in CupriNet comes from one of two places: the frame ceiling of the transport underneath you, or a
 rite's own cap.** They are different numbers for different reasons, and the most common mistake is to read a rite's
 192 KiB as a CupriNet-wide rule. It is not. It is the browser's number, and it applies where a browser can reach.
 
-This is the reference for which parts are which, what they are called, and what happens when you exceed them.
+This is the reference for which parts are which, what they are called, and what happens when you exceed them. Every
+section also says **why** it is that way, because most of these numbers and shapes look arbitrary until you know what
+they are defending against — and a limit whose reason is unknown is one someone eventually "fixes".
 
 ## The two vessel families
 
 A **Vessel** is one transport connection. Everything above it — Noise, the mux, the rites — is written against
 `IVessel` and does not know or care which family it is on. There are exactly two, and the difference between them is
 the source of every ceiling in this document.
+
+**Why two and not one.** The split is not an accident of growth; it is the one thing that genuinely differs between
+these transports. A byte stream has no message boundaries, so a framing layer must invent them. A DataChannel already
+has them, so inventing a second set would mean a length prefix inside a message whose length is already known — pure
+overhead, and a second place for the two ends to disagree. Normalising both onto one representation would therefore
+have meant either paying for framing nobody needs, or dropping down to a lowest common denominator that a byte stream
+cannot provide. Instead the seam sits at `IVessel`, one level above the difference, and each family satisfies it in
+the way its transport actually works. The cost of that choice is the whole of this document: two families means two
+ceilings, and code that is portable between them has to respect the smaller.
 
 ### 1. The byte-stream family — TCP, reliable UDP, Tor
 
@@ -31,6 +42,13 @@ which is why it inherits exactly the same ceiling as TCP. Tor is the same story:
 **Frame ceiling: 16 MiB** (`FrameCodec.DefaultMaxFrameSize`), and it is a *parameter* — every factory takes
 `maxFrameSize`, so a deployment that wants a smaller one may say so. Both ends must agree; a frame larger than the
 receiver's limit is refused, not truncated.
+
+**Why there is a cap at all**, given a TCP stream would happily carry more: the length prefix is written by the
+*peer*, and the very next thing the reader does with it is allocate. [`FrameCodec.ReadAsync`](../src/CupriNet.Codex/FrameCodec.cs)
+checks the declared length against the limit *before* `new byte[length]`, so an unbounded prefix would be an
+unauthenticated peer choosing how much memory you commit — one four-byte lie for an out-of-memory kill. The cap is an
+allocation guard first and a size limit second, which is also why 16 MiB is not a carefully tuned figure: it wants to
+be far above anything legitimate and far below anything ruinous, and anywhere in that range will do.
 
 ### 2. The message family — WebRTC
 
@@ -158,6 +176,26 @@ An `ArcanumSession.Conduits` frame may be up to the vessel's 16 MiB. This is the
 channel members on a stream transport and the traffic will never be served to a browser. It is the wrong answer for
 anything a Shrine hosts.
 
+### Why the rite refuses instead of the transport
+
+Every ceiling here could have been left to the transport to enforce — it will refuse an oversize frame regardless. The
+rites check anyway, and check on **both** encode and decode, for three separate reasons.
+
+**A transport failure cannot say anything useful.** By the time an SCTP association rejects a message, the context
+that would make the error actionable — that this was an Oracle body, that a Relic exists for exactly this case — is
+several layers below the code that could act on it. What surfaces is a dead connection. Checking at the rite turns
+that into a typed exception naming the limit and the alternative, thrown before any I/O happens, which is the
+difference between a bug someone fixes in a minute and one they file.
+
+**A transport failure is disproportionate.** Losing the vessel loses the whole visit: the page fetch, the live feed,
+the transfer in flight. One oversize response should cost one response. That is why `OracleHost` turns an oversize
+handler return into a 500 rather than letting it reach the wire, and why `StaticFileOracleHandler` refuses an
+over-ceiling file *before reading it* — the cheapest possible failure, at the earliest possible point.
+
+**Encode-side alone would be trusting the peer.** A sender that checks its own output protects a well-behaved network
+from itself. It does nothing about a hostile or simply older peer that sends 200 MiB, and the decode side is where
+that lands — again, immediately before an allocation. The decode check is the Ward; the encode check is the courtesy.
+
 ### What failure looks like
 
 Every rite checks its own ceiling on **encode and decode**, before any I/O, so exceeding one is a
@@ -171,6 +209,14 @@ a clear 500 rather than dropping the Shrine.
 One vessel carries many logical streams, demultiplexed by [`VesselMux`](../src/CupriNet.Vessel/VesselMux.cs) so a page
 fetch, a live feed, a blob and a raw session all proceed at once on one connection.
 
+**Why multiplex rather than open a second connection.** On this stack a connection is expensive in ways a socket is
+not: each one costs a Toll, a Noise handshake, and — on a NAT'd path — its own hole punch, and on the browser path a
+whole second DataChannel. Worse, a second connection is a second thing an observer can correlate, and a second
+identity decision to get right. Multiplexing pays that once. The per-rite streams then buy something the single
+connection would otherwise lose: **head-of-line isolation.** A relic transferring a hundred megabytes sits on stream 8,
+so it cannot stall a page fetch on stream 5 — which is exactly why the Relic rite was given its own stream rather than
+being carried as large Oracle responses.
+
 | Stream | Carries | Context |
 |---|---|---|
 | 0 | Conjunction handshake | pairing |
@@ -183,8 +229,22 @@ fetch, a live feed, a blob and a raw session all proceed at once on one connecti
 | 7 | **Auspice** | Pilgrimage |
 | 8 | **Relic** | Pilgrimage |
 
+Two apparent collisions in that table are deliberate, and for different reasons.
+
+**Stream 3 carries both Epistles and Effigy cover traffic — because it must.** An effigy is a decoy channel session
+whose only purpose is to look exactly like a real one. Giving decoy traffic its own stream id would hand an observer a
+one-field test for telling real conversations from cover, which is precisely the distinction the cover exists to
+destroy. Indistinguishability is the feature; the shared id is how it is achieved.
+
+**Stream 5 carries the Oracle on a Pilgrimage and the reflexive endpoint on a paired peer — because the two never
+share a vessel.** A Pilgrimage is not a pairing: different handshake, different identity, different lifetime. The ids
+are scoped by connection kind, so reusing a number across kinds costs nothing.
+
 Wards: at most 64 concurrent streams per connection and 1,024 queued frames per stream, after which inbound frames
-are dropped rather than growing memory without limit — the reliable rites recover anything dropped that way.
+are dropped rather than growing memory without limit — the reliable rites recover anything dropped that way. **Dropping
+rather than blocking is the point:** a queue that blocks under flood lets one hostile stream stall the mux pump and so
+every other rite on the connection, and a queue that grows lets it exhaust memory instead. Dropping bounds both, and
+pushes recovery up to the rites that already know how to retry.
 
 ## Naming
 
@@ -208,16 +268,63 @@ The ceremonial vocabulary maps one-to-one onto ordinary components. The transpor
 | **Relic** | bulk content, chunked and hash-verified, over a Pilgrimage |
 | **Reliquary** | the underlying chunked file-transfer format |
 
-### One asymmetry worth knowing
+### One asymmetry worth knowing, and why it exists
 
 On an **Arcanum channel** the rites are Veil-sealed: an inner encryption layer keyed from the channel's session key,
-which is why those constructors take a session key and a crypto suite.
+which is why those constructors take a session key and a crypto suite. On a **Pilgrimage** they are not — every rite
+has a **keyless** constructor for that path, and no session key is ever plumbed out of `Pilgrimage.OverVesselAsync`.
 
-On a **Pilgrimage** they are not. The Noise vessel is already the confidentiality and authenticity boundary, so a
-second layer would be redundant — which is why every rite has a **keyless** constructor for that path, and why no
-session key is ever plumbed out of `Pilgrimage.OverVesselAsync`. If you are holding a channel key to construct a rite,
-you are on the channel path; if you are handing it only a stream, you are on the Shrine path.
+The rule of thumb: *if you are holding a channel key to construct a rite, you are on the channel path; if you are
+handing it only a stream, you are on the Shrine path.*
 
-The Conduit carries the same split one step further: its Pilgrimage constructor takes **no author identity** either,
-because a Pilgrim is meant to be unlinkable and signing frames under a durable key would undo that. Authenticated
-authorship belongs on a channel, where members have durable identities.
+**Why the Veil is not simply redundant on a channel.** The two layers make genuinely different claims. The Noise
+vessel authenticates the **node** you are connected to — its Sigil. The Veil is keyed from the **Watchword**, so
+opening a frame proves the sender holds the channel secret, which is a claim about *membership*, not about which box
+is at the other end. The two are deliberately decoupled: `ConsecrateAsync` takes a `ChannelIdentity` precisely so a
+member may speak under a persona that is not their overlay identity. Binding content to the transport alone would
+re-couple exactly what that option exists to separate.
+
+**Why a Pilgrimage needs only one layer.** There is no second claim to make. The host presents the Signet *as* its
+handshake identity — `NoiseConjunction.AcceptAsync` is handed `NodeIdentity.FromSeal(signet.Seal)` — so pinning the
+Signet during the handshake already proves everything a Shrine can prove about itself. And the Pilgrim is anonymous
+by design, so there is no membership to demonstrate in the other direction. A Veil there would encrypt the same claim
+twice and hand a caller a key it has no reason to hold.
+
+The Conduit carries the split one step further: its Pilgrimage constructor takes **no author identity** either.
+Authenticated authorship is right on a channel, where members are durable and attribution is the point; on a visit
+the Pilgrim is meant to be unlinkable, and signing frames under a lasting key would quietly undo that. Where a rite
+cannot be misused, it should not be *possible* to misuse — hence a separate constructor rather than a nullable
+argument.
+
+### Why some rites pad and others do not
+
+`AuspicePadding` and `ConduitPadding` quantise a message's length before it is sealed; the Oracle and the Relic have
+no equivalent. That is not an omission in either direction.
+
+Encryption hides the bytes, not how many there are. A **live feed** is the richest possible version of that leak:
+update sizes track content and snapshot size tracks how much state exists, sampled continuously for as long as
+someone watches. A **duplex conduit** is at least as rich, and bidirectional. Both pad by default.
+
+A **relic** needs no padding because it is already uniform by construction — `RelicCodec.DefaultChunkBytes` *is*
+`MaxPayloadBytes`, so every chunk but the last is exactly the same size, and quantising identical values achieves
+nothing. An **Oracle** exchange is a single request/response burst rather than a continuous stream, so it offers an
+observer far fewer samples to work with; padding there would cost bandwidth on every page fetch to blur a signal that
+is weak to begin with.
+
+Note what padding does *not* fix, in every case: it hides size, never **timing**. A feed emitting one update per
+event still reveals the event rate, and a source whose cadence is itself sensitive has to smooth it upstream.
+
+### Two smaller decisions, since they surprise people
+
+**No `ProtocolId` registry.** The Conduit never dispatches on it and CupriNet keeps no list. Owning that namespace
+would make the library an authority on applications it knows nothing about, and force a version bump every time
+someone wanted a number. The cost is that an unrecognised id has no library-defined behaviour, so `IConduitHandler`
+documents the convention instead — check it, and seal an unknown one rather than ignoring the frame.
+
+**The Arcanum conduit carries no CupriMark version byte, and the Pilgrimage one does.** Every rite added *after* a
+release carries its own component, because it cannot inherit compatibility from a handshake that shipped before it
+existed. The Conduit predates the catalogue on the channel path, where it inherits from the Consecration handshake,
+so adding a byte there would be a flag day for every deployed peer — the exact thing CupriMark exists to avoid. The
+Pilgrimage conduit is new wire with no deployed peers to break, so it carries the component from the start. Same
+reasoning produced the other asymmetry on that path: the reserved top flag bit is honoured on the Pilgrimage wire
+only, because a channel application may already be using it.
