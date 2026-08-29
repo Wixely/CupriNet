@@ -114,14 +114,20 @@ public sealed partial class CupriNode
         if (targetTag.Length == 0)
             return PrimaryShrine;
 
+        // Every Signet is derived and compared, and the loop always runs to the end. Returning on the first match
+        // would make a hit at index 0 cheaper than one at index 20, so a visitor holding a single valid address could
+        // time a known-good visit against an unknown one and estimate how many sites this endpoint hosts. That is a
+        // weaker leak than learning *which* site, but co-hosted sites not being obviously co-hosted is much of the
+        // point of serving several from one endpoint.
+        HostedShrine? match = null;
         foreach (var hosted in _shrines)
         {
             var mine = NoiseConjunction.ShrineTargetTag(Suite, handshakeHash, hosted.Signet.Sigil);
             if (System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(mine, targetTag.Span))
-                return hosted;
+                match = hosted;
         }
 
-        return null;
+        return match;
     }
 
     /// <summary>The <c>cupri1…</c> address of the Shrine this node hosts, or null if it hosts none.</summary>

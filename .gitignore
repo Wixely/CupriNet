@@ -20,6 +20,7 @@ node/CupriNet.Lodestar/.debug-data-tor/
 
 # Security review report — deliverable, deliberately not checked in
 SECURITY-REVIEW.md
+SECURITY-REVIEW-SHRINE.md
 
 # local-only NuGet restore config (points at local CupriTor/CupriCurve nupkgs)
 nuget.local.config

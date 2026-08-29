@@ -92,11 +92,25 @@ The two-layer stack is real, wired end-to-end, and covered by the test suite (**
   today CI authenticates the feed.)
 - **UPnP / PCP** port mapping alongside the existing NAT-PMP.
 - **Docs/API sweep** — keep READMEs and the public `CupriNode` surface in step as things move.
+- **Security-review the Shrine surface.** The standing review (2026-07-20) is scoped to "the Rites
+  (Epistle/Conduit/Reliquary)" and predates every part of the Shrine layer — Signet, Pilgrimage, the site rites,
+  the Shrine listener, and multi-Shrine selection. That layer is now what a downstream product is built on, and
+  the blinded target tag is a cryptographic construction nothing has reviewed.
 
 ## 🧭 Planned — larger pieces
 
 - **Simulation & fuzzing at scale** — a virtual-node harness (hundreds–thousands) for poisoning / partition
-  / eclipse / Sybil scenarios, and decoder fuzzing across every frame and document parser.
+  / eclipse / Sybil scenarios, and decoder fuzzing across every frame and document parser. The Shrine work added
+  parse paths that have never seen a fuzzer: the **versioned Conduit frame** (a leading CupriMark byte on the
+  Pilgrimage wire only), the identity binding's **trailing target field** and its **refusal marker**, and the
+  Oracle / Auspice / Relic codecs. Every one of them decodes attacker-supplied bytes before anything is
+  authenticated at the rite, which is where the last review found almost every real weakness.
+- **Noise NK — a Pilgrim that sends no static key at all.** Today a visit mints a *throwaway* static and runs
+  Noise XX, so nothing durable is revealed, but a static is still sent. NK removes it entirely, which is the
+  cleaner statement of "the Shrine learns nothing about who visited". The handshake state machine is already
+  token-driven (`MessagePatterns` is data, and `MixDh` is role-aware), so the pattern itself is a small addition;
+  the work is the pre-message hash, letting `Split()` complete with no remote static, and negotiating XX↔NK.
+  **No longer a prerequisite for anything** — multi-Shrine was expected to need it and did not.
 - **IPv6 direct** paths and pluggable rendezvous.
 - **A mobile sample** exercising suspend/reconnect against the retry layer.
 
