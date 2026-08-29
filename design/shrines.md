@@ -325,6 +325,25 @@ matter because a visitor must name its target *before* the host has proved it ho
 It is not a secret: anyone holding the address can compute it for a session whose handshake hash they know. It hides
 the target from parties who do not already know it, which is exactly the set that should not learn it.
 
+### Publishing more than one
+
+An Intonation carries a **single** Shrine address, so a node hosting several publishes them with **one link each**:
+
+```csharp
+var alphaLink = node.IntoneUri(TimeSpan.FromHours(2), now, alpha);
+var betaLink  = node.IntoneUri(TimeSpan.FromHours(2), now, beta);
+```
+
+That is the same control `LinkTransports` already gives — a node decides what a given link reveals to a given
+audience — and it is deliberately the consumer's call, not the library's. One link naming several sites would tell
+anyone holding it that those sites are co-hosted. Separate links tell that only to someone holding **both**, since
+both carry the same inviter key. Whether that matters depends on whether the sites are meant to be publicly
+associated, which only the host knows.
+
+Naming a Shrine when minting is itself the opt-in, so `advertiseInLink` need not be set for it; that flag decides
+what a link minted *without* a Shrine named carries. The standing caveat applies to both: advertising ties a site to
+the node's overlay Sigil, so a site meant to be unlinkable from the node is shared out-of-band instead.
+
 ### What happens when nothing matches
 
 The host answers with a typed refusal inside the encrypted channel — never silence, and never by presenting a

@@ -29,6 +29,9 @@ public sealed partial class CupriNode
     /// <summary>True when this node hosts at least one Shrine.</summary>
     internal bool HostsAnyShrine => _shrines.Count > 0;
 
+    /// <summary>True when <paramref name="signet"/> is one of the Shrines this node serves.</summary>
+    internal bool HostsShrine(Signet signet) => _shrines.Any(s => s.Signet.Sigil == signet.Sigil);
+
     /// <summary>The first Shrine hosted — what a visitor that names no target is served.</summary>
     private HostedShrine? PrimaryShrine => _shrines.Count > 0 ? _shrines[0] : null;
 
@@ -242,6 +245,12 @@ public sealed partial class CupriNode
     /// wrong site or by silence. Serves whatever this node currently hosts, so <see cref="HostShrine(Signet, IOracleHandler, bool)"/>
     /// governs it rather than the call site. On failure the vessel is disposed.
     /// </summary>
+    /// <remarks>
+    /// <b>No subnet fence is applied here.</b> The caller accepted this vessel, so the caller owns the policy — and
+    /// for a transport with no meaningful address (an in-memory pair, a DataChannel) there is nothing to fence on.
+    /// <see cref="ListenForPilgrims"/> does apply <c>AddressPolicy</c>, as the overlay accept loop does, so moving
+    /// between the two changes what is enforced: check the address yourself if you need the same guard here.
+    /// </remarks>
     public async Task AcceptPilgrimageOverVesselAsync(IVessel vessel, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(vessel);
@@ -335,7 +344,12 @@ public sealed partial class CupriNode
         _pilgrimSlots = null;
     }
 
-    /// <summary>The Shrine Signet to stamp into a minted Intonation — only when hosting one AND opted in.</summary>
+    /// <summary>
+    /// The Shrine stamped into a link minted without one named — the first that opted in, or none. An Intonation
+    /// carries a single Shrine address, so a node hosting several publishes them with one link each, via
+    /// <see cref="Intone(TimeSpan, DateTimeOffset, Signet, LinkTransports, byte[])"/>. Flagging several is therefore
+    /// not a way to advertise several; it only decides which is the default.
+    /// </summary>
     internal Sigil? ShrineToAdvertise =>
         _shrines.FirstOrDefault(s => s.Advertise) is { } advertised ? advertised.Signet.Sigil : null;
 

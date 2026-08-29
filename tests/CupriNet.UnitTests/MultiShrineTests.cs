@@ -76,6 +76,72 @@ public class MultiShrineTests
     }
 
     [Fact]
+    public async Task AHostPublishesSeveralSites_WithOneLinkEach()
+    {
+        using var cts = new CancellationTokenSource(Timeout);
+        var ct = cts.Token;
+
+        await using var host = await NodeAsync(ct);
+        var alpha = Signet.Generate(host.Suite);
+        var beta = Signet.Generate(host.Suite);
+        host.HostShrine(alpha, new DelegateOracleHandler(_ => OracleResponse.Text("alpha")));
+        host.HostShrine(beta, new DelegateOracleHandler(_ => OracleResponse.Text("beta")));
+
+        // An Intonation carries one Shrine address, so several sites are published as several links — which also
+        // means only someone holding BOTH can tell they are co-hosted.
+        var now = DateTimeOffset.UtcNow;
+        var forAlpha = host.Intone(TimeSpan.FromHours(1), now, alpha);
+        var forBeta = host.Intone(TimeSpan.FromHours(1), now, beta);
+
+        Assert.Equal(alpha.Sigil, forAlpha.Shrine);
+        Assert.Equal(beta.Sigil, forBeta.Shrine);
+        Assert.NotEqual(forAlpha.Shrine, forBeta.Shrine);
+
+        // Both are still this node's links: same inviter, so the correlation is available to a holder of both — which
+        // is the trade a host accepts by advertising at all, and the reason a site meant to be unlinkable from the
+        // node is shared out-of-band instead.
+        Assert.Equal(forAlpha.InviterSealPublicKey, forBeta.InviterSealPublicKey);
+    }
+
+    [Fact]
+    public async Task ALinkCannotAdvertiseASiteTheNodeDoesNotServe()
+    {
+        using var cts = new CancellationTokenSource(Timeout);
+        var ct = cts.Token;
+
+        await using var host = await NodeAsync(ct);
+        host.HostShrine(Signet.Generate(host.Suite), new DelegateOracleHandler(_ => OracleResponse.Text("mine")));
+
+        var elsewhere = Signet.Generate(host.Suite);
+        var error = Assert.Throws<InvalidOperationException>(
+            () => host.Intone(TimeSpan.FromHours(1), DateTimeOffset.UtcNow, elsewhere));
+
+        Assert.Contains(elsewhere.Address, error.Message);
+    }
+
+    [Fact]
+    public async Task WithNoShrineNamed_TheAdvertiseFlagStillDecides()
+    {
+        using var cts = new CancellationTokenSource(Timeout);
+        var ct = cts.Token;
+
+        await using var host = await NodeAsync(ct);
+        var quiet = Signet.Generate(host.Suite);
+        var public_ = Signet.Generate(host.Suite);
+        host.HostShrine(quiet, new DelegateOracleHandler(_ => OracleResponse.Text("quiet")));
+        host.HostShrine(public_, new DelegateOracleHandler(_ => OracleResponse.Text("public")), feeds: null,
+            relics: null, conduit: null, advertiseInLink: true);
+
+        // The default mint carries the flagged one, not merely the first hosted.
+        var link = host.Intone(TimeSpan.FromHours(1), DateTimeOffset.UtcNow);
+        Assert.Equal(public_.Sigil, link.Shrine);
+
+        // And the unflagged site can still be published deliberately, one link of its own.
+        var quietLink = host.Intone(TimeSpan.FromHours(1), DateTimeOffset.UtcNow, quiet);
+        Assert.Equal(quiet.Sigil, quietLink.Shrine);
+    }
+
+    [Fact]
     public void TheTargetTag_IsBlinded_AndPerSession()
     {
         var suite = CryptoSuites.Secure();

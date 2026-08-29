@@ -130,11 +130,43 @@ public sealed partial class CupriNode : IAsyncDisposable
         => Intone(lifetime, now, LinkTransports.All, petition);
 
     /// <summary>
+    /// Mints an Intonation advertising <paramref name="shrine"/> specifically — for a node hosting several, one link
+    /// per site. An Intonation carries one Shrine address, so this is how a multi-Shrine host publishes more than one:
+    /// a separate link for each, rather than a single link naming them all.
+    ///
+    /// <para>That is deliberate, and it is the same control <see cref="LinkTransports"/> gives: a node decides what a
+    /// given link reveals to a given audience. One link naming several sites would tell anyone holding it that those
+    /// sites are co-hosted. Separate links tell that only to someone holding <em>both</em> — and whether that matters
+    /// is the host's call, not the library's.</para>
+    ///
+    /// <para>Naming a Shrine here is itself the opt-in, so <c>advertiseInLink</c> need not be set for it; that flag
+    /// governs what a link minted <em>without</em> a Shrine named carries. The usual caveat stands either way:
+    /// advertising ties the site to this node's overlay Sigil, so a site meant to be unlinkable from the node should
+    /// be shared out-of-band instead.</para>
+    /// </summary>
+    /// <param name="shrine">A Shrine this node hosts. Pass null to fall back to the advertise-flagged one, if any.</param>
+    public Intonation Intone(
+        TimeSpan lifetime, DateTimeOffset now, Signet shrine, LinkTransports transports = LinkTransports.All,
+        byte[]? petition = null)
+    {
+        ArgumentNullException.ThrowIfNull(shrine);
+        if (!HostsShrine(shrine))
+            throw new InvalidOperationException(
+                $"This node does not host {shrine.Address}. A link may only advertise a Shrine the node actually " +
+                "serves — otherwise it points visitors at a site that will refuse them.");
+        return Intone(lifetime, now, transports, petition, shrine.Sigil);
+    }
+
+    /// <summary>
     /// Mints a fresh Intonation restricted to a transport class. <see cref="LinkTransports.ClearnetOnly"/> and
     /// <see cref="LinkTransports.OnionOnly"/> let a dual-stack node hand out a link that reveals only its clearnet
     /// address or only its <c>.onion</c> — e.g. so a visitor reaching a status page over Tor is never shown the IP.
     /// </summary>
     public Intonation Intone(TimeSpan lifetime, DateTimeOffset now, LinkTransports transports, byte[]? petition = null)
+        => Intone(lifetime, now, transports, petition, shrineOverride: null);
+
+    private Intonation Intone(
+        TimeSpan lifetime, DateTimeOffset now, LinkTransports transports, byte[]? petition, Sigil? shrineOverride)
     {
         List<Beacon> beacons;
         if (_options.Mode == ReachabilityMode.TorOnly)
@@ -171,7 +203,7 @@ public sealed partial class CupriNode : IAsyncDisposable
             Petition = petition,
             Moniker = _options.Moniker,
             WebRtc = WebRtcEndpointToAdvertise,
-            Shrine = ShrineToAdvertise,
+            Shrine = shrineOverride ?? ShrineToAdvertise,
         }, now);
     }
 
@@ -182,6 +214,15 @@ public sealed partial class CupriNode : IAsyncDisposable
     /// <summary>Renders a transport-restricted Intonation as its <c>cuprinet://intone/…</c> URL.</summary>
     public string IntoneUri(TimeSpan lifetime, DateTimeOffset now, LinkTransports transports, byte[]? petition = null)
         => IntonationUri.ToUri(Intone(lifetime, now, transports, petition));
+
+    /// <summary>
+    /// Renders a link advertising <paramref name="shrine"/> specifically — one link per site, for a node hosting
+    /// several. See <see cref="Intone(TimeSpan, DateTimeOffset, Signet, LinkTransports, byte[])"/>.
+    /// </summary>
+    public string IntoneUri(
+        TimeSpan lifetime, DateTimeOffset now, Signet shrine, LinkTransports transports = LinkTransports.All,
+        byte[]? petition = null)
+        => IntonationUri.ToUri(Intone(lifetime, now, shrine, transports, petition));
 
     /// <summary>
     /// Strips private/LAN addresses (RFC 1918, CGNAT, link-local) from beacons bound for a remote party — a link
