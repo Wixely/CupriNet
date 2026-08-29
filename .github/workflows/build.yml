@@ -173,20 +173,24 @@ jobs:
           -p:DebugType=none
           -o out/aot
 
-      - name: Upload single-file app
+      # Only on a tag: the release job is the sole consumer, and it is tag-gated. On a branch push these
+      # ~90 MB per run were uploaded, billed against the account-wide artifact quota, and downloaded by
+      # nobody. The build still runs on every push — it is the check that matters; only the upload is skipped.
+      - name: Upload single-file app (tag builds — the release job consumes it)
+        if: startsWith(github.ref, 'refs/tags/v')
         uses: actions/upload-artifact@v4
         with:
           name: cuprichatlite-${{ matrix.rid }}
           path: out/app
-          retention-days: 3
+          retention-days: 1
 
-      - name: Upload NativeAOT app (only if it built)
-        if: steps.aot.outcome == 'success'
+      - name: Upload NativeAOT app (tag builds, only if it built)
+        if: steps.aot.outcome == 'success' && startsWith(github.ref, 'refs/tags/v')
         uses: actions/upload-artifact@v4
         with:
           name: cuprichatlite-aot-${{ matrix.rid }}
           path: out/aot
-          retention-days: 3
+          retention-days: 1
 
   # ---------------------------------------------------------------------------
   # Downloadable Lodestar (headless overlay node) executables: self-contained
@@ -241,12 +245,13 @@ jobs:
           fi
           ls -la out/lodestar
 
-      - name: Upload Lodestar app
+      - name: Upload Lodestar app (tag builds — the release job consumes it)
+        if: startsWith(github.ref, 'refs/tags/v')
         uses: actions/upload-artifact@v4
         with:
           name: lodestar-${{ matrix.rid }}
           path: out/lodestar
-          retention-days: 3
+          retention-days: 1
 
   # ---------------------------------------------------------------------------
   # Lodestar container image. Built on every run; pushed to GHCR on a v* tag.
