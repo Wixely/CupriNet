@@ -10,9 +10,9 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.0" />
-    <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="10.0.0" />
-    <PackageReference Include="Microsoft.Extensions.Hosting.Systemd" Version="10.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.14" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="10.0.14" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.Systemd" Version="10.0.14" />
     <!-- QR rendering for the optional status page. PngByteQRCode is pure-managed (no System.Drawing),
          so it works in the headless dotnet/runtime container. The HTTP server itself uses the BCL's
          HttpListener — no ASP.NET Core / heavy web stack. -->
