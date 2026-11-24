@@ -73,12 +73,27 @@ public static class IntonationCodec
         return w.ToArray();
     }
 
+    /// <summary>The bytes a link's signature covers: the ones it arrived with, or its encoding if built here.</summary>
+    public static byte[] SignedBody(Intonation intonation)
+    {
+        ArgumentNullException.ThrowIfNull(intonation);
+        var encoded = EncodeBody(intonation);
+        if (intonation.SignedBody is not { } received)
+            return encoded;
+        // Use the received bytes only while the fields are still the ones those bytes decode to.
+        try { return EncodeBody(DecodeBody(received)).AsSpan().SequenceEqual(encoded) ? received : encoded; }
+        catch (CodexFormatException) { return encoded; }
+    }
+
     /// <summary>Encodes the full signed document (body envelope + signature).</summary>
     public static byte[] Encode(Intonation intonation)
     {
         ArgumentNullException.ThrowIfNull(intonation);
         var w = new CodexWriter();
-        w.WriteBytes(EncodeBody(intonation));
+        // A link that was decoded goes back out as the bytes it came in as. Re-encoding the parsed fields would
+        // not always reproduce them (a normalised Moniker, a field appended by a newer build), and the signature
+        // is over the original.
+        w.WriteBytes(SignedBody(intonation));
         w.WriteBytes(intonation.Signature);
         return w.ToArray();
     }
@@ -92,7 +107,7 @@ public static class IntonationCodec
         var reader = new CodexReader(document);
         var body = reader.ReadBytes().ToArray();
         var signature = reader.ReadBytes().ToArray();
-        var intonation = DecodeBody(body) with { Signature = signature };
+        var intonation = DecodeBody(body) with { Signature = signature, SignedBody = body };
         return (intonation, body);
     }
 

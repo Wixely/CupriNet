@@ -22,6 +22,16 @@ public sealed record Decree
     public required ulong SequenceNumber { get; init; }
     public required byte[] Signature { get; init; }
 
+    /// <summary>
+    /// The exact body bytes the signature was made over, when this value was decoded from the wire (null for one
+    /// built locally). When present they are what gets verified and what gets re-encoded, so a document passes
+    /// through this node byte-for-byte: fields a newer build appended after the ones this build knows stay under
+    /// the signature instead of being dropped and breaking it. They are only used while they still say what the
+    /// fields say: change a field with <c>with</c> and the value is encoded afresh, so a tampered copy never
+    /// verifies on the strength of the original's bytes.
+    /// </summary>
+    public byte[]? SignedBody { get; init; }
+
     public Sigil ProviderSigil => Sigil.FromSealPublicKey(ProviderSealPublicKey);
 }
 
@@ -48,7 +58,7 @@ public static class DecreeCodec
     {
         ArgumentNullException.ThrowIfNull(decree);
         var w = new CodexWriter();
-        w.WriteBytes(EncodeBody(decree));
+        w.WriteBytes(SignedBody(decree));
         w.WriteBytes(decree.Signature);
         return w.ToArray();
     }
@@ -58,7 +68,19 @@ public static class DecreeCodec
         var reader = new CodexReader(document);
         var body = reader.ReadBytes().ToArray();
         var signature = reader.ReadBytes().ToArray();
-        return (DecodeBody(body) with { Signature = signature }, body);
+        return (DecodeBody(body) with { Signature = signature, SignedBody = body }, body);
+    }
+
+    /// <summary>The bytes a Decree's signature covers: the ones it arrived with, or its encoding if built here.</summary>
+    public static byte[] SignedBody(Decree decree)
+    {
+        ArgumentNullException.ThrowIfNull(decree);
+        var encoded = EncodeBody(decree);
+        if (decree.SignedBody is not { } received)
+            return encoded;
+        // Use the received bytes only while the fields are still the ones those bytes decode to.
+        try { return EncodeBody(DecodeBody(received)).AsSpan().SequenceEqual(encoded) ? received : encoded; }
+        catch (CodexFormatException) { return encoded; }
     }
 
     private static Decree DecodeBody(ReadOnlySpan<byte> body)
@@ -129,7 +151,7 @@ public static class DecreeSigner
     {
         ArgumentNullException.ThrowIfNull(decree);
         ArgumentNullException.ThrowIfNull(suite);
-        return suite.Verifier.Verify(DecreeCodec.EncodeBody(decree), decree.Signature, decree.ProviderSealPublicKey);
+        return suite.Verifier.Verify(DecreeCodec.SignedBody(decree), decree.Signature, decree.ProviderSealPublicKey);
     }
 }
 

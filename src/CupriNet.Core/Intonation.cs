@@ -59,6 +59,16 @@ public sealed record Intonation
     /// <summary>Detached signature over the canonical body, made with the inviter's Seal.</summary>
     public required byte[] Signature { get; init; }
 
+    /// <summary>
+    /// The exact body bytes the signature was made over, when this value was decoded from the wire (null for one
+    /// built locally). When present they are what gets verified and what gets re-encoded, so a document passes
+    /// through this node byte-for-byte: fields a newer build appended after the ones this build knows stay under
+    /// the signature instead of being dropped and breaking it. They are only used while they still say what the
+    /// fields say: change a field with <c>with</c> and the value is encoded afresh, so a tampered copy never
+    /// verifies on the strength of the original's bytes.
+    /// </summary>
+    public byte[]? SignedBody { get; init; }
+
     /// <summary>The Sigil of the inviter, derived from the embedded Seal public key.</summary>
     public Sigil InviterSigil => Sigil.FromSealPublicKey(InviterSealPublicKey);
 

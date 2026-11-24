@@ -36,6 +36,16 @@ public sealed record PeerRecord
 
     public required byte[] Signature { get; init; }
 
+    /// <summary>
+    /// The exact body bytes the signature was made over, when this value was decoded from the wire (null for one
+    /// built locally). When present they are what gets verified and what gets re-encoded, so a document passes
+    /// through this node byte-for-byte: fields a newer build appended after the ones this build knows stay under
+    /// the signature instead of being dropped and breaking it. They are only used while they still say what the
+    /// fields say: change a field with <c>with</c> and the value is encoded afresh, so a tampered copy never
+    /// verifies on the strength of the original's bytes.
+    /// </summary>
+    public byte[]? SignedBody { get; init; }
+
     public Sigil Sigil => Sigil.FromSealPublicKey(SealPublicKey);
 }
 
@@ -67,7 +77,7 @@ public static class PeerRecordCodec
     {
         ArgumentNullException.ThrowIfNull(record);
         var w = new CodexWriter();
-        w.WriteBytes(EncodeBody(record));
+        w.WriteBytes(SignedBody(record));
         w.WriteBytes(record.Signature);
         return w.ToArray();
     }
@@ -77,7 +87,19 @@ public static class PeerRecordCodec
         var reader = new CodexReader(document);
         var body = reader.ReadBytes().ToArray();
         var signature = reader.ReadBytes().ToArray();
-        return (DecodeBody(body) with { Signature = signature }, body);
+        return (DecodeBody(body) with { Signature = signature, SignedBody = body }, body);
+    }
+
+    /// <summary>The bytes a record's signature covers: the ones it arrived with, or its encoding if built here.</summary>
+    public static byte[] SignedBody(PeerRecord record)
+    {
+        ArgumentNullException.ThrowIfNull(record);
+        var encoded = EncodeBody(record);
+        if (record.SignedBody is not { } received)
+            return encoded;
+        // Use the received bytes only while the fields are still the ones those bytes decode to.
+        try { return EncodeBody(DecodeBody(received)).AsSpan().SequenceEqual(encoded) ? received : encoded; }
+        catch (CodexFormatException) { return encoded; }
     }
 
     private static PeerRecord DecodeBody(ReadOnlySpan<byte> body)
@@ -137,6 +159,6 @@ public static class PeerRecordSigner
     {
         ArgumentNullException.ThrowIfNull(record);
         ArgumentNullException.ThrowIfNull(suite);
-        return suite.Verifier.Verify(PeerRecordCodec.EncodeBody(record), record.Signature, record.SealPublicKey);
+        return suite.Verifier.Verify(PeerRecordCodec.SignedBody(record), record.Signature, record.SealPublicKey);
     }
 }
