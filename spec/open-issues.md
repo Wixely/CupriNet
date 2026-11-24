@@ -16,12 +16,12 @@
 
 | Id | Class | Summary |
 |---|---|---|
-| [OI-08.8](08-channels.md#854-admission-exchange-stream-2-after-consecration) | 🔴 | A responder can reflect the initiator's admission claim and be admitted to an owner-gated channel without an Investiture |
-| [OI-04.1](04-conjunction.md#413-verification) | 🔴 | The Toll freshness check reuses the issuance time, so any cookie minted within ±30 s for the same IP is accepted |
-| [OI-03.6](03-transport.md#35-noise-transport-framing) | 🔴 | Stream ids are outside the AEAD: they can be rewritten on-path, and they reveal the session type |
-| [OI-11.5](11-traversal.md#115-ferryman-brokered-hole-punch) | 🔴 | A Ferryman RESERVE can be replayed by any relay operator: no time, relay or session binding |
-| [OI-11.4](11-traversal.md#115-ferryman-brokered-hole-punch) | 🔴 | The relay learns the target's Sigil, contrary to the documentation; the handle is static |
-| [OI-07.5](07-overlay.md#73-control-requests-stream-6) | 🟠 | DIVINE target framing mismatch: the server routes on `0x20 ‖ key[0..31]` |
+| [OI-08.8](08-channels.md#854-admission-exchange-stream-2-after-consecration) | 🔴 | A responder can reflect the initiator's admission claim and be admitted to an owner-gated channel without an Investiture ([#9](https://github.com/Wixely/CupriNet/issues/9)) |
+| [OI-04.1](04-conjunction.md#413-verification) | 🔴 | The Toll freshness check reuses the issuance time, so any cookie minted within ±30 s for the same IP is accepted ([#10](https://github.com/Wixely/CupriNet/issues/10)) |
+| [OI-03.6](03-transport.md#35-noise-transport-framing) | 🔴 | Stream ids are outside the AEAD: they can be rewritten on-path, and they reveal the session type ([#11](https://github.com/Wixely/CupriNet/issues/11)) |
+| [OI-11.5](11-traversal.md#115-ferryman-brokered-hole-punch) | 🔴 | A Ferryman RESERVE can be replayed by any relay operator: no time, relay or session binding ([#13](https://github.com/Wixely/CupriNet/issues/13)) |
+| [OI-11.4](11-traversal.md#115-ferryman-brokered-hole-punch) | 🔴 | The relay learns the target's Sigil, contrary to the documentation; the handle is static ([#13](https://github.com/Wixely/CupriNet/issues/13)) |
+| [OI-07.5](07-overlay.md#73-control-requests-stream-6) | 🟠 | DIVINE target framing mismatch: the server routes on `0x20 ‖ key[0..31]` ([#12](https://github.com/Wixely/CupriNet/issues/12)) |
 | [OI-06.2](06-identity-and-documents.md#62-signed-document-envelope) | 🟠 | Some verifiers check a re-encoding and others check the received bytes, so the same document can be valid on one path and invalid on another |
 
 ## All issues
