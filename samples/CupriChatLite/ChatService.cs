@@ -43,8 +43,10 @@ public sealed record FileOffer(string TransferId, string FromDisplay, string Fil
 public sealed record FileReceipt(string FileName, string SavePath);
 
 /// <summary>A request to approve a Ferryman relay: its <paramref name="Fingerprint"/> (compare out-of-band) and the
-/// TOFU verdict (<see cref="RelayTrust.New"/> = first use; <see cref="RelayTrust.NameConflict"/> = a changed key).</summary>
-public sealed record RelayApprovalRequest(string Fingerprint, RelayTrust Verdict);
+/// TOFU verdict (<see cref="RelayTrust.New"/> = first use; <see cref="RelayTrust.NameConflict"/> = a changed key).
+/// <paramref name="ReserveAt"/> is null when the relay is one a peer's link named and we are about to connect
+/// through it; it is the relay's address when it is OUR relay and we are about to make ourselves reachable there.</summary>
+public sealed record RelayApprovalRequest(string Fingerprint, RelayTrust Verdict, string? ReserveAt = null);
 
 /// <summary>
 /// The wire form inside an Epistle payload: the author's chosen display name and the message text. The
@@ -455,26 +457,29 @@ public sealed class ChatService : IAsyncDisposable
     }
 
     /// <summary>
-    /// The trust gate for the relay WE reserve with. Naming it in the configuration is the consent, so its key is
-    /// trusted on first use and remembered against that address — and if the relay at that address later presents a
-    /// different key, it is refused rather than quietly trusted again (SSH's changed-host-key case).
+    /// The trust gate for the relay WE reserve with. Configuring a relay's address is not the same as trusting
+    /// whoever answers there, so the first time — and any time the relay at that address presents a different key —
+    /// the user is shown its fingerprint and asked, exactly as when connecting through someone else's relay. An
+    /// approved key is remembered against the address and used silently from then on.
     /// </summary>
     private async Task<bool> ApproveOwnRelayAsync(Beacon relay, Sigil relaySigil)
     {
         var name = $"{relay.Host}:{relay.Port}";
-        switch (_knownRelays.Evaluate(relaySigil, name))
-        {
-            case RelayTrust.Known:
-                return true;
-            case RelayTrust.NameConflict:
-                Status?.Invoke($"⚠ Relay {name} is presenting a DIFFERENT key than before ({RelayFingerprint(relaySigil)}). Not using it.");
-                return false;
-            default:
-                _knownRelays.Approve(relaySigil, name, DateTimeOffset.UtcNow);
-                await SaveKnownRelaysAsync().ConfigureAwait(false);
-                Status?.Invoke($"Using relay {name} — fingerprint {RelayFingerprint(relaySigil)}.");
-                return true;
-        }
+        var verdict = _knownRelays.Evaluate(relaySigil, name);
+        if (verdict == RelayTrust.Known)
+            return true; // already approved for this address — no prompt
+
+        var approved = RelayApprovalRequested is not null
+            && await RelayApprovalRequested(new RelayApprovalRequest(RelayFingerprint(relaySigil), verdict, ReserveAt: name)).ConfigureAwait(false);
+        if (!approved)
+            return false;
+
+        // Accepting a changed key replaces the old one: the address now belongs to this key.
+        foreach (var stale in _knownRelays.All().Where(r => r.Name == name && r.Sigil != relaySigil))
+            _knownRelays.Remove(stale.Sigil);
+        _knownRelays.Approve(relaySigil, name, DateTimeOffset.UtcNow);
+        await SaveKnownRelaysAsync().ConfigureAwait(false);
+        return true;
     }
 
     private async Task SaveKnownRelaysAsync()

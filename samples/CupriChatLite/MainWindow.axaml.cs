@@ -264,6 +264,25 @@ public partial class MainWindow : Window
     private async Task<bool> ConfirmRelayAsync(RelayApprovalRequest req)
     {
         var changed = req.Verdict == RelayTrust.NameConflict;
+        if (req.ReserveAt is { } address)
+        {
+            // Our own relay: we are about to park ourselves there so that others can reach us.
+            var reserveBody =
+                (changed
+                    ? $"The relay at {address} is presenting a DIFFERENT key than the one you approved before — this could be an impersonation. Only continue if you understand why it changed.\n\n"
+                    : $"This app is set to be reachable through the relay at {address}, so people can connect to you even though you're behind a router.\n\n")
+                + "What the relay does — and doesn't:\n"
+                + "• It only introduces a peer to you, then drops out; your chat is direct, peer-to-peer.\n"
+                + "• It can see your IP address, and the IP address of anyone who asks to reach you. It is NOT told who you are, and it cannot read your messages or impersonate you.\n\n"
+                + "Relay fingerprint (compare it out-of-band if you can):\n" + req.Fingerprint + "\n\n"
+                + "Trust this relay and become reachable through it?";
+            return await ConfirmAsync(
+                changed ? "⚠ Relay key changed" : "Use this relay?",
+                reserveBody,
+                ok: changed ? "Use anyway" : "Trust & use",
+                cancel: "Don't use");
+        }
+
         var body =
             (changed
                 ? "A relay is presenting a DIFFERENT key than one you approved before — this could be an impersonation. Only continue if you understand why it changed.\n\n"
