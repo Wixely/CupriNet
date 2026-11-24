@@ -4,7 +4,8 @@
 end‑to‑end‑encrypted connection, brokered by a mutually‑reachable public relay — without the relay ever
 carrying channel content.** It is CupriNet's answer to "D is behind a home router; how does E connect to D?"
 
-> Status: design (planned). This elaborates the one‑line Ferryman item in the [roadmap](../ROADMAP.md). It is
+> Status: implemented (see *Implementation status* below; the wire format is in
+> [spec/11-traversal.md](../spec/11-traversal.md) §11.5). This elaborates the one‑line Ferryman item in the [roadmap](../ROADMAP.md). It is
 > the same pattern as **libp2p circuit‑relay‑v2 + DCUtR** and **WebRTC ICE/STUN**, adapted to CupriNet's
 > direct‑only invariant and identity model.
 
@@ -136,9 +137,14 @@ connection metadata to** — a deliberate, low‑stakes, one‑time choice per r
 **Implemented & tested** (`CupriNode.Ferryman.cs`, `FerrymanProtocol.cs`, `KnownRelays.cs`, CupriChatLite, Lodestar):
 the relay/reserve/rendezvous protocol, the ephemeral-identity requester flow, the direct Sigil-pinned pairing,
 the `KnownRelays` TOFU store + CupriChatLite confirm-and-explain dialog, and Lodestar-as-Ferryman by default.
-**Reservations are authenticated** — the target signs the reservation with its Seal and the relay verifies the
-signature *and* that `handle == hash(Sigil)`, so a handle (a hash of a public Sigil) **cannot be squatted or
-hijacked**. NOTIFY pushes to a reserved target are serialized (a per-reservation gate), and a global
+**Reservations are authenticated without naming the target** — the target makes a **rendezvous key** for each
+relay, reserves under `handle == hash(rendezvous key)` and signs the reservation with that key, so a handle
+**cannot be squatted or hijacked** and the relay never sees the target's Seal or Sigil (the *Metadata
+minimisation* decision below). The signature covers the Noise handshake hash of the relay connection, so a
+reservation **cannot be replayed** on another. Because the handle no longer follows from the Sigil, the target's
+link carries it in a **relay-route block** (the `Brokered` beacon above, realised as a block on the Intonation:
+relay Sigil, address, handle) — which also lets the requester be asked about the relay **before** connecting to it,
+and pin it. NOTIFY pushes to a reserved target are serialized (a per-reservation gate), and a global
 concurrent-session cap Wards the relay.
 
 **Deferred hardening** (tracked; none are security-critical — the relay still can't read content or impersonate):
@@ -147,8 +153,10 @@ concurrent-session cap Wards the relay.
 - **Per-source-IP / per-subnet caps** and a **Tribute (PoW)** on `RENDEZVOUS` — beyond the global session cap.
 - **Fresh socket per incoming** on the target so it can serve concurrent requesters (v1 handles one per socket,
   then re-reserves).
-- **Rotating handles** — the handle is currently a static (authenticated) hash; a passive relay can de-blind it
-  by precomputing hashes of known Sigils, so blinding is weak. A rotating/relay-blinded handle would restore it.
+- **Rotating handles** — the handle is now per-relay and unlinkable to the Sigil, but stable over time at one
+  relay (so links already handed out keep working). Rotation would need a way to refresh the links that carry it.
+- **Routes for stored contacts** — a saved contact keeps beacons but no relay route, so reconnecting through a
+  relay needs a fresh link.
 - **Candidate hygiene** — filter loopback/RFC1918/unspecified candidates signaled via a relay, and address-family
   mismatches, to avoid reflected-punch noise and private-IP disclosure.
 - **Name-based changed-key** warning is inert until relays carry names (Phase 3); by raw Sigil a changed key is

@@ -109,14 +109,34 @@ Roles:
 - **D** is the target. It holds a reservation at the relay.
 - **E** is the requester. It wants to reach D.
 
-Both D and E connect to the relay with a **throwaway** identity, run a normal Conjunction, and send session kind `5`
-(07 §7.1). All messages are on stream 6.
+The relay learns both peers' addresses and that they were introduced. It learns **neither peer's Sigil**: both
+connect with a throwaway identity, E names D only by a handle, and D proves it owns that handle with a key made for
+this relay alone.
 
-### 11.5.1 Messages
+Both D and E run a normal Conjunction with the relay and send session kind `5` (07 §7.1). All messages are on
+stream 6.
 
-| Type | Name | Direction | Body after the type byte |
+### 11.5.1 Rendezvous key and handle
+
+For each relay it reserves with, D holds an Ed25519 **rendezvous key pair**. It is unrelated to D's Seal, and D
+MUST use a different one for each relay, so that two relays cannot link their reservations. D SHOULD keep it across
+restarts, so that links already handed out stay usable.
+
+```
+handle = SHA-256("cuprinet/ferryman/handle/v2" ‖ rendezvous_public_key)[0..16]      ; label raw ASCII
+```
+
+E cannot compute the handle. It learns it, with the relay's Sigil and address, from the relay-route block of D's
+Intonation (06 §6.4.4).
+
+### 11.5.2 Messages
+
+Every message begins `u8 type ‖ u8 version`, where `version` is the CupriMark `ferryman` ordinal (currently 1). A
+receiver MUST ignore a message whose version it does not accept.
+
+| Type | Name | Direction | Body after the version byte |
 |---|---|---|---|
-| 1 | RESERVE | D → relay | `bytes<len>` handle (16) ‖ candidates ‖ `bytes<len>` D's Seal public key ‖ `bytes<len>` signature |
+| 1 | RESERVE | D → relay | `bytes<len>` handle (16) ‖ candidates ‖ `bytes<len>` rendezvous public key ‖ `bytes<len>` signature |
 | 2 | RESERVED | relay → D | `u8` status (`0` Ok, `1` NotReserved) |
 | 3 | RENDEZVOUS | E → relay | `bytes<len>` handle (16) ‖ candidates |
 | 4 | OFFER | relay → E | `u8` status ‖ `bytes<len>` nonce (16) ‖ D's candidates |
@@ -126,41 +146,50 @@ A candidate list is `varuint n` (≤ 8), then `n ×` (`bytes<len>` address of 4 
 1–65,535).
 
 ```
-handle         = SHA-256("cuprinet/ferryman/handle/v1" ‖ D_sigil)[0..16]      ; label raw ASCII
-signed_subject = string("cuprinet/ferryman/reserve/v1") ‖ bytes(handle) ‖ candidates
-signature      = Ed25519(D_seal, signed_subject)
+signed_subject = bytes("cuprinet/ferryman/reserve/v2") ‖ bytes(handshake_hash) ‖ bytes(handle) ‖ candidates
+signature      = Ed25519(rendezvous_private_key, signed_subject)
 ```
 
-### 11.5.2 Flow
+`handshake_hash` is the Noise handshake hash of the D↔relay connection the RESERVE is sent on.
 
-1. D sends RESERVE. The relay checks the signature and that `handle` was derived from the supplied key. It stores the
-   reservation and replies RESERVED(Ok). The reservation lives as long as D's connection.
-2. E computes `handle` from D's Sigil and sends RENDEZVOUS.
-3. The relay generates a random 16-byte nonce, sends NOTIFY(nonce, E's candidates) to D, and replies OFFER(Ok, nonce,
+### 11.5.3 Flow
+
+1. D connects to the relay. An application SHOULD let the user approve the relay, identified by its
+   Noise-authenticated Sigil, before D reserves.
+2. D sends RESERVE. The relay MUST accept it only if the signature verifies under the supplied rendezvous key over
+   **this connection's** handshake hash, and `handle` is the hash of that key. It then stores the reservation and
+   replies RESERVED(Ok); otherwise RESERVED(NotReserved). The reservation lives as long as D's connection.
+3. E reads a relay route from D's Intonation. An application SHOULD ask the user to approve the relay named in the
+   route **before E connects to it**, and remember approvals trust-on-first-use (TOFU).
+4. E connects to the relay, pinned to the route's relay Sigil (04 §4.3.4, check 6), and sends RENDEZVOUS with the
+   route's handle.
+5. The relay generates a random 16-byte nonce, sends NOTIFY(nonce, E's candidates) to D, and replies OFFER(Ok, nonce,
    D's candidates) to E. With no reservation, the relay replies OFFER(NotReserved, zeros, []).
-4. D and E hole-punch (§11.4) with `sessionId = nonce`. E then runs the Conjunction **pinned to D's Sigil**.
+6. D and E hole-punch (§11.4) with `sessionId = nonce`. E then runs the Conjunction **pinned to D's Sigil**.
 
-Before E sends RENDEZVOUS, an application SHOULD ask the user to approve the relay. It identifies the relay by its
-Noise-authenticated Sigil and remembers approvals trust-on-first-use (TOFU).
+Because the reservation signature covers the handshake hash, a RESERVE observed on one connection cannot be used on
+another.
 
-*Reference:* `src/CupriNet.Hosting/FerrymanProtocol.cs:19-205`, `src/CupriNet.Hosting/CupriNode.Ferryman.cs:30-273`.
+*Reference:* `src/CupriNet.Hosting/FerrymanProtocol.cs`, `src/CupriNet.Hosting/CupriNode.Ferryman.cs`.
 
-> **Open (OI-11.4) — privacy:** the code and docs say the relay never learns either Sigil. That holds for E, but D's
-> RESERVE carries D's real Seal key. The handle is static rather than blinded or rotating.
+> **Resolved (OI-11.4):** D used to sign its reservation with its Seal and send the public key, which told the relay
+> D's Sigil; the handle was a plain hash of the Sigil. D now reserves under a per-relay rendezvous key. The relay
+> still sees D's address, so if D also publishes that address in its PeerRecord the relay can match the two.
 >
-> **Open (OI-11.5) — replay:** the reservation signature has no timestamp, relay binding or session binding, so any
-> relay operator can replay a captured RESERVE to any relay.
+> **Resolved (OI-11.5):** the reservation signature covered nothing about the connection, so a relay that had seen a
+> RESERVE could replay it at another. It now covers the handshake hash.
 >
-> **Open (OI-11.6):**
->
-> - The relay has no deadline for a first frame or for idle reservations, and no per-source limits or Tribute.
-> - The subnet fence is not applied to brokered candidates or to the punched Vessel.
-> - Ferryman has no CupriMark version.
-> - [design/ferryman.md](../design/ferryman.md) describes different message names, a Brokered beacon, a capability
->   flag, PoW and a Tor fallback; none of these are implemented.
+> **Open (OI-11.6), partly resolved:** Ferryman now has a CupriMark version, and the punched Vessel is subject to the
+> subnet fence. Still open: the relay has no deadline for a first frame or for idle reservations, and no per-source
+> limits or Tribute; brokered candidates are not filtered (loopback is always sent).
+> [design/ferryman.md](../design/ferryman.md) still describes a capability flag, PoW and a Tor fallback that are not
+> implemented.
 >
 > **Open (OI-11.7):** the TOFU fingerprint the reference app shows is grouped hex, while the docs say Bech32
 > `cupri1…`. Pick one for user-facing consistency.
+>
+> **Open (OI-11.12):** a stored contact (KnownPeer) keeps beacons but no relay route, so reconnecting to a peer
+> through its relay needs a fresh link.
 
 ## 11.6 Tor
 

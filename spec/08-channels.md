@@ -68,7 +68,7 @@ that both peers know the same Watchword and derives a session key. It is **not**
 |---|---|---|
 | type | `u8` | `1` |
 | envelope | `u8` | `1`: the message format, not the CupriMark ordinal |
-| min | `varuint` | `consecration` range, ≤ 65,535 |
+| min | `varuint` | `consecration` range (currently `[2, 2]`), ≤ 65,535 |
 | max | `varuint` | ≤ 65,535 |
 | epoch | `u64` | `floor(unix_seconds / 600)` |
 | nonce | `bytes<len>` | 16 random bytes |
@@ -187,19 +187,21 @@ The reference implementation detects schisms but does not resolve them.
 This exchange runs only when the channel is Sanction or Sealed and both sides are configured for it.
 
 ```
-commitment = SHA-256( string("cuprinet/admission/v1") ‖ bytes(channelId) ‖ bytes(session_key) )
-claim      = bytes(persona_public_key) ‖ u8 tag ‖ [tag = 1: bytes(investiture)] ‖ bytes(Ed25519(persona, commitment))
+commitment(role) = SHA-256( string("cuprinet/admission/v2") ‖ string(role) ‖ bytes(channelId) ‖ bytes(session_key) )
+claim            = bytes(persona_public_key) ‖ u8 tag ‖ [tag = 1: bytes(investiture)]
+                   ‖ bytes(Ed25519(persona, commitment(own role)))
 ```
 
-`tag` is `0` when the persona is the owner, and `1` when an Investiture follows. The initiator sends its claim first.
-Each side verifies the other's claim against the descriptor.
+`role` is `"initiator"` or `"responder"`: the signer's role in the Consecration. `tag` is `0` when the persona is the
+owner, and `1` when an Investiture follows. The initiator sends its claim first.
 
-> **Open (OI-08.8) — security, mitigated:** both sides sign the *same* commitment, and the responder receives first,
-> so a responder that knows the Watchword but holds no Investiture could echo the initiator's own claim back and be
-> admitted. The reference implementation now refuses a claim that names the verifier's own persona, which blocks the
-> reflection. As a side effect two devices sharing one persona cannot pair on a gated channel. The proper fix is
-> planned for `consecration` v2: include the role (`"initiator"` or `"responder"`) in the commitment. *Reference:*
-> `src/CupriNet.Hosting/CupriNode.cs` (`VerifyAdmissionClaim`).
+Each side signs the commitment for **its own** role, and MUST verify the peer's signature against the commitment for
+the **other** role before checking the claim against the descriptor. A claim sent back to the side that made it
+therefore does not verify. Two peers MAY present the same persona (one member on two devices).
+
+> **Resolved (OI-08.8):** in Consecration v1 both sides signed one shared commitment and the responder received first,
+> so a responder that knew the Watchword but held no Investiture could echo the initiator's own claim back and be
+> admitted. Consecration v2 puts the signer's role in the commitment.
 >
 > **Open (OI-08.9):** whether admission runs is a local setting that is not signalled. A mismatched pair deadlocks or
 > fails with a stream error.

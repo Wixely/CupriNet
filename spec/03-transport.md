@@ -143,23 +143,32 @@ A listener MUST NOT create state for an unknown source unless the datagram is a 
 
 ## 3.5 Noise transport framing
 
-After the handshake (04), each frame's payload is replaced by:
+After the handshake (04), the stream id is sealed together with the payload. Every frame is sent on **stream 0** of
+the underlying Vessel (the *carrier*), and its payload is:
 
 ```
-payload' = ChaCha20-Poly1305(key = k_send, nonce = 0x00000000 ‖ u64le(n), ad = "", plaintext = payload)
+sealed = ChaCha20-Poly1305(key = k_send, nonce = 0x00000000 ‖ u64le(n), ad = "",
+                           plaintext = varuint(streamId) ‖ payload)
 ```
 
 `n` is a single counter for each direction across all streams. It starts at 0 after Split, increments by one per
-frame, and is never sent. The **stream id stays in cleartext** outside the ciphertext.
+frame, and is never sent.
+
+The real stream id is therefore both authenticated and hidden: it cannot be changed on the way without the frame
+failing to open, and an observer sees only stream 0 and the frame's length.
 
 - Senders MUST serialise frames so that nonce order matches wire order.
-- A receiver MUST treat an authentication failure as fatal to the Vessel.
+- A receiver MUST reject a frame that arrives on any outer stream other than 0.
+- A receiver MUST reject a sealed frame whose plaintext does not begin with a `varuint` of at most 65,535.
+- A receiver MUST treat any of these failures, and any authentication failure, as fatal to the Vessel.
 - An implementation MUST NOT use nonce `2^64 − 1`. There is no rekey; the Vessel must be replaced first.
 
-*Reference:* `src/CupriNet.Conjunction/NoiseVessel.cs:29-49`, `src/CupriNet.Noise/NoiseStates.cs:36-60`.
+This applies from the first frame after Split, including the two identity-binding messages.
 
-> **Open (OI-03.6):** the stream id is **not authenticated** because the AD is empty. An on-path attacker can change
-> a frame's stream id undetected. Proposal: `ad = varuint(streamId)` in the next Conjunction version.
+*Reference:* `src/CupriNet.Conjunction/NoiseVessel.cs`, `src/CupriNet.Noise/NoiseStates.cs:36-60`.
+
+> **Resolved (OI-03.6):** in Conjunction v1 the stream id travelled outside the ciphertext with empty AD, so it could
+> be rewritten on-path and it revealed the session kind. Conjunction v2 seals it with the payload.
 >
 > **Open (OI-03.7):** transport messages may be up to 16 MiB. That deviates from the Noise specification's 65,535-byte
 > limit (Noise rev. 34 §3). State the deviation as normative, or fragment.

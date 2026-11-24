@@ -28,6 +28,12 @@ definitions).
 | `oracle` | a Shrine's request/response site rite frame (`OracleCodec`) | accept |
 | `auspice` | a Shrine's live-feed site rite frame (`AuspiceCodec`) | accept |
 | `relic` | a Shrine's chunked bulk-content site rite frame (`RelicCodec`) | accept |
+| `conduit` | a Shrine's raw duplex site rite frame, on the Pilgrimage path (`ConduitCodec`) | accept |
+| `ferryman` | brokered hole-punch signalling messages (`FerrymanProtocol`) | accept |
+| `relay-route` | Ferryman relay routes on an Intonation (`RelayRouteCodec`) | accept |
+
+`conjunction` and `consecration` are at **v2**: in each, v1 is *buried* and v2 is a *security* bump, so a v1 peer is
+refused as too old rather than paired down. Every other component is at v1.
 
 > **Why the rites are covered individually now.** Epistle/Conduit/Reliquary carry no component of their own: they
 > inherited compatibility from the handshake, because every node speaking a given `conjunction` spoke all of them —

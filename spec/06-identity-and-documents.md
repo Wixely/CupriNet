@@ -49,8 +49,9 @@ document:
 | Intonation | 32 |
 | Decree | 8 |
 
-Dial order is Host, then Mapped, then Manual, then Onion (via Tor) as a fallback. Relay beacons are not dialled
-directly; see 11.
+Dial order is Host, then Mapped, then Manual, then Onion (via Tor) as a fallback. Kind `3` (Relay) is no longer
+produced: a node reachable through a Ferryman publishes a relay route in its Intonation instead (§6.4.4). A receiver
+MUST NOT dial a Relay beacon.
 
 For Onion beacons, the reference node always listens on virtual port **43820**. Today the port in the beacon is
 ignored when dialling from an Intonation and honoured when dialling from a PeerRecord.
@@ -96,11 +97,12 @@ The body is wrapped in the §6.2 envelope and signed by the inviter's Seal.
 | 9 | petition | `u8 flag` (0 or 1); if 1, `bytes<len>` | any other flag value is malformed |
 | 10 | moniker | `string` | *optional trailer*: display name |
 | 11 | webrtc | `u8` lead byte | *optional trailer*: `0x00` = absent; otherwise the WebRTC endpoint block (§6.4.3) starting with its version |
-| 12 | shrine | Shrine address block | *optional trailer*; see 10 §10.8 |
+| 12 | shrine | `u8` lead byte | *optional trailer*: `0x00` = absent; otherwise the Shrine address block (10 §10.8) starting with its version |
+| 13 | relayRoutes | relay-route block | *optional trailer*; see §6.4.4 |
 
-**Trailer rule.** Fields 10–12 are positional and each one is present only if bytes remain. To include a later
-field, an encoder MUST include every earlier trailer field: an empty moniker, and `0x00` for an absent WebRTC block.
-With no trailer fields, the body ends after field 9.
+**Trailer rule.** Fields 10–13 are positional and each one is present only if bytes remain. To include a later
+field, an encoder MUST include every earlier trailer field: an empty moniker, and `0x00` for an absent WebRTC or
+Shrine block. With no trailer fields, the body ends after field 9.
 
 **Moniker normalisation** (applied before signing):
 
@@ -138,7 +140,31 @@ The node's address comes from the Intonation's beacons. How a browser uses this 
 
 *Reference:* `src/CupriNet.Core/WebRtcEndpoint.cs:36-94`.
 
-### 6.4.4 Validation
+### 6.4.4 Relay-route block
+
+Lists the Ferryman relays through which the inviter can be reached when none of its beacons can be dialled
+([11 §11.5](11-traversal.md)).
+
+| Field | Type | Notes |
+|---|---|---|
+| version | `u8` | CupriMark `relay-route` (currently 1) |
+| count | `varuint` | 1–4 |
+| per route: relaySigil | `bytes<len>` | 32 bytes: the relay's Sigil |
+| per route: host | `string` | 1–255 bytes: the relay's address |
+| per route: port | `varuint` | 1–65,535 |
+| per route: handle | `bytes<len>` | 16 bytes: what to ask the relay for |
+
+The handle is the hash of a rendezvous key the inviter made for that relay. It cannot be derived from the inviter's
+Sigil, which is why it is carried here. Because the Intonation is signed by the inviter's Seal, a holder of the link
+knows the handle is the inviter's.
+
+A relay route MUST NOT appear in a PeerRecord or a Decree: both are public, and publishing a handle beside the Sigil
+it belongs to would let a relay link the two. A link restricted to onion beacons MUST NOT carry one either, since a
+route ends in a clearnet hole punch.
+
+*Reference:* `src/CupriNet.Core/RelayRoute.cs`.
+
+### 6.4.5 Validation
 
 A receiver MUST reject the Intonation unless, in order:
 

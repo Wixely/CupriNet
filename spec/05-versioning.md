@@ -63,16 +63,22 @@ OrdinalSet = 0x00                                        ; empty
            | 0x02 ‖ varuint(count) ‖ count × u16          ; sparse
 ```
 
-Worked value for Consecration v1 (both sides advertise `[1, 1]`, selected 1):
-`SHA-256 = dce3c409148477c53465b20ea995044816736ddaebde8d82b437c031dfe34b35`. *(To be confirmed by a generated test
-vector.)*
+Worked value for Consecration v2 (both sides advertise `[2, 2]`, selected 2):
+
+```
+binding = 18 "cuprimark/negotiation/v1" 01 0c "consecration" 01 0002 0002 01 0002 0002 0002
+SHA-256 = 9fe99fdf492f276fd40dfc05aad62f5a387b54829e91641cfd2d123ee350a3d6
+```
+
+*(To be confirmed by a generated test vector.)*
 
 - **Toll:** negotiated in cleartext; see OI-04.3.
 
 ## 5.4 Component registry
 
-Catalogue `"cuprinet"`. Every component is currently at ordinal 1 (Functionality, Active), so every floor is 0 and
-every range is `[1, 1]`.
+Catalogue `"cuprinet"`. `conjunction` and `consecration` are at ordinal 2: in each, v1 is **Buried** and v2 is a
+**Security** bump, so the advertised range is `[2, 2]`, the floor is 2, and a v1 peer is refused as `PeerTooOld`.
+Every other component is at ordinal 1 (Functionality, Active), with floor 0 and range `[1, 1]`.
 
 | Component | Pattern | Wire width | Spec |
 |---|---|---|---|
@@ -90,6 +96,8 @@ every range is `[1, 1]`.
 | `auspice` | accepted | u8 | [10 §10.5](10-shrines.md) |
 | `relic` | accepted | u8 | [10 §10.6](10-shrines.md) |
 | `conduit` | accepted (Pilgrimage path only) | u8 | [10 §10.7](10-shrines.md) |
+| `ferryman` | accepted | u8 | [11 §11.5](11-traversal.md) |
+| `relay-route` | accepted | u8 | [06 §6.4.4](06-identity-and-documents.md) |
 | `known-peer` | accepted | u8 | local storage only; not on the wire |
 
 *Reference:* `src/CupriNet.Marks/CupriMarks.cs:34-200`.

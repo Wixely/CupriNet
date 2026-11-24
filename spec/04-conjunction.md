@@ -135,7 +135,7 @@ No message follows the two bindings.
 
 | Field | Type | Notes |
 |---|---|---|
-| bindingVersion | `u8` | `0x01`. This is the message format, not the CupriMark ordinal |
+| bindingVersion | `u8` | `0x02`. This is the message format, not the CupriMark ordinal. `0x01` is the retired Conjunction v1 format and MUST be rejected |
 | network | `string` | the overlay name (Concordium). Peers MUST agree on it exactly |
 | sealPublicKey | `bytes<len>` | Ed25519 public key, 32 bytes |
 | minOrdinal | `varuint` | lowest Conjunction version supported, ≤ 65,535 |
@@ -144,9 +144,12 @@ No message follows the two bindings.
 | targetTag | `bytes<len>` | empty, or 32 bytes on a Pilgrimage (10 §10.2.3). A receiver MUST treat a missing field as empty |
 
 ```
-signed_message = handshake_hash (32) ‖ u16(minOrdinal) ‖ u16(maxOrdinal)       ; 36 bytes
+signed_message = "cuprinet/conjunction/binding/v2" ‖ handshake_hash (32) ‖ u16(minOrdinal) ‖ u16(maxOrdinal)
 signature      = Ed25519.Sign(seal_private_key, signed_message)
 ```
+
+The label is 31 bytes of raw ASCII with no length prefix, so the signed message is 67 bytes. It keeps a binding
+signature from ever being valid as anything else the Seal signs.
 
 The signature does not cover `network` or `targetTag`. The Noise channel protects both, and `h` is unique to the
 session.
@@ -178,7 +181,8 @@ The peer's identity is `SHA-256(sealPublicKey)`.
 
 *Reference:* `src/CupriNet.Conjunction/NoiseConjunction.cs:31-264`.
 
-> **Open (OI-04.5):** the signed message has no domain-separation label (see OI-02.3).
+> **Resolved (OI-04.5):** the signed message now begins with a domain-separation label (binding format 2, Conjunction
+> v2).
 >
 > **Open (OI-04.6):** I reveals its long-term identity before authenticating R, and a resolving R sends its own
 > identity before verifying I's. For an ordinary pairing, the identity hiding XX normally provides is therefore lost.

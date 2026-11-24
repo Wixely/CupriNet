@@ -49,7 +49,7 @@ Every signature and KDF use is listed here. All strings are UTF-8 with no termin
 
 | Use | Construction | Defined in |
 |---|---|---|
-| Identity binding signature | Ed25519 over `h ‖ u16(min) ‖ u16(max)`. **No context string.** | [04 §4.4](04-conjunction.md) |
+| Identity binding signature | Ed25519 over `"cuprinet/conjunction/binding/v2" ‖ h ‖ u16(min) ‖ u16(max)`, label raw | [04 §4.3.2](04-conjunction.md) |
 | Shrine target tag | HKDF info `"cuprinet:shrine-target:v1"` | [10 §10.2.3](10-shrines.md) |
 | Rite author signature | Ed25519 over `SHA-256("cuprinet/rite/" ‖ domain ‖ 0x00 ‖ content)`; domain ∈ {`reliquary`, `conduit`} | [09](09-rites.md) |
 | CupriMark negotiation binding | `"cuprimark/negotiation/v1"` | [05](05-versioning.md) |
@@ -58,14 +58,14 @@ Every signature and KDF use is listed here. All strings are UTF-8 with no termin
 | Channel subkeys | HKDF info `cuprinet/arcanum/{ascendant,glyph,concord,veil}/v1` | [08 §8.2](08-channels.md) |
 | Glyph | HKDF info `cuprinet/arcanum/glyph-token/v1` | [08 §8.3](08-channels.md) |
 | Consecration | HKDF info `cuprinet/arcanum/consecration/{initiator,responder}/v1`, `cuprinet/arcanum/veil-session/v1` | [08 §8.4](08-channels.md) |
-| Admission commitment | `SHA-256(string("cuprinet/admission/v1") ‖ …)`, label length-prefixed | [08 §8.5.4](08-channels.md) |
-| Ferryman | handle `"cuprinet/ferryman/handle/v1"` (raw); reserve `string("cuprinet/ferryman/reserve/v1")` | [11 §11.5](11-traversal.md) |
+| Admission commitment | `SHA-256(string("cuprinet/admission/v2") ‖ string(role) ‖ …)`, label length-prefixed | [08 §8.5.4](08-channels.md) |
+| Ferryman | handle `"cuprinet/ferryman/handle/v2"` (raw), over a rendezvous key; reserve `bytes("cuprinet/ferryman/reserve/v2")`, signed by that key | [11 §11.5](11-traversal.md) |
 | Signed documents (Intonation, PeerRecord, Decree, LanPresence, ChannelDescriptor, Investiture, AscensionLink) | Ed25519 over the raw body. **No label.** | [06](06-identity-and-documents.md), [08](08-channels.md) |
 
-> **Open (OI-02.3):** the Seal key that signs the identity binding also signs Intonations, Decrees, LanPresence and
-> other documents, and the binding message has no context string. Cross-protocol signature reuse is prevented today
-> only because the formats happen to differ. Proposal: every Ed25519 signature input begins with a distinct
-> `"cuprinet/<use>/v<n>"` label.
+> **Open (OI-02.3), partly resolved:** the identity binding now signs a labelled context, and a Ferryman reservation
+> is signed by a rendezvous key rather than the Seal. The signed documents (Intonation, PeerRecord, Decree,
+> LanPresence, and the ownership documents) still sign a raw body with no label; they are kept apart only because
+> their formats differ. Proposal: every Ed25519 signature input begins with a distinct `"cuprinet/<use>/v<n>"` label.
 >
 > **Open (OI-02.4):** the labels mix styles (`cuprinet:shrine-target:v1` vs `cuprinet/rite/…`). Pick one style before
 > freeze.
