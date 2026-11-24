@@ -27,6 +27,7 @@ internal static class FerrymanProtocol
     public const byte MsgRendezvous = 3; // E -> relay : { handle, candidates }
     public const byte MsgOffer = 4;      // relay -> E : { status, nonce, candidates(of D) }
     public const byte MsgNotify = 5;     // relay -> D : { nonce, candidates(of E) } (pushed)
+    public const byte MsgKeepAlive = 6;  // D -> relay : { } — the reservation is still wanted
 
     public const byte StatusOk = 0;
     public const byte StatusNotReserved = 1;
@@ -108,6 +109,31 @@ internal static class FerrymanProtocol
         w.WriteBytes(nonce);
         WriteCandidates(w, requesterCandidates);
         return w.ToArray();
+    }
+
+    public static byte[] KeepAlive() => Begin(MsgKeepAlive).ToArray();
+
+    /// <summary>
+    /// The candidates out of <paramref name="candidates"/> a punch could ever reach: no unspecified, broadcast or
+    /// multicast address, no port 0, IPv4-mapped addresses unwrapped, duplicates dropped. Loopback and private
+    /// addresses stay — they are how two nodes on one host, or one LAN, find each other through a relay.
+    /// </summary>
+    public static List<IPEndPoint> Usable(IEnumerable<IPEndPoint> candidates)
+    {
+        var usable = new List<IPEndPoint>();
+        foreach (var candidate in candidates)
+        {
+            var address = candidate.Address.IsIPv4MappedToIPv6 ? candidate.Address.MapToIPv4() : candidate.Address;
+            if (candidate.Port is <= 0 or > 65535
+                || address.Equals(IPAddress.Any) || address.Equals(IPAddress.IPv6Any) || address.Equals(IPAddress.Broadcast)
+                || address.IsIPv6Multicast
+                || (address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork && address.GetAddressBytes()[0] is >= 224 and <= 239))
+                continue;
+            var endpoint = new IPEndPoint(address, candidate.Port);
+            if (!usable.Contains(endpoint))
+                usable.Add(endpoint);
+        }
+        return usable;
     }
 
     private static CodexWriter Begin(byte type)

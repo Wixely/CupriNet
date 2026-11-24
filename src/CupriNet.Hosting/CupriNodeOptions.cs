@@ -379,6 +379,28 @@ public sealed record CupriNodeOptions
 
     /// <summary>Max concurrent reservations this Ferryman will hold (a Ward against a reservation flood).</summary>
     public int MaxFerrymanReservations { get; init; } = 1024;
+
+    /// <summary>
+    /// Max concurrent Ferryman sessions (reservations and rendezvous together) this relay serves from one source
+    /// address — an IPv4 address, or an IPv6 /64. Callers are anonymous to a relay by design, so the address is the
+    /// only thing there is to budget by; without this one host could take every slot under the global cap.
+    /// </summary>
+    public int MaxFerrymanSessionsPerAddress { get; init; } = 16;
+
+    /// <summary>
+    /// How long this relay waits for a Ferryman caller's first message, and for a rendezvous to finish. A caller
+    /// that connects and says nothing is dropped when it elapses.
+    /// </summary>
+    public TimeSpan FerrymanRequestTimeout { get; init; } = TimeSpan.FromSeconds(10);
+
+    /// <summary>
+    /// How long this relay keeps a reservation that has gone silent. A target refreshes its reservation every
+    /// <see cref="FerrymanKeepAliveInterval"/>; one that stops is reaped when this elapses.
+    /// </summary>
+    public TimeSpan FerrymanReservationIdleTimeout { get; init; } = TimeSpan.FromSeconds(90);
+
+    /// <summary>How often this node, as a target, tells a relay its reservation is still wanted.</summary>
+    public TimeSpan FerrymanKeepAliveInterval { get; init; } = TimeSpan.FromSeconds(30);
 }
 
 /// <summary>Whether a node uses clearnet transports, or is strictly Tor-only for anonymity. See <see cref="CupriNodeOptions.Mode"/>.</summary>

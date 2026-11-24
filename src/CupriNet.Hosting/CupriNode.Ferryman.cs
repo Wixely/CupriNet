@@ -24,6 +24,7 @@ namespace CupriNet.Hosting;
 public sealed partial class CupriNode
 {
     private readonly ConcurrentDictionary<string, FerrymanReservation> _reservations = new();
+    private readonly Dictionary<string, int> _ferrymanSessionsBySource = [];
     private int _ferrymanSessions;
 
     private sealed record FerrymanReservation(IVessel Vessel, IReadOnlyList<IPEndPoint> Candidates, SemaphoreSlim SendGate);
@@ -42,10 +43,24 @@ public sealed partial class CupriNode
             return;
         }
 
+        // Per-source cap: the global cap alone lets one host take every slot.
+        var source = FerrymanSourceKey(vessel.RemoteEndPoint);
+        if (!TryEnterFerrymanSource(source))
+        {
+            Interlocked.Decrement(ref _ferrymanSessions);
+            await vessel.DisposeAsync().ConfigureAwait(false);
+            return;
+        }
+
         string? reservedKey = null;
         try
         {
-            var first = await vessel.ReceiveAsync(cancellationToken).ConfigureAwait(false);
+            // A caller gets a bounded time to say what it wants, and a rendezvous a bounded time to finish; only
+            // a confirmed reservation is held longer (below), and only while it keeps refreshing.
+            using var request = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            request.CancelAfter(_options.FerrymanRequestTimeout);
+
+            var first = await vessel.ReceiveAsync(request.Token).ConfigureAwait(false);
             if (first is null || first.Value.StreamId != OverlayControl.Stream || first.Value.Payload.Length == 0)
                 return;
             var payload = first.Value.Payload;
@@ -63,17 +78,23 @@ public sealed partial class CupriNode
                 if (!authentic
                     || (!_reservations.ContainsKey(reservedKey) && _reservations.Count >= _options.MaxFerrymanReservations))
                 {
-                    await vessel.SendAsync(OverlayControl.Stream, FerrymanProtocol.Reserved(FerrymanProtocol.StatusNotReserved), cancellationToken).ConfigureAwait(false);
+                    await vessel.SendAsync(OverlayControl.Stream, FerrymanProtocol.Reserved(FerrymanProtocol.StatusNotReserved), request.Token).ConfigureAwait(false);
                     reservedKey = null;
                     return;
                 }
                 // Only the key-holder can produce a valid RESERVE for this handle, so overwriting is safe (it's a refresh).
-                _reservations[reservedKey] = new FerrymanReservation(vessel, candidates, new SemaphoreSlim(1, 1));
-                await vessel.SendAsync(OverlayControl.Stream, FerrymanProtocol.Reserved(FerrymanProtocol.StatusOk), cancellationToken).ConfigureAwait(false);
+                // The signature covered the candidates as sent; what is kept to hand on is the usable subset.
+                _reservations[reservedKey] = new FerrymanReservation(vessel, FerrymanProtocol.Usable(candidates), new SemaphoreSlim(1, 1));
+                await vessel.SendAsync(OverlayControl.Stream, FerrymanProtocol.Reserved(FerrymanProtocol.StatusOk), request.Token).ConfigureAwait(false);
 
-                // Hold the session open: notifications are pushed on this vessel; it ends when the target disconnects.
-                while (await vessel.ReceiveAsync(cancellationToken).ConfigureAwait(false) is not null)
+                // Hold the session open: notifications are pushed on this vessel. It ends when the target
+                // disconnects, or when it has sent nothing — a KEEPALIVE is all it need send — for the idle timeout.
+                while (true)
                 {
+                    using var idle = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                    idle.CancelAfter(_options.FerrymanReservationIdleTimeout);
+                    if (await vessel.ReceiveAsync(idle.Token).ConfigureAwait(false) is null)
+                        break;
                 }
                 return;
             }
@@ -88,17 +109,17 @@ public sealed partial class CupriNode
                     // Push the requester's candidates to the parked target; serialize sends so concurrent rendezvous
                     // for one target can't interleave frames on its vessel. The relay only forwards signaling.
                     var pushed = false;
-                    await reservation.SendGate.WaitAsync(cancellationToken).ConfigureAwait(false);
-                    try { await reservation.Vessel.SendAsync(OverlayControl.Stream, FerrymanProtocol.Notify(nonce, requesterCandidates), cancellationToken).ConfigureAwait(false); pushed = true; }
+                    await reservation.SendGate.WaitAsync(request.Token).ConfigureAwait(false);
+                    try { await reservation.Vessel.SendAsync(OverlayControl.Stream, FerrymanProtocol.Notify(nonce, FerrymanProtocol.Usable(requesterCandidates)), request.Token).ConfigureAwait(false); pushed = true; }
                     catch { /* target vanished between lookup and push */ }
                     finally { reservation.SendGate.Release(); }
 
                     var status = pushed ? FerrymanProtocol.StatusOk : FerrymanProtocol.StatusNotReserved;
-                    await vessel.SendAsync(OverlayControl.Stream, FerrymanProtocol.Offer(status, nonce, pushed ? reservation.Candidates : []), cancellationToken).ConfigureAwait(false);
+                    await vessel.SendAsync(OverlayControl.Stream, FerrymanProtocol.Offer(status, nonce, pushed ? reservation.Candidates : []), request.Token).ConfigureAwait(false);
                 }
                 else
                 {
-                    await vessel.SendAsync(OverlayControl.Stream, FerrymanProtocol.Offer(FerrymanProtocol.StatusNotReserved, new byte[FerrymanProtocol.NonceSize], []), cancellationToken).ConfigureAwait(false);
+                    await vessel.SendAsync(OverlayControl.Stream, FerrymanProtocol.Offer(FerrymanProtocol.StatusNotReserved, new byte[FerrymanProtocol.NonceSize], []), request.Token).ConfigureAwait(false);
                 }
             }
         }
@@ -109,8 +130,47 @@ public sealed partial class CupriNode
             if (reservedKey is not null
                 && _reservations.TryGetValue(reservedKey, out var mine) && ReferenceEquals(mine.Vessel, vessel))
                 _reservations.TryRemove(new KeyValuePair<string, FerrymanReservation>(reservedKey, mine));
+            LeaveFerrymanSource(source);
             Interlocked.Decrement(ref _ferrymanSessions);
             await vessel.DisposeAsync().ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>What a relay budgets a caller by: its IPv4 address, or its IPv6 /64. Null when there is no address.</summary>
+    private static string? FerrymanSourceKey(EndPoint? remote)
+    {
+        if (remote is not IPEndPoint ip)
+            return null;
+        var address = ip.Address.IsIPv4MappedToIPv6 ? ip.Address.MapToIPv4() : ip.Address;
+        return address.AddressFamily == AddressFamily.InterNetworkV6
+            ? Convert.ToHexStringLower(address.GetAddressBytes().AsSpan(0, 8))
+            : address.ToString();
+    }
+
+    private bool TryEnterFerrymanSource(string? source)
+    {
+        if (source is null)
+            return true;
+        lock (_ferrymanSessionsBySource)
+        {
+            var held = _ferrymanSessionsBySource.GetValueOrDefault(source);
+            if (held >= Math.Max(1, _options.MaxFerrymanSessionsPerAddress))
+                return false;
+            _ferrymanSessionsBySource[source] = held + 1;
+            return true;
+        }
+    }
+
+    private void LeaveFerrymanSource(string? source)
+    {
+        if (source is null)
+            return;
+        lock (_ferrymanSessionsBySource)
+        {
+            if (_ferrymanSessionsBySource.GetValueOrDefault(source) <= 1)
+                _ferrymanSessionsBySource.Remove(source);
+            else
+                _ferrymanSessionsBySource[source]--;
         }
     }
 
@@ -219,21 +279,32 @@ public sealed partial class CupriNode
 
                 PublishRoute(session, new RelayRoute(relaySigil, session.Relay.Host, session.Relay.Port, handle));
 
-                while (!cancellationToken.IsCancellationRequested)
+                // The relay reaps a reservation that goes silent, so say we are still here while we wait.
+                using var reserved = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                var keepAlive = KeepReservationAliveAsync(vessel, reserved.Token);
+                try
                 {
-                    var frame = await vessel.ReceiveAsync(cancellationToken).ConfigureAwait(false);
-                    if (frame is null)
-                        break;
-                    if (frame.Value.StreamId == OverlayControl.Stream
-                        && FerrymanProtocol.TryReadNotify(frame.Value.Payload, out var nonce, out var requesterCandidates))
+                    while (!cancellationToken.IsCancellationRequested)
                     {
-                        var socket = punch;
-                        handedOff = true; // the punch task now owns the socket
-                        _ = Task.Run(() => AcceptBrokeredAsync(socket, nonce, requesterCandidates, cancellationToken), cancellationToken);
-                        return true; // one brokered connection per socket; the outer loop re-reserves with a fresh one
+                        var frame = await vessel.ReceiveAsync(cancellationToken).ConfigureAwait(false);
+                        if (frame is null)
+                            break;
+                        if (frame.Value.StreamId == OverlayControl.Stream
+                            && FerrymanProtocol.TryReadNotify(frame.Value.Payload, out var nonce, out var requesterCandidates))
+                        {
+                            var socket = punch;
+                            handedOff = true; // the punch task now owns the socket
+                            _ = Task.Run(() => AcceptBrokeredAsync(socket, nonce, requesterCandidates, cancellationToken), cancellationToken);
+                            return true; // one brokered connection per socket; the outer loop re-reserves with a fresh one
+                        }
                     }
+                    return true;
                 }
-                return true;
+                finally
+                {
+                    await reserved.CancelAsync().ConfigureAwait(false);
+                    await keepAlive.ConfigureAwait(false);
+                }
             }
             finally { await vessel.DisposeAsync().ConfigureAwait(false); }
         }
@@ -242,6 +313,20 @@ public sealed partial class CupriNode
             if (!handedOff)
                 punch.Dispose();
         }
+    }
+
+    /// <summary>Sends a KEEPALIVE on a reserved vessel every <see cref="CupriNodeOptions.FerrymanKeepAliveInterval"/> until cancelled.</summary>
+    private async Task KeepReservationAliveAsync(NoiseVessel vessel, CancellationToken cancellationToken)
+    {
+        try
+        {
+            while (true)
+            {
+                await Task.Delay(_options.FerrymanKeepAliveInterval, cancellationToken).ConfigureAwait(false);
+                await vessel.SendAsync(OverlayControl.Stream, FerrymanProtocol.KeepAlive(), cancellationToken).ConfigureAwait(false);
+            }
+        }
+        catch { /* cancelled, or the relay is gone — the receive loop notices and the caller re-reserves */ }
     }
 
     /// <summary>Records a confirmed route so links carry it, announcing it the first time (or when it changes).</summary>
@@ -299,8 +384,14 @@ public sealed partial class CupriNode
     {
         try
         {
+            var reachable = PunchableCandidates(socket, requesterCandidates);
+            if (reachable.Count == 0)
+            {
+                socket.Dispose(); // nothing the relay passed on is an address this socket could reach
+                return;
+            }
             var vessel = await NatTraversal.PunchAndConnectAsync(
-                nonce, socket, requesterCandidates, TimeSpan.FromMilliseconds(50), TimeSpan.FromSeconds(15), cancellationToken).ConfigureAwait(false);
+                nonce, socket, reachable, TimeSpan.FromMilliseconds(50), TimeSpan.FromSeconds(15), cancellationToken).ConfigureAwait(false);
             var peer = await AcceptChannelOverVesselAsync(vessel, DateTimeOffset.UtcNow, cancellationToken).ConfigureAwait(false);
             if (!_accepted.Writer.TryWrite(peer))
                 await peer.DisposeAsync().ConfigureAwait(false);
@@ -344,8 +435,11 @@ public sealed partial class CupriNode
                     || status != FerrymanProtocol.StatusOk)
                     throw new CupriNodeException("The target is not reachable through this relay (no reservation).");
 
+                var reachable = PunchableCandidates(punch, targetCandidates);
+                if (reachable.Count == 0)
+                    throw new CupriNodeException("The relay offered no address for the target that this node could reach.");
                 var punched = await NatTraversal.PunchAndConnectAsync(
-                    nonce, punch, targetCandidates, TimeSpan.FromMilliseconds(50), TimeSpan.FromSeconds(15), cancellationToken).ConfigureAwait(false);
+                    nonce, punch, reachable, TimeSpan.FromMilliseconds(50), TimeSpan.FromSeconds(15), cancellationToken).ConfigureAwait(false);
                 consumed = true; // the socket is now the data path
                 return await ConjoinOverVesselAsync(punched, targetSigil, now, cancellationToken).ConfigureAwait(false);
             }
@@ -383,6 +477,14 @@ public sealed partial class CupriNode
             throw;
         }
     }
+
+    /// <summary>
+    /// The candidates a relay passed on that <paramref name="punch"/> could actually reach: the usable ones (see
+    /// <see cref="FerrymanProtocol.Usable"/>) in the socket's own address family. A relay is not trusted to have
+    /// filtered them, so this is done again here.
+    /// </summary>
+    private static List<IPEndPoint> PunchableCandidates(Socket punch, IReadOnlyList<IPEndPoint> candidates)
+        => FerrymanProtocol.Usable(candidates).Where(c => c.AddressFamily == punch.AddressFamily).ToList();
 
     /// <summary>Punch candidates for a bound UDP socket: loopback (same-host) plus this node's reachable IP beacons, at the punch port.</summary>
     private List<IPEndPoint> PunchCandidatesFor(int punchPort)
