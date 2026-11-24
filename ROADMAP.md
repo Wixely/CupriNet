@@ -157,7 +157,9 @@ browser piece is that page — the **Nodestar** product, a separate repo — tra
 
 - **External security audit** of the hand-rolled Noise usage and the crypto seam before any production use.
 - **Freeze the wire format and public API** — lean on CupriMark's security-floor / buried lifecycle so old
-  versions retire cleanly rather than partitioning.
+  versions retire cleanly rather than partitioning. The object being frozen is the protocol specification in
+  [spec/](spec/README.md) (draft); every section must reach *Frozen* and every [open issue](spec/open-issues.md)
+  must be closed first.
 - **Broaden CI** beyond Linux (Windows/macOS test runs) and grow the simulation/fuzz suites into the gate.
 
 ---
