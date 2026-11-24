@@ -29,7 +29,16 @@ public sealed record NoiseConjunctionResult(NoiseVessel Vessel, Sigil PeerSigil,
 public static class NoiseConjunction
 {
     private const ushort HandshakeStream = 0;
-    private const byte BindingVersion = 1;
+    private const byte BindingVersion = 2;
+
+    /// <summary>The binding format of the buried Conjunction v1, recognised only to say so plainly.</summary>
+    private const byte RetiredBindingVersion = 1;
+
+    /// <summary>
+    /// What the identity binding signs begins with this. The Seal signs other things too — links, overlay
+    /// records, channel advertisements — and a label keeps a signature made here from ever being one of those.
+    /// </summary>
+    private static ReadOnlySpan<byte> BindingLabel => "cuprinet/conjunction/binding/v2"u8;
 
     /// <summary>
     /// Marks a responder message that is a refusal rather than a binding. Distinct from every valid
@@ -219,6 +228,10 @@ public static class NoiseConjunction
             throw new NoiseConjunctionException(
                 $"The host refused the visit: {r.ReadString()}. It answered on this endpoint but serves no Shrine at " +
                 "the address that was pinned.");
+        if (version == RetiredBindingVersion)
+            throw new NoiseConjunctionException(
+                "The peer speaks a retired version of the Conjunction (identity-binding format 1). It must be " +
+                "upgraded before it can pair with this node.");
         if (version != BindingVersion)
             throw new NoiseConjunctionException("Unsupported identity-binding version.");
         var network = new Concordium(r.ReadString());
@@ -247,15 +260,17 @@ public static class NoiseConjunction
     }
 
     /// <summary>
-    /// The exact bytes signed by the identity binding: the Noise handshake hash followed by the advertised
-    /// Conjunction ordinal range (4 bytes, big-endian). Both peers derive this identically, so signing it
-    /// ties the advertised range to the session and makes any tampering fail verification.
+    /// The exact bytes signed by the identity binding: the binding label, the Noise handshake hash, then the
+    /// advertised Conjunction ordinal range (4 bytes, big-endian). Both peers derive this identically, so signing
+    /// it ties the advertised range to the session and makes any tampering fail verification.
     /// </summary>
     private static byte[] BindingContext(byte[] handshakeHash, ushort min, ushort max)
     {
-        var context = new byte[handshakeHash.Length + 4];
-        handshakeHash.CopyTo(context, 0);
-        var i = handshakeHash.Length;
+        var label = BindingLabel;
+        var context = new byte[label.Length + handshakeHash.Length + 4];
+        label.CopyTo(context);
+        handshakeHash.CopyTo(context, label.Length);
+        var i = label.Length + handshakeHash.Length;
         context[i] = (byte)(min >> 8);
         context[i + 1] = (byte)min;
         context[i + 2] = (byte)(max >> 8);
@@ -271,7 +286,9 @@ public static class NoiseConjunction
         var frame = await vessel.ReceiveAsync(cancellationToken).ConfigureAwait(false)
                     ?? throw new NoiseConjunctionException("Vessel closed during the handshake.");
         if (frame.StreamId != HandshakeStream)
-            throw new NoiseConjunctionException($"Unexpected frame on stream {frame.StreamId} during the handshake.");
+            throw new NoiseConjunctionException(
+                $"Unexpected frame on stream {frame.StreamId} during the handshake. A peer speaking a retired " +
+                "version of the Conjunction produces exactly this.");
         return frame.Payload;
     }
 }

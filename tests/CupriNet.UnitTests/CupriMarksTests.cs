@@ -14,35 +14,45 @@ public class CupriMarksTests
     }
 
     [Fact]
-    public void Supported_ForConjunction_IsVersionOne()
+    public void Supported_ForConjunction_IsVersionTwo_WithVersionOneBuried()
     {
         var supported = CupriMarks.Supported(CupriMarks.Conjunction);
-        Assert.Equal(1, (int)supported.Min);
-        Assert.Equal(1, (int)supported.Max); // only v1 exists today
+        Assert.Equal(2, (int)supported.Min); // v1 is buried, so it is not even advertised
+        Assert.Equal(2, (int)supported.Max);
     }
 
     [Fact]
-    public void Negotiate_WithMatchingPeer_AcceptsVersionOne()
+    public void Negotiate_WithMatchingPeer_AcceptsVersionTwo()
     {
-        var result = CupriMarks.Negotiate(CupriMarks.Conjunction, OrdinalRange.Create(1, 1));
+        var result = CupriMarks.Negotiate(CupriMarks.Conjunction, OrdinalRange.Create(2, 2));
         Assert.True(result.Accepted);
-        Assert.Equal(1, (int)result.SelectedOrdinal);
+        Assert.Equal(2, (int)result.SelectedOrdinal);
     }
 
     [Fact]
     public void Negotiate_WithNewerPeer_SelectsHighestBothSpeak()
     {
-        // A future peer advertising [1..5] still pairs with us on the shared version (1) — no flag-day partition.
-        var result = CupriMarks.Negotiate(CupriMarks.Conjunction, OrdinalRange.Create(1, 5));
+        // A future peer advertising [2..5] still pairs with us on the shared version (2) — no flag-day partition.
+        var result = CupriMarks.Negotiate(CupriMarks.Conjunction, OrdinalRange.Create(2, 5));
         Assert.True(result.Accepted);
-        Assert.Equal(1, (int)result.SelectedOrdinal);
+        Assert.Equal(2, (int)result.SelectedOrdinal);
+    }
+
+    [Fact]
+    public void Negotiate_WithAPeerOnTheBuriedVersion_RejectsItAsTooOld()
+    {
+        // v2 was a security bump and v1 is buried: a v1-only peer is refused with a reason, never paired down.
+        var result = CupriMarks.Negotiate(CupriMarks.Conjunction, OrdinalRange.Create(1, 1));
+        Assert.False(result.Accepted);
+        Assert.Equal(RejectReason.PeerTooOld, result.Reason);
+        Assert.Equal(2, (int)CupriMarks.Negotiate(CupriMarks.Conjunction, OrdinalRange.Create(1, 2)).SelectedOrdinal);
     }
 
     [Fact]
     public void Negotiate_WithNoSharedVersion_Rejects()
     {
-        // A peer that dropped v1 and only speaks [2..5] shares nothing with us: rejected, not silently paired.
-        var result = CupriMarks.Negotiate(CupriMarks.Conjunction, OrdinalRange.Create(2, 5));
+        // A peer that dropped v2 and only speaks [3..5] shares nothing with us: rejected, not silently paired.
+        var result = CupriMarks.Negotiate(CupriMarks.Conjunction, OrdinalRange.Create(3, 5));
         Assert.False(result.Accepted);
     }
 

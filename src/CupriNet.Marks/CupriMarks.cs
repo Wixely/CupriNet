@@ -69,8 +69,12 @@ public static class CupriMarks
         new Component(Conjunction,
         [
             // v1 — the Noise_XX transport handshake with an Ed25519 identity binding over the Noise
-            // handshake hash (the original, and so far only, pairing protocol).
-            new ComponentVersion(1, BumpReason.Functionality, VersionStatus.Active),
+            // handshake hash. Buried: its transport left each frame's stream id outside the AEAD, where it could
+            // be rewritten on-path and read by anyone, and its binding signature carried no domain label.
+            new ComponentVersion(1, BumpReason.Functionality, VersionStatus.Buried),
+            // v2 — the stream id is sealed with the payload (authenticated and hidden), and the identity binding
+            // signs a labelled context. A security bump: v1 is not negotiable at all.
+            new ComponentVersion(2, BumpReason.Security, VersionStatus.Active),
         ]),
         new Component(Consecration,
         [

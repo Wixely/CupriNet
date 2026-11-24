@@ -38,10 +38,48 @@ public class NoiseTransportTests
         noiseVessel.SendAsync(7, "hello"u8.ToArray()).AsTask().GetAwaiter().GetResult();
 
         var (streamId, wire) = capture.Sent.Single();
-        Assert.Equal((ushort)7, streamId);                          // stream id preserved
+        Assert.Equal((ushort)0, streamId);                          // only the carrier stream is visible outside
         Assert.False(wire.AsSpan().StartsWith("hello"u8));          // payload is ciphertext
         Assert.True(wire.Length > 5);                                // + AEAD tag
-        Assert.Equal("hello", Encoding.UTF8.GetString(responderTransport.Decrypt(wire)));
+
+        var sealedFrame = responderTransport.Decrypt(wire);
+        Assert.Equal(7, sealedFrame[0]);                             // the real stream id travels inside the seal
+        Assert.Equal("hello", Encoding.UTF8.GetString(sealedFrame.AsSpan(1)));
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(8)]
+    [InlineData(127)]
+    [InlineData(128)]      // two-byte id
+    [InlineData(65535)]    // three-byte id
+    public async Task NoiseVessel_CarriesTheStreamIdInsideTheSeal(int streamId)
+    {
+        var (initiatorTransport, responderTransport) = InProcessHandshake(CryptoSuites.Secure());
+        var wire = new CapturingVessel();
+        await using var sender = new NoiseVessel(wire, initiatorTransport);
+        await using var receiver = new NoiseVessel(wire, responderTransport);
+
+        await sender.SendAsync((ushort)streamId, "payload"u8.ToArray());
+        Assert.All(wire.Sent, f => Assert.Equal((ushort)0, f.StreamId));
+
+        var frame = await receiver.ReceiveAsync();
+        Assert.Equal((ushort)streamId, frame!.Value.StreamId);
+        Assert.Equal("payload", Encoding.UTF8.GetString(frame.Value.Payload));
+    }
+
+    [Fact]
+    public async Task NoiseVessel_RejectsAFrameMovedOffTheCarrierStream()
+    {
+        var (initiatorTransport, responderTransport) = InProcessHandshake(CryptoSuites.Secure());
+        var wire = new CapturingVessel();
+        await using var sender = new NoiseVessel(wire, initiatorTransport);
+        await using var receiver = new NoiseVessel(wire, responderTransport);
+
+        await sender.SendAsync(3, "payload"u8.ToArray());
+        wire.Sent[0] = (5, wire.Sent[0].Payload); // an on-path rewrite of the one id left outside the seal
+
+        await Assert.ThrowsAsync<NoiseException>(async () => await receiver.ReceiveAsync());
     }
 
     [Fact]
@@ -149,8 +187,15 @@ public class NoiseTransportTests
             return ValueTask.CompletedTask;
         }
 
+        /// <summary>Hands back what was sent, oldest first — a loopback for a second vessel reading the same wire.</summary>
         public ValueTask<VesselFrame?> ReceiveAsync(CancellationToken cancellationToken = default)
-            => throw new NotSupportedException();
+        {
+            if (Sent.Count == 0)
+                return new((VesselFrame?)null);
+            var (streamId, payload) = Sent[0];
+            Sent.RemoveAt(0);
+            return new(new VesselFrame(streamId, payload));
+        }
 
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
