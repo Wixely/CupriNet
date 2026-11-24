@@ -79,8 +79,12 @@ public static class CupriMarks
         new Component(Consecration,
         [
             // v1 — the Watchword key-confirmation channel handshake, transcript-bound to the channel
-            // Ascendant, epoch, both peer Sigils, and both nonces.
-            new ComponentVersion(1, BumpReason.Functionality, VersionStatus.Active),
+            // Ascendant, epoch, both peer Sigils, and both nonces. Buried: in its admission exchange both sides
+            // signed the same commitment, so a peer with no credential could echo the other's claim back.
+            new ComponentVersion(1, BumpReason.Functionality, VersionStatus.Buried),
+            // v2 — the admission commitment names the signer's role, so a claim only ever verifies as the side
+            // that made it. A security bump: v1 is not negotiable at all.
+            new ComponentVersion(2, BumpReason.Security, VersionStatus.Active),
         ]),
         new Component(Decree,
         [

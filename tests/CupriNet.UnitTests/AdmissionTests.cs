@@ -93,6 +93,36 @@ public class AdmissionTests
     }
 
     [Fact]
+    public async Task SealedChannel_TwoDevicesSharingOnePersona_AdmitEachOther()
+    {
+        using var cts = new CancellationTokenSource(Timeout);
+        var ct = cts.Token;
+        await using var host = await CupriNode.CreateAsync(new CupriNodeOptions { Concordium = "example.chat" }, ct);
+        await using var joiner = await CupriNode.CreateAsync(new CupriNodeOptions { Concordium = "example.chat" }, ct);
+        var suite = host.Suite;
+
+        var watchword = Watchword.Generate("GatedRoom");
+        var channelId = Ownership.ChannelId(ArcanumKeys.Derive(watchword, suite));
+        var owner = suite.GenerateSeal();
+        var descriptor = Ownership.CreateDescriptor(owner, channelId, ArcanumEntry.Sealed, 1, suite, Now);
+
+        // One member, two devices: both speak under the same persona and present the same Investiture. Each signs
+        // the commitment for its own role, so the two claims differ even though the key behind them is one.
+        var persona = NewPersona(suite);
+        var investiture = Ownership.Invest(owner, channelId, persona.SealPublicKey, ArcanumRole.Member, Now.AddDays(-1), Now.AddDays(1), 1, suite);
+        var options = new ConsecrateOptions { ChannelIdentity = persona, Admission = new ArcanumAdmission { Descriptor = descriptor, MyInvestiture = investiture } };
+
+        var (fromJoiner, fromHost) = await PairAsync(host, joiner, ct);
+        await using var _1 = fromJoiner;
+        await using var _2 = fromHost;
+
+        var joinerConsecrate = joiner.ConsecrateAsync(fromJoiner, watchword, Now, options, ct);
+        var hostConsecrate = host.ConsecrateAsync(fromHost, watchword, Now, options, ct);
+        await using var joinerChannel = await joinerConsecrate;
+        await using var hostChannel = await hostConsecrate;
+    }
+
+    [Fact]
     public async Task SealedChannel_CredentialForADifferentPersona_IsRejected()
     {
         using var cts = new CancellationTokenSource(Timeout);

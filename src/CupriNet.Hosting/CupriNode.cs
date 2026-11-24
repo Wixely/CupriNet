@@ -677,9 +677,12 @@ public sealed partial class CupriNode : IAsyncDisposable
         if (descriptor.AccessMode is not (ArcanumEntry.Sanction or ArcanumEntry.Sealed))
             return;
 
-        // Bind the possession proof to this session so a captured claim cannot be replayed elsewhere.
-        var commitment = AdmissionCommitment(channelId, sessionKey);
-        var myClaim = BuildAdmissionClaim(persona, descriptor, admission.MyInvestiture, commitment);
+        // Bind the possession proof to this session so a captured claim cannot be replayed elsewhere — and to the
+        // signer's role in it, so it cannot be replayed back either. Each side signs the commitment for its own
+        // role and checks the peer's against the other: a claim echoed to the side that made it does not verify.
+        var myCommitment = AdmissionCommitment(channelId, sessionKey, asInitiator: peer.IsInitiator);
+        var peerCommitment = AdmissionCommitment(channelId, sessionKey, asInitiator: !peer.IsInitiator);
+        var myClaim = BuildAdmissionClaim(persona, descriptor, admission.MyInvestiture, myCommitment);
         byte[] peerClaim;
         if (peer.IsInitiator)
         {
@@ -692,13 +695,14 @@ public sealed partial class CupriNode : IAsyncDisposable
             await peer.Vessel.SendAsync(ConsecrationHandshake.ChannelStream, myClaim, cancellationToken).ConfigureAwait(false);
         }
 
-        VerifyAdmissionClaim(peerClaim, persona, descriptor, channelId, commitment, now);
+        VerifyAdmissionClaim(peerClaim, descriptor, channelId, peerCommitment, now);
     }
 
-    private byte[] AdmissionCommitment(byte[] channelId, byte[] sessionKey)
+    private byte[] AdmissionCommitment(byte[] channelId, byte[] sessionKey, bool asInitiator)
     {
         var w = new Codex.CodexWriter();
-        w.WriteString("cuprinet/admission/v1");
+        w.WriteString("cuprinet/admission/v2");
+        w.WriteString(asInitiator ? "initiator" : "responder");
         w.WriteBytes(channelId);
         w.WriteBytes(sessionKey);
         return Suite.Hash.Sha256(w.ToArray());
@@ -726,7 +730,7 @@ public sealed partial class CupriNode : IAsyncDisposable
         return w.ToArray();
     }
 
-    private void VerifyAdmissionClaim(byte[] claim, RiteIdentity persona, ChannelDescriptor descriptor, byte[] channelId, byte[] commitment, DateTimeOffset now)
+    private void VerifyAdmissionClaim(byte[] claim, ChannelDescriptor descriptor, byte[] channelId, byte[] commitment, DateTimeOffset now)
     {
         var r = new Codex.CodexReader(claim);
         var personaPublicKey = r.ReadBytes().ToArray();
@@ -740,12 +744,6 @@ public sealed partial class CupriNode : IAsyncDisposable
             _ => throw new CupriNodeException("Malformed admission claim."),
         };
         var signature = r.ReadBytes().ToArray();
-
-        // Both sides sign the SAME commitment, so a peer holding no credential could simply echo our own claim
-        // back and have it verify. A claim naming our own persona is that reflection — refuse it. (Until the
-        // commitment carries the signer's role, this also refuses two devices that share one persona.)
-        if (personaPublicKey.AsSpan().SequenceEqual(persona.SealPublicKey))
-            throw new CupriNodeException("Peer presented our own persona — a reflected admission claim.");
 
         // Possession + freshness: the peer signed this session's commitment with the persona key it claims.
         if (!Suite.Verifier.Verify(commitment, signature, personaPublicKey))

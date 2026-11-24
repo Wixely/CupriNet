@@ -57,17 +57,21 @@ public class CupriMarksTests
     }
 
     [Fact]
-    public void Consecration_SupportedIsVersionOne_AndNegotiates()
+    public void Consecration_SupportedIsVersionTwo_AndNegotiates()
     {
         var supported = CupriMarks.Supported(CupriMarks.Consecration);
-        Assert.Equal(1, (int)supported.Min);
-        Assert.Equal(1, (int)supported.Max);
+        Assert.Equal(2, (int)supported.Min); // v1 is buried
+        Assert.Equal(2, (int)supported.Max);
 
         var shared = CupriMarks.Negotiate(CupriMarks.Consecration, OrdinalRange.Create(1, 3));
         Assert.True(shared.Accepted);
-        Assert.Equal(1, (int)shared.SelectedOrdinal);
+        Assert.Equal(2, (int)shared.SelectedOrdinal);
 
-        var none = CupriMarks.Negotiate(CupriMarks.Consecration, OrdinalRange.Create(2, 5));
+        var retired = CupriMarks.Negotiate(CupriMarks.Consecration, OrdinalRange.Create(1, 1));
+        Assert.False(retired.Accepted);
+        Assert.Equal(RejectReason.PeerTooOld, retired.Reason);
+
+        var none = CupriMarks.Negotiate(CupriMarks.Consecration, OrdinalRange.Create(3, 5));
         Assert.False(none.Accepted);
     }
 
