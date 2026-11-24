@@ -37,9 +37,10 @@ public static class NatTraversal
         using (var punch = new HolePunch(sessionId, boundSocket, ownsSocket: false))
             result = await punch.PunchAsync(peerCandidates, interval, timeout, cancellationToken).ConfigureAwait(false);
 
-        // Fix the default peer so the data socket only accepts the punched peer's datagrams, then run the session.
+        // Fix the default peer so the data socket only accepts the punched peer's datagrams, then run the session
+        // under a connection id both ends derive from the session id they punched with.
         boundSocket.Connect(result.RemoteEndpoint);
-        return UdpVessel.Over(new UdpPacketLink(boundSocket, result.RemoteEndpoint), maxFrameSize);
+        return UdpVessel.Over(new UdpPacketLink(boundSocket, result.RemoteEndpoint), UdpVessel.ConnectionIdFor(sessionId), maxFrameSize);
     }
 
     /// <summary>Binds a fresh UDP socket to <paramref name="localEndpoint"/> for a traversal attempt (use its

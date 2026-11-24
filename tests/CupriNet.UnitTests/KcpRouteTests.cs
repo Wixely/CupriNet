@@ -74,8 +74,8 @@ public class KcpRouteTests
         using var cts = new CancellationTokenSource(Timeout);
         var ct = cts.Token;
         var (linkA, linkB) = InMemoryPacketLink.Pair(loss: 0.2, seed: 5);
-        await using var a = new ArqStream(linkA);
-        await using var b = new ArqStream(linkB);
+        await using var a = new ArqStream(linkA, connectionId: 7);
+        await using var b = new ArqStream(linkB, connectionId: 7);
 
         var payload = new byte[48 * 1024];
         for (var i = 0; i < payload.Length; i++) payload[i] = (byte)((i * 17 + 3) & 0xFF);
@@ -102,8 +102,8 @@ public class KcpRouteTests
         var joiner = NodeIdentity.Generate(suite);
 
         var (linkA, linkB) = InMemoryPacketLink.Pair(loss, seed: 11);
-        var client = UdpVessel.Over(linkA);
-        var server = UdpVessel.Over(linkB);
+        var client = UdpVessel.Over(linkA, connectionId: 7);
+        var server = UdpVessel.Over(linkB, connectionId: 7);
 
         // Exactly the TCP-path handshake — just over ARQ/UDP vessels instead.
         var initiate = NoiseConjunction.InitiateAsync(client, joiner, Network, suite, expectedPeer: host.Sigil, cancellationToken: ct);
@@ -142,8 +142,8 @@ public class KcpRouteTests
         sockA.Connect(epB);
         sockB.Connect(epA);
 
-        await using var a = UdpVessel.Over(new UdpPacketLink(sockA, epB));
-        await using var b = UdpVessel.Over(new UdpPacketLink(sockB, epA));
+        await using var a = UdpVessel.Over(new UdpPacketLink(sockA, epB), connectionId: 7);
+        await using var b = UdpVessel.Over(new UdpPacketLink(sockB, epA), connectionId: 7);
 
         await a.SendAsync(3, "hello-real-udp"u8.ToArray(), ct);
         var frame = await b.ReceiveAsync(ct);

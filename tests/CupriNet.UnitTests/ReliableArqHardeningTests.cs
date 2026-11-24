@@ -14,14 +14,15 @@ public class ReliableArqHardeningTests
     private const byte CmdPush = 1;
     private const byte CmdAck = 2;
 
-    private static byte[] Segment(byte cmd, uint seq, uint una, ReadOnlySpan<byte> payload = default)
+    private static byte[] Segment(byte cmd, uint seq, uint una, ReadOnlySpan<byte> payload = default, ulong connection = 0)
     {
-        var datagram = new byte[11 + payload.Length];
+        var datagram = new byte[19 + payload.Length];
         datagram[0] = cmd;
-        BinaryPrimitives.WriteUInt32BigEndian(datagram.AsSpan(1), seq);
-        BinaryPrimitives.WriteUInt32BigEndian(datagram.AsSpan(5), una);
-        BinaryPrimitives.WriteUInt16BigEndian(datagram.AsSpan(9), (ushort)payload.Length);
-        payload.CopyTo(datagram.AsSpan(11));
+        BinaryPrimitives.WriteUInt64BigEndian(datagram.AsSpan(1), connection);
+        BinaryPrimitives.WriteUInt32BigEndian(datagram.AsSpan(9), seq);
+        BinaryPrimitives.WriteUInt32BigEndian(datagram.AsSpan(13), una);
+        BinaryPrimitives.WriteUInt16BigEndian(datagram.AsSpan(17), (ushort)payload.Length);
+        payload.CopyTo(datagram.AsSpan(19));
         return datagram;
     }
 
@@ -85,9 +86,112 @@ public class ReliableArqHardeningTests
         probe[0] = 0xF1; // a hole-punch probe sharing the port
         Assert.False(ReliableArq.IsSegment(probe));
 
-        Assert.False(ReliableArq.IsSegment(new byte[10])); // shorter than a header
+        Assert.False(ReliableArq.IsSegment(new byte[18])); // shorter than a header
 
-        var truncated = Segment(CmdPush, 0, 0, [1, 2, 3])[..12]; // claims 3 payload bytes, carries 1
+        var truncated = Segment(CmdPush, 0, 0, [1, 2, 3])[..20]; // claims 3 payload bytes, carries 1
         Assert.False(ReliableArq.IsSegment(truncated));
+    }
+
+    [Fact]
+    public void ASegment_ForAnotherConnection_IsIgnoredEntirely()
+    {
+        var sent = new List<byte[]>();
+        var b = new ReliableArq(d => sent.Add(d.ToArray()), connectionId: 0x1122334455667788);
+
+        // Right address, right sequence, wrong connection: what a host that is not on the path can manage.
+        b.Input(Segment(CmdPush, seq: 0, una: 0, [9, 9, 9], connection: 0x1122334455667789));
+        b.Update(0);
+
+        Assert.Null(b.Receive());
+        Assert.Empty(sent); // not even an ack — nothing tells the sender it guessed anything
+
+        b.Input(Segment(CmdPush, seq: 0, una: 0, [1, 2, 3], connection: 0x1122334455667788));
+        Assert.Equal(new byte[] { 1, 2, 3 }, b.Receive());
+    }
+
+    [Fact]
+    public void AnAcceptingEnd_AdoptsTheFirstConnectionIdItSees_AndHoldsToIt()
+    {
+        var sent = new List<byte[]>();
+        var b = new ReliableArq(d => sent.Add(d.ToArray()), connectionId: null);
+
+        b.Send([7]);
+        b.Update(0);
+        Assert.Empty(sent); // it cannot speak before it knows which connection this is
+
+        b.Input(Segment(CmdPush, seq: 0, una: 0, [1], connection: 42));
+        Assert.Equal(42UL, b.ConnectionId);
+        b.Update(1);
+        Assert.NotEmpty(sent);
+        Assert.All(sent, d => Assert.Equal(42UL, BinaryPrimitives.ReadUInt64BigEndian(d.AsSpan(1))));
+
+        b.Input(Segment(CmdPush, seq: 1, una: 0, [2], connection: 43));
+        Assert.Equal(new byte[] { 1 }, b.Receive());
+        Assert.Null(b.Receive());
+    }
+
+    [Fact]
+    public void APeer_ThatNeverAcknowledges_IsDeclaredDead_NotRetriedForever()
+    {
+        var sent = 0;
+        var a = new ReliableArq(_ => sent++, maxRetransmits: 4, idleTimeoutMs: int.MaxValue);
+        a.Send([1]);
+
+        for (long now = 0; now < 120_000 && !a.Dead; now += 10)
+            a.Update(now);
+
+        Assert.True(a.Dead);
+        Assert.Equal(5, sent); // the first send and four retries, then it stops
+    }
+
+    [Fact]
+    public void AStream_ThatHearsNothing_IsDeclaredDead_ButAQuietLivePairIsNot()
+    {
+        var alone = new ReliableArq(_ => { }, idleTimeoutMs: 5_000, keepAliveMs: 1_000);
+        for (long now = 0; now <= 6_000; now += 100)
+            alone.Update(now);
+        Assert.True(alone.Dead);
+
+        // Two ends with nothing to say to each other keep each other alive with bare acks.
+        var toA = new Queue<byte[]>();
+        var toB = new Queue<byte[]>();
+        var a = new ReliableArq(d => toB.Enqueue(d.ToArray()), idleTimeoutMs: 5_000, keepAliveMs: 1_000);
+        var b = new ReliableArq(d => toA.Enqueue(d.ToArray()), idleTimeoutMs: 5_000, keepAliveMs: 1_000);
+        for (long now = 0; now <= 60_000; now += 100)
+        {
+            while (toB.TryDequeue(out var d)) b.Input(d);
+            while (toA.TryDequeue(out var d)) a.Input(d);
+            a.Update(now);
+            b.Update(now);
+        }
+        Assert.False(a.Dead);
+        Assert.False(b.Dead);
+    }
+
+    [Fact]
+    public void Close_IsRetransmittedUntilAcknowledged()
+    {
+        var toA = new Queue<byte[]>();
+        var toB = new Queue<byte[]>();
+        var dropped = 0;
+        var a = new ReliableArq(d =>
+        {
+            if (dropped++ < 3)
+                return; // the first three datagrams — every early copy of the CLOSE — are lost
+            toB.Enqueue(d.ToArray());
+        });
+        var b = new ReliableArq(d => toA.Enqueue(d.ToArray()));
+
+        a.Close();
+        for (long now = 0; now < 30_000 && !a.CloseAcknowledged; now += 5)
+        {
+            while (toB.TryDequeue(out var d)) b.Input(d);
+            while (toA.TryDequeue(out var d)) a.Input(d);
+            a.Update(now);
+            b.Update(now);
+        }
+
+        Assert.True(a.CloseAcknowledged);
+        Assert.True(b.PeerFinished);
     }
 }

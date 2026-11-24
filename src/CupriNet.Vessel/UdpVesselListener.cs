@@ -79,7 +79,7 @@ public sealed class UdpVesselListener : IAsyncDisposable
     private DemuxLink OpenPeer(EndPoint remote)
     {
         var link = new DemuxLink(_socket, remote, LocalEndPoint);
-        var stream = new ArqStream(link);
+        var stream = new ArqStream(link, connectionId: null); // adopt the id on the caller's first segment
         var vessel = new Vessel(stream, LocalEndPoint, remote, _maxFrameSize,
             () => { _peers.TryRemove(remote, out _); return ValueTask.CompletedTask; });
         _accepted.Writer.TryWrite(vessel);

@@ -160,7 +160,7 @@ public class NatTraversalTests
         var clientSocket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
         clientSocket.Bind(Loopback0);
         clientSocket.Connect(listenEp);
-        await using var clientVessel = UdpVessel.Over(new UdpPacketLink(clientSocket, listenEp));
+        await using var clientVessel = UdpVessel.Over(new UdpPacketLink(clientSocket, listenEp), UdpVessel.NewConnectionId());
 
         var acceptTask = listener.AcceptAsync(ct);
 

@@ -16,8 +16,9 @@ public class UdpVesselListenerTests
         await using var listener = new UdpVesselListener(new IPEndPoint(IPAddress.Loopback, 0), maxPeers: 4);
         var target = listener.LocalEndPoint;
 
-        // A minimal valid ARQ segment (cmd=ACK, 11-byte header, no payload).
-        var ack = new byte[] { 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+        // A minimal valid ARQ segment (cmd=ACK, 19-byte header, no payload).
+        var ack = new byte[19];
+        ack[0] = 2;
 
         // A sub-header datagram must never open per-peer state.
         using (var tiny = new UdpClient()) await tiny.SendAsync(new byte[] { 1, 2, 3 }, target, ct);

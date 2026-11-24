@@ -65,10 +65,33 @@ public static class TcpVessel
 /// same framing the TCP path uses, so Noise and the mux run over a UDP (e.g. hole-punched) path unchanged.</summary>
 public static class UdpVessel
 {
-    public static Vessel Over(IPacketLink link, int maxFrameSize = FrameCodec.DefaultMaxFrameSize)
+    private static readonly byte[] ConnectionLabel = "cuprinet/arq/connection/v1"u8.ToArray();
+
+    /// <summary>
+    /// Runs a session over <paramref name="link"/> under <paramref name="connectionId"/>, which both ends must hold
+    /// before the first segment: <see cref="ConnectionIdFor"/> when they already share a session id (a punched
+    /// path), <see cref="NewConnectionId"/> when dialling a <see cref="UdpVesselListener"/>, which adopts it.
+    /// </summary>
+    public static Vessel Over(IPacketLink link, ulong connectionId, int maxFrameSize = FrameCodec.DefaultMaxFrameSize)
     {
         ArgumentNullException.ThrowIfNull(link);
-        var stream = new ArqStream(link); // ArqStream owns the link and disposes it
+        var stream = new ArqStream(link, connectionId); // ArqStream owns the link and disposes it
         return new Vessel(stream, link.LocalEndPoint, link.RemoteEndPoint, maxFrameSize);
     }
+
+    /// <summary>
+    /// The connection id two ends derive from a session id they both already hold — the nonce of a hole punch:
+    /// the first 8 bytes, big-endian, of <c>SHA-256("cuprinet/arq/connection/v1" ‖ sessionId)</c>.
+    /// </summary>
+    public static ulong ConnectionIdFor(ReadOnlySpan<byte> sessionId)
+    {
+        var input = new byte[ConnectionLabel.Length + sessionId.Length];
+        ConnectionLabel.CopyTo(input, 0);
+        sessionId.CopyTo(input.AsSpan(ConnectionLabel.Length));
+        return System.Buffers.Binary.BinaryPrimitives.ReadUInt64BigEndian(System.Security.Cryptography.SHA256.HashData(input));
+    }
+
+    /// <summary>A fresh random connection id, for the dialling side of a listener.</summary>
+    public static ulong NewConnectionId()
+        => System.Buffers.Binary.BinaryPrimitives.ReadUInt64BigEndian(System.Security.Cryptography.RandomNumberGenerator.GetBytes(8));
 }

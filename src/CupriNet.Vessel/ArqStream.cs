@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Net;
 
 namespace CupriNet.Vessel;
@@ -28,12 +29,19 @@ public sealed class ArqStream : Stream
     private byte[] _current = [];
     private int _currentPos;
     private bool _eof;
+    private bool _dead;
 
-    public ArqStream(IPacketLink link)
+    /// <summary>How long a close waits for the peer to acknowledge the end-of-stream marker.</summary>
+    private static readonly TimeSpan CloseLinger = TimeSpan.FromSeconds(1);
+
+    /// <param name="link">The datagram path; the stream owns and disposes it.</param>
+    /// <param name="connectionId">The id both ends agreed on (see <see cref="UdpVessel"/>), or null to adopt the
+    /// one on the peer's first segment — the accepting side of a listener.</param>
+    public ArqStream(IPacketLink link, ulong? connectionId)
     {
         ArgumentNullException.ThrowIfNull(link);
         _link = link;
-        _arq = new ReliableArq(OnOutput);
+        _arq = new ReliableArq(OnOutput, connectionId: connectionId);
         _receiveLoop = Task.Run(ReceiveLoopAsync);
         _pumpLoop = Task.Run(PumpLoopAsync);
         _sendLoop = Task.Run(SendLoopAsync);
@@ -89,6 +97,14 @@ public sealed class ArqStream : Stream
                 {
                     next = _arq.Update(Environment.TickCount64);
                     DrainLocked();
+                    if (_arq.Dead && !_dead)
+                    {
+                        // The peer stopped answering: readers see end-of-stream, writers an error. Nothing is
+                        // left waiting on a connection that will never move again.
+                        _dead = true;
+                        _eof = true;
+                        Release(_readReady);
+                    }
                 }
                 Release(_writeReady); // acks may have freed send-window space
                 var delay = (int)Math.Clamp(next - Environment.TickCount64, 1, 1000);
@@ -177,6 +193,8 @@ public sealed class ArqStream : Stream
             bool queued;
             lock (_gate)
             {
+                if (_dead)
+                    throw new IOException("The reliable-UDP peer stopped responding.");
                 queued = _arq.CanQueueMore;
                 if (queued)
                     _arq.Send(buffer.Span);
@@ -197,8 +215,23 @@ public sealed class ArqStream : Stream
                 _arq.Close();
                 Release(_pumpWake);
             }
-            // Give the pump a brief window to emit (and retransmit) the CLOSE marker for a clean EOF at the peer.
-            await Task.Delay(80).ConfigureAwait(false);
+            // Wait for the peer to acknowledge the CLOSE marker, so that it sees a clean end-of-stream even when
+            // the first copy is lost — the pump retransmits it meanwhile. A peer that has already closed its own
+            // side is probably gone, so it gets only a moment; a dead one gets none.
+            var waited = Stopwatch.StartNew();
+            while (true)
+            {
+                bool done;
+                TimeSpan budget;
+                lock (_gate)
+                {
+                    done = _arq.CloseAcknowledged || _arq.Dead;
+                    budget = _arq.PeerClosed ? TimeSpan.FromMilliseconds(80) : CloseLinger;
+                }
+                if (done || waited.Elapsed >= budget)
+                    break;
+                await Task.Delay(10).ConfigureAwait(false);
+            }
         }
         catch { }
 
