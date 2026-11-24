@@ -22,7 +22,7 @@
 | [OI-11.5](11-traversal.md#115-ferryman-brokered-hole-punch) | 🔴 | A Ferryman RESERVE can be replayed by any relay operator: no time, relay or session binding ([#13](https://github.com/Wixely/CupriNet/issues/13)) |
 | [OI-11.4](11-traversal.md#115-ferryman-brokered-hole-punch) | 🔴 | The relay learns the target's Sigil, contrary to the documentation; the handle is static ([#13](https://github.com/Wixely/CupriNet/issues/13)) |
 | [OI-07.5](07-overlay.md#73-control-requests-stream-6) | 🟠 | DIVINE target framing mismatch: the server routes on `0x20 ‖ key[0..31]` ([#12](https://github.com/Wixely/CupriNet/issues/12)) |
-| [OI-06.2](06-identity-and-documents.md#62-signed-document-envelope) | 🟠 | Some verifiers check a re-encoding and others check the received bytes, so the same document can be valid on one path and invalid on another |
+| [OI-06.2](06-identity-and-documents.md#62-signed-document-envelope) | 🟠 | Some verifiers check a re-encoding and others check the received bytes, so the same document can be valid on one path and invalid on another ([#18](https://github.com/Wixely/CupriNet/issues/18)) |
 
 ## All issues
 
@@ -42,10 +42,10 @@
 | OI-03.2 | 🟡 | DataChannel sender does not check message size |
 | OI-03.3 | 🟡 | No reserved or private stream id range |
 | OI-03.4 | 🟡 | No close reason or error signal; one bad frame kills all streams |
-| OI-03.5 | 🔴 | Reliable UDP: no connection id, `una` not range-checked, unacknowledged CLOSE, state created for any datagram |
-| OI-03.6 | 🔴 | Stream id unauthenticated (see above) |
+| OI-03.5 | 🔴 | Reliable UDP: no connection id, `una` not range-checked, unacknowledged CLOSE, state created for any datagram ([#17](https://github.com/Wixely/CupriNet/issues/17)) |
+| OI-03.6 | 🔴 | Stream id unauthenticated (see above) ([#11](https://github.com/Wixely/CupriNet/issues/11)) |
 | OI-03.7 | 🟡 | Noise messages exceed 65,535 bytes |
-| OI-04.1 | 🔴 | Toll freshness (see above) |
+| OI-04.1 | 🔴 | Toll freshness (see above) ([#10](https://github.com/Wixely/CupriNet/issues/10)) |
 | OI-04.2 | 🟠 | Toll on/off is not signalled |
 | OI-04.3 | 🟡 | Toll not in the prologue; variable-length cookie; no binding on non-IP transports |
 | OI-04.4 | 🟡 | Non-empty Noise handshake payloads are tolerated |
@@ -57,7 +57,7 @@
 | OI-05.2 | 🟡 | Catalogue identity is never exchanged |
 | OI-05.3 | 🟡 | Format bytes and CupriMark ordinals overlap |
 | OI-06.1 | 🟡 | `network` canonical form |
-| OI-06.2 | 🟠 | Re-encode verification (see above) |
+| OI-06.2 | 🟠 | Re-encode verification (see above) ([#18](https://github.com/Wixely/CupriNet/issues/18)) |
 | OI-06.3 | 🟡 | Beacon fields unvalidated; onion port handling inconsistent |
 | OI-06.4 | 🟡 | base64url padding and whitespace |
 | OI-06.5 | 🟠 | Moniker normalisation depends on the runtime's Unicode tables and changes signed bytes |
@@ -66,10 +66,10 @@
 | OI-06.8 | 🟡 | Intonation `issuedAt` unchecked; no maximum lifetime |
 | OI-06.9 | 🟡 | PeerRecords never expire; Relay flag never set |
 | OI-07.1 | 🟡 | Unknown session kind treated as Channel |
-| OI-07.2 | 🔴 | Bootstrap PeerRecord not bound to the authenticated peer |
+| OI-07.2 | 🔴 | Bootstrap PeerRecord not bound to the authenticated peer ([#14](https://github.com/Wixely/CupriNet/issues/14)) |
 | OI-07.3 | 🟠 | Reflexive and bootstrap exchanges desynchronise if only one side enables reflexive discovery |
 | OI-07.4 | ⚪ | Unused typed `PeerExchange` protocol on stream 1 |
-| OI-07.5 | 🟠 | DIVINE framing (see above) |
+| OI-07.5 | 🟠 | DIVINE framing (see above) ([#12](https://github.com/Wixely/CupriNet/issues/12)) |
 | OI-07.6 | 🟡 | Control responses not self-describing; no timeout |
 | OI-07.7 | 🟡 | PUBLISH Ok ≠ stored |
 | OI-07.8 | 🟡 | Divination has no convergence termination or per-query timeout |
@@ -82,11 +82,11 @@
 | OI-08.5 | 🟡 | No wire encoding for ChannelDescriptor |
 | OI-08.6 | 🟡 | Roles, serial and policyVersion undefined; ascension ignored in admission |
 | OI-08.7 | ⚪ | AscensionLink unversioned; "accepted schism" unimplemented |
-| OI-08.8 | 🔴 | Admission reflection (see above) |
+| OI-08.8 | 🔴 | Admission reflection (see above) ([#9](https://github.com/Wixely/CupriNet/issues/9)) |
 | OI-08.9 | 🟠 | Admission is not signalled |
 | OI-08.10 | 🟠 | Decree lifetime at the holder's maximum; no republish |
 | OI-09.1 | 🟡 | Veil: random nonces, one key both directions, no AD, no rekey |
-| OI-09.2 | 🟡 | Author signature over a re-encoding (malleable) |
+| OI-09.2 | 🟡 | Author signature over a re-encoding (malleable) ([#18](https://github.com/Wixely/CupriNet/issues/18)) |
 | OI-09.3 | 🟡 | Epistle type byte unauthenticated; messageId length unchecked |
 | OI-09.4 | 🟡 | Whether receivers MUST attest |
 | OI-09.5 | 🟡 | Channel Conduit unversioned |
@@ -98,18 +98,18 @@
 | OI-10.4 | 🟡 | Oracle: no field-length limits, no request id |
 | OI-10.5 | 🟡 | Auspice topic length in UTF-16 units; Depart not acknowledged |
 | OI-10.6 | 🟡 | Relic manifest: author not verified; path not validated |
-| OI-10.7 | 🔴 | Browser Pilgrimages bypass the visit caps; Toll may bind no address |
+| OI-10.7 | 🔴 | Browser Pilgrimages bypass the visit caps; Toll may bind no address ([#15](https://github.com/Wixely/CupriNet/issues/15)) |
 | OI-11.1 | 🟡 | LanPresence port unchecked; IPv4 only |
 | OI-11.2 | 🟡 | NAT-PMP deviations from RFC 6886 |
 | OI-11.3 | 🟡 | Hole punch matches IP only; IPv4 only |
-| OI-11.4 | 🔴 | Ferryman privacy (see above) |
-| OI-11.5 | 🔴 | Ferryman replay (see above) |
+| OI-11.4 | 🔴 | Ferryman privacy (see above) ([#13](https://github.com/Wixely/CupriNet/issues/13)) |
+| OI-11.5 | 🔴 | Ferryman replay (see above) ([#13](https://github.com/Wixely/CupriNet/issues/13)) |
 | OI-11.6 | 🟡 | Ferryman limits, fence and version; design doc drift |
 | OI-11.7 | ⚪ | TOFU fingerprint: hex vs Bech32 |
 | OI-11.8 | 🟡 | Onion peers appear as loopback |
-| OI-11.9 | 🔴 | TorOnly clearnet leaks (Ferryman, LAN, punch, WebRTC block) |
+| OI-11.9 | 🔴 | TorOnly clearnet leaks (Ferryman, LAN, punch, WebRTC block) ([#16](https://github.com/Wixely/CupriNet/issues/16)) |
 | OI-11.10 | 🟠 | Browser host/port pairing undefined; WebRTC credentials not stable across restarts |
-| OI-11.11 | 🔴 | Browser connections bypass the fence and caps |
+| OI-11.11 | 🔴 | Browser connections bypass the fence and caps ([#15](https://github.com/Wixely/CupriNet/issues/15)) |
 
 ## Documentation drift found while drafting
 
