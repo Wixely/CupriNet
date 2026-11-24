@@ -51,6 +51,12 @@ internal static class OverlayControl
     public const byte StatusOk = 0;
     public const byte StatusRejected = 1;
 
+    /// <summary>
+    /// A PUBLISH was valid but paid too little Tribute. One byte follows: the difficulty, in bits, this holder
+    /// requires — so the publisher can pay it and try again instead of being refused without a reason.
+    /// </summary>
+    public const byte StatusTributeTooLow = 2;
+
     public const int MaxAugury = 16;
     public const int MaxLookupGlyphs = 8;
     public const int MaxLookupDecrees = 16;
@@ -153,6 +159,19 @@ internal static class OverlayControl
     }
 
     public static byte[] StatusResponse(byte status) => [status];
+
+    public static byte[] TributeTooLowResponse(int requiredDifficulty)
+        => [StatusTributeTooLow, (byte)Math.Clamp(requiredDifficulty, 0, Tribute.MaxDifficulty)];
+
+    /// <summary>Reads the difficulty a holder asked for in a <see cref="StatusTributeTooLow"/> response.</summary>
+    public static bool TryReadRequiredTribute(ReadOnlySpan<byte> response, out int requiredDifficulty)
+    {
+        requiredDifficulty = 0;
+        if (response.Length != 2 || response[0] != StatusTributeTooLow || response[1] > Tribute.MaxDifficulty)
+            return false;
+        requiredDifficulty = response[1];
+        return true;
+    }
 
     // ---- Client-side parsing (only accepts well-formed, signature-verified records) -------------
 

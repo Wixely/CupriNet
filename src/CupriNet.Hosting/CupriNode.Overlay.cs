@@ -220,13 +220,18 @@ public sealed partial class CupriNode
                     // holders or replayed in a later epoch. A ±1-epoch window tolerates clock skew across nodes.
                     var epoch = TributeEpoch(now);
                     if (DecreeValidator.IsVersionAcceptable(decree)   // refuse a too-new / superseded advert before relaying it
-                        && DecreeSigner.Verify(decree, Suite)
-                        && (Tribute.Verify(TributeSubject(decreeBytes, Identity.Sigil, epoch), nonce, _options.RequiredTributeDifficulty)
-                            || Tribute.Verify(TributeSubject(decreeBytes, Identity.Sigil, epoch - 1), nonce, _options.RequiredTributeDifficulty)
-                            || Tribute.Verify(TributeSubject(decreeBytes, Identity.Sigil, epoch + 1), nonce, _options.RequiredTributeDifficulty)))
+                        && DecreeSigner.Verify(decree, Suite))
                     {
-                        _decrees.Publish(decree, now);
-                        return OverlayControl.StatusResponse(OverlayControl.StatusOk);
+                        if (Tribute.Verify(TributeSubject(decreeBytes, Identity.Sigil, epoch), nonce, _options.RequiredTributeDifficulty)
+                            || Tribute.Verify(TributeSubject(decreeBytes, Identity.Sigil, epoch - 1), nonce, _options.RequiredTributeDifficulty)
+                            || Tribute.Verify(TributeSubject(decreeBytes, Identity.Sigil, epoch + 1), nonce, _options.RequiredTributeDifficulty))
+                        {
+                            _decrees.Publish(decree, now);
+                            return OverlayControl.StatusResponse(OverlayControl.StatusOk);
+                        }
+                        // A genuine advert that underpaid: say what this holder requires. Difficulty stays this
+                        // node's own policy — it is only no longer a secret the publisher has to guess.
+                        return OverlayControl.TributeTooLowResponse(_options.RequiredTributeDifficulty);
                     }
                 }
                 catch { /* malformed */ }
@@ -311,7 +316,16 @@ public sealed partial class CupriNode
             // against other holders or in a later epoch.
             var subject = TributeSubject(decreeBytes, holder.Sigil, TributeEpoch(DateTimeOffset.UtcNow));
             var nonce = Tribute.Solve(subject, _options.TributeDifficulty, cancellationToken);
-            await conn.RoundtripAsync(OverlayControl.PublishRequest(decreeBytes, nonce), cancellationToken).ConfigureAwait(false);
+            var response = await conn.RoundtripAsync(OverlayControl.PublishRequest(decreeBytes, nonce), cancellationToken).ConfigureAwait(false);
+
+            // The holder wants more work than we paid by default. Pay what it asks, once — it cannot ask for more
+            // than the protocol ceiling, which is the most any publisher ever agrees to grind.
+            if (OverlayControl.TryReadRequiredTribute(response, out var required) && required > _options.TributeDifficulty)
+            {
+                subject = TributeSubject(decreeBytes, holder.Sigil, TributeEpoch(DateTimeOffset.UtcNow));
+                nonce = Tribute.Solve(subject, required, cancellationToken);
+                await conn.RoundtripAsync(OverlayControl.PublishRequest(decreeBytes, nonce), cancellationToken).ConfigureAwait(false);
+            }
         }
         catch (OperationCanceledException) { throw; }
         catch { EvictControl(holder.Sigil); }

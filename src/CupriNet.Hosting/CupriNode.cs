@@ -94,6 +94,20 @@ public sealed partial class CupriNode : IAsyncDisposable
             throw new CupriNodeException("ReachabilityMode.TorOnly requires an OnionTransport (there is no clearnet path in this mode).");
 
         var suite = options.Suite ?? new BouncyCastleSuite();
+
+        // An insecure suite (the Simulacrum) exists to exercise codecs and seams in tests, and stops there. A node
+        // would refuse to handshake with it anyway — but only after minting links, records and adverts "signed"
+        // with nothing, so it is refused before there is a node at all.
+        if (!suite.IsSecure)
+            throw new CupriNodeException(
+                $"The crypto suite '{suite.Name}' provides no security and cannot run a node. It is for tests of the codecs and seams only.");
+
+        if (options.RequiredTributeDifficulty > CupriNet.Concordance.Tribute.MaxDifficulty)
+            throw new CupriNodeException(
+                $"RequiredTributeDifficulty is {options.RequiredTributeDifficulty}, above the protocol ceiling of " +
+                $"{CupriNet.Concordance.Tribute.MaxDifficulty} bits. No publisher will grind past the ceiling, so a higher " +
+                "requirement could only be met by treating it as the ceiling — set it to the ceiling or lower.");
+
         var secretStore = options.SecretStore ?? new InMemorySecretStore();
         var identity = await new IdentityStore(secretStore).LoadOrCreateAsync(suite, cancellationToken).ConfigureAwait(false);
 
