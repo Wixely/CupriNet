@@ -26,6 +26,17 @@ public class FilePathGuardTests
     [InlineData("a//b")]                        // empty segment
     [InlineData("./relative")]                  // current-dir segment
     [InlineData("stream:name")]                 // colon / alternate data stream
+    [InlineData("what?.txt")]                   // Windows-invalid characters, refused on every OS
+    [InlineData("a<b")]
+    [InlineData("pipe|name")]
+    [InlineData("star*.bin")]
+    [InlineData("quo\"te")]
+    [InlineData("NUL")]                         // Windows device names, in any case, with any extension, at any depth
+    [InlineData("docs/con.txt")]
+    [InlineData("Com1.log")]
+    [InlineData("lpt9")]
+    [InlineData("trailing.")]                   // Windows strips a trailing dot or space
+    [InlineData("dir /file")]
     public void Normalize_RejectsUnsafePaths(string input)
     {
         Assert.Null(FilePathGuard.Normalize(input));

@@ -4,10 +4,25 @@ namespace CupriNet.Rites;
 /// Validates and normalizes untrusted relative paths from a Reliquary manifest. Rejects absolute/rooted
 /// paths, drive/ADS colons, empty or '.'/'..' segments (directory traversal), and invalid filename
 /// characters. Output uses forward slashes. Treat every incoming path as hostile.
+/// <para>
+/// The rules are the same on every OS — the strictest of them, which is Windows' — so a path one node accepts
+/// every node accepts, and a name that is harmless where it was made cannot turn into a device or a truncated
+/// name where it lands.
+/// </para>
 /// </summary>
 public static class FilePathGuard
 {
-    private static readonly char[] InvalidNameChars = Path.GetInvalidFileNameChars();
+    // What no segment may contain, anywhere: the Windows set, used everywhere. (The separators and ':' are handled
+    // on their own below; control characters by ContainsControlChar.)
+    private static readonly char[] InvalidNameChars = ['"', '<', '>', '|', '*', '?'];
+
+    // Names Windows resolves to a device whatever directory they appear in, with or without an extension.
+    private static readonly HashSet<string> ReservedNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "CON", "PRN", "AUX", "NUL",
+        "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+        "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+    };
 
     /// <summary>Returns a safe normalized relative path (forward slashes), or null if the path is unsafe.</summary>
     public static string? Normalize(string path, int maxLength = 1024)
@@ -31,6 +46,11 @@ public static class FilePathGuard
                 return null;
             if (ContainsControlChar(segment))
                 return null;
+            if (segment[^1] is '.' or ' ')    // Windows silently strips these, so two names would become one
+                return null;
+            var stem = segment.IndexOf('.') is var dot and >= 0 ? segment[..dot] : segment;
+            if (ReservedNames.Contains(stem.TrimEnd(' ')))
+                return null;
             clean.Add(segment);
         }
 
@@ -39,6 +59,13 @@ public static class FilePathGuard
 
     /// <summary>True if the path is a safe relative path.</summary>
     public static bool IsSafe(string path) => Normalize(path) is not null;
+
+    /// <summary>
+    /// True if the path is safe <em>and already in normal form</em> — what a path on the wire must be. A decoder
+    /// checks this so that an unsafe path never reaches the code that would use it.
+    /// </summary>
+    public static bool IsCanonical(string path, int maxLength = 1024)
+        => string.Equals(Normalize(path, maxLength), path, StringComparison.Ordinal);
 
     private static bool ContainsControlChar(string segment)
     {

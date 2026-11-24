@@ -31,6 +31,22 @@ public class ReliquaryTests
         Assert.Equal(manifest.Files[0].FullHash, decoded.Files[0].FullHash);
     }
 
+    [Theory]
+    [InlineData("../escape")]
+    [InlineData("/etc/passwd")]
+    [InlineData("C:\\Windows\\x")]
+    [InlineData("docs\\b.txt")]   // safe, but not in the normal form a path on the wire must be in
+    [InlineData("NUL.txt")]
+    public void Decode_RejectsAManifest_WhosePathNoWriterWouldAccept(string path)
+    {
+        var suite = CryptoSuites.Secure();
+        var honest = ReliquaryBuilder.Build([("a.bin", Bytes(100))], chunkSize: 256, suite);
+        // What a hostile peer sends: a well-formed manifest that names a path its own builder would have refused.
+        var hostile = honest with { Files = [honest.Files[0] with { RelativePath = path }] };
+
+        Assert.Throws<CupriNet.Codex.CodexFormatException>(() => ReliquaryCodec.Decode(ReliquaryCodec.Encode(hostile)));
+    }
+
     [Fact]
     public void Builder_RejectsUnsafePath()
     {

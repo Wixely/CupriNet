@@ -120,7 +120,10 @@ public static class ReliquaryCodec
             var hashCount = r.ReadVarUInt();
 
             // Cross-validate the attacker-controlled fields so downstream cannot over-allocate or
-            // compute a negative/oversized chunk length.
+            // compute a negative/oversized chunk length — and so that a path no writer would accept never
+            // leaves the decoder, whatever the caller then does with it.
+            if (!FilePathGuard.IsCanonical(path, limits.MaxPathLength))
+                throw new CodexFormatException("Manifest file path is not a safe, normalized relative path.");
             if (length < 0)
                 throw new CodexFormatException("Negative file length.");
             if (chunkSize <= 0 || chunkSize > limits.MaxChunkSize)
