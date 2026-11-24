@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.Diagnostics;
 using System.Net;
 using System.Security.Cryptography;
 using CupriMark;
@@ -35,12 +36,22 @@ public static class Toll
     /// <summary>
     /// Responder: issue a cookie bound to the initiator's <paramref name="clientAddress"/> and await the echo.
     /// Throws if the echo is missing, malformed, expired, or fails the HMAC — all before Noise state is created.
+    /// <paramref name="now"/> is the time of issue; the echo is judged against that plus the time actually elapsed.
+    /// </summary>
+    public static Task IssueAndVerifyAsync(
+        IVessel vessel, ReadOnlyMemory<byte> secret, EndPoint? clientAddress, DateTimeOffset now, CancellationToken cancellationToken)
+        => IssueAndVerifyAsync(vessel, secret, clientAddress, new ElapsedClock(now), cancellationToken);
+
+    /// <summary>
+    /// Responder: as above, reading the time from <paramref name="clock"/> — once to stamp the cookie and again
+    /// when the echo arrives, so a cookie's age is measured to the moment it is presented.
     /// </summary>
     public static async Task IssueAndVerifyAsync(
-        IVessel vessel, ReadOnlyMemory<byte> secret, EndPoint? clientAddress, DateTimeOffset now, CancellationToken cancellationToken)
+        IVessel vessel, ReadOnlyMemory<byte> secret, EndPoint? clientAddress, TimeProvider clock, CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(clock);
         var address = AddressBytes(clientAddress);
-        var issuedAt = now.ToUnixTimeSeconds();
+        var issuedAt = clock.GetUtcNow().ToUnixTimeSeconds();
 
         // Advertise the Toll version range this build speaks; the initiator range-negotiates against its own
         // catalogue and echoes the agreed ordinal — so a future Toll bump degrades gracefully instead of hard-failing.
@@ -60,11 +71,23 @@ public static class Toll
         var echoedAt = (long)r.ReadUInt64();
         var echoedCookie = r.ReadBytes();
 
-        if (Math.Abs(now.ToUnixTimeSeconds() - echoedAt) > (long)MaxAge.TotalSeconds)
+        // Validation stays stateless — the echoed timestamp is checked against the clock, not against what this
+        // call happened to issue — but the clock is read NOW, when the echo arrives. Judging it against the time
+        // of issue would never count the wait, and would accept a cookie stamped later than the present.
+        var age = clock.GetUtcNow().ToUnixTimeSeconds() - echoedAt;
+        if (age < 0 || age > (long)MaxAge.TotalSeconds)
             throw new NoiseConjunctionException("Toll cookie has expired.");
         var expected = Compute(secret.Span, address, echoedAt);
         if (!CryptographicOperations.FixedTimeEquals(echoedCookie, expected))
             throw new NoiseConjunctionException("Toll cookie failed verification.");
+    }
+
+    /// <summary>A clock that starts at a caller-supplied instant and advances with real elapsed time.</summary>
+    private sealed class ElapsedClock(DateTimeOffset start) : TimeProvider
+    {
+        private readonly long _started = Stopwatch.GetTimestamp();
+
+        public override DateTimeOffset GetUtcNow() => start + Stopwatch.GetElapsedTime(_started);
     }
 
     /// <summary>Initiator: read the responder's challenge and echo it back verbatim.</summary>
