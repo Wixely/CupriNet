@@ -31,10 +31,11 @@ On a **Channel** session, two best-effort exchanges follow the kind byte, in ord
 
 1. **Reflexive endpoint** (stream 5): each side tells the other the address it observed for it ([11 §11.3](11-traversal.md)).
 2. **Bootstrap** (stream 1): each side sends one PeerRecord document, its own, as the raw frame payload. The
-   initiator sends first. The receiver verifies the record and admits it into its peer table.
+   initiator sends first. The receiver verifies the record and admits it into its peer table. It MUST discard a
+   record whose Sigil is not the Sigil the Conjunction authenticated for this peer.
 
-> **Open (OI-07.2):** the reference receiver does not check that the bootstrap record's Sigil equals the
-> Noise-authenticated peer's Sigil, so a peer can hand over any validly signed third-party record.
+> **Resolved (OI-07.2):** the reference receiver used to admit any validly signed record sent in the bootstrap,
+> including a third party's. It now admits only the authenticated peer's own.
 >
 > **Open (OI-07.3):** if only one side runs the reflexive exchange, its reader consumes the bootstrap frame and
 > both exchanges fail. Neither exchange is negotiated.
@@ -54,7 +55,7 @@ response = op-specific body        ; no op echo, no status byte unless stated
 
 | Op | Name | Request body | Response |
 |---|---|---|---|
-| 1 | DIVINE | target: see OI-07.5 | PeerRecords |
+| 1 | DIVINE | `bytes<len>` target (32 bytes) | PeerRecords |
 | 2 | PUBLISH | `bytes<len>` decree document ‖ `bytes<len>` tribute nonce | Status |
 | 3 | LOOKUP | `varuint n` (≤ 8) ‖ `n × bytes<len>` glyph | Decrees |
 | 4 | SAMPLE | `varuint k` | PeerRecords (k is clamped to 16) |
@@ -72,10 +73,9 @@ discard a list whose count exceeds 16.
 
 *Reference:* `src/CupriNet.Hosting/OverlayControl.cs:44-285`, `src/CupriNet.Hosting/CupriNode.Overlay.cs:152-271`.
 
-> **Open (OI-07.5) — interop bug:** the reference client writes DIVINE's target as `bytes<len>` (`0x20` followed by
-> 32 bytes). The reference server reads the first 32 raw bytes of the body, so it routes on
-> `0x20 ‖ target[0..31]`. Discovery between reference nodes therefore converges on the wrong key. Proposal: the
-> request body is `bytes[32]` with no prefix, and the server is fixed to match.
+> **Resolved (OI-07.5):** the reference server used to read the first 32 raw bytes of the body, taking the length
+> prefix as part of the key, so every DIVINE was answered for a different target. It now reads the target as
+> `bytes<len>` and rejects any length other than 32.
 >
 > **Open (OI-07.6):** responses don't describe themselves: a Rejected status (`0x01`) parses as a list with one
 > entry. An empty request gets no response at all. The client has no response timeout.

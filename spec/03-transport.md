@@ -113,7 +113,15 @@ A receiver MUST ignore:
 - a datagram whose `cmd` is not 1, 2 or 3. Values `0xF1` and `0xF2` are hole-punch probes sharing the socket
   ([11](11-traversal.md)).
 
+A receiver MUST also ignore:
+
+- a `una` beyond the highest sequence number it has sent (`una > snd_next`): it cannot be an honest
+  acknowledgement;
+- any sequenced segment that arrives after the peer's CLOSE has been delivered.
+
 Segments outside `[rcv_next, rcv_next + 256)` are dropped but still trigger an ACK.
+
+A listener MUST NOT create state for an unknown source unless the datagram is a well-formed segment.
 
 *Reference:* `src/CupriNet.Vessel/ReliableArq.cs:21-226`.
 
@@ -128,15 +136,10 @@ Segments outside `[rcv_next, rcv_next + 256)` are dropped but still trigger an A
 | congestion control | none |
 | close linger | 80 ms |
 
-> **Open (OI-03.5):** reliable UDP has:
->
-> - no connection id, handshake, checksum or authentication;
-> - no range check on `una` (a `una` beyond `snd_next` stalls the sender silently);
-> - CLOSE sent effectively once and never acknowledged;
-> - no retry limit or idle timeout.
->
-> Noise above it detects tampering, but only by killing the connection. The reference listener also creates state
-> for any datagram of 11 bytes or more, whatever its `cmd`, and is IPv4-only.
+> **Open (OI-03.5), partly resolved:** the reference implementation now ignores an out-of-range `una` and data after
+> CLOSE, and its listener requires a well-formed segment. Still open: reliable UDP has no connection id, handshake,
+> checksum or authentication; CLOSE is sent effectively once and never acknowledged; there is no retry limit or idle
+> timeout; and it is IPv4-only. Noise above it detects tampering, but only by killing the connection.
 
 ## 3.5 Noise transport framing
 

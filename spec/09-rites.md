@@ -45,8 +45,9 @@ frames that have no envelope.
 
 *Reference:* `src/CupriNet.Rites/RiteAuthor.cs:12-100`.
 
-> **Open (OI-09.2):** verification runs over a re-encoding, so a signed frame stays valid even if an attacker alters
-> its trailing bytes or uses a non-minimal varint encoding.
+> **Open (OI-09.2), reduced:** verification runs over a re-encoding of the frame. Now that decoding is strict (01
+> §1.3), the only bytes an attacker can alter without breaking the signature are those after the envelope, which is
+> where padding goes.
 
 ## 9.3 Epistle (message), stream 3
 

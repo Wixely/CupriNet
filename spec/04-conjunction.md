@@ -66,15 +66,15 @@ cookie = HMAC-SHA256(key = toll_secret, msg = addr ‖ u64(issuedAt))[0..16)
 R MUST close the connection unless all of the following hold:
 
 1. `agreedVersion` ≤ 65,535 and is accepted by R;
-2. `|now − issuedAt|` ≤ 30 s;
+2. `0 ≤ now − issuedAt ≤ 30 s`, where `now` is read when the echo arrives;
 3. the cookie matches the recomputed value, compared in constant time.
 
 *Reference:* `src/CupriNet.Conjunction/Toll.cs:21-113`.
 
-> **Open (OI-04.1):** the reference responder captures `now` once, at issuance, and reuses it at verification
-> (`Toll.cs:43,63`). Check 2 therefore compares `issuedAt` against the time of *this* connection's challenge rather
-> than the time the echo arrives. As a result, any cookie minted for the same IP within ±30 s, on any connection, is
-> accepted, and the real lifetime is the handshake deadline. Proposal: take `now` at verification.
+> **Resolved (OI-04.1):** the reference responder used to judge the echo against the time of issue, so the wait was
+> never counted and a cookie stamped later than the present was accepted. It now reads the clock when the echo
+> arrives. Validation stays stateless, so a cookie minted for the same address on another connection is still accepted
+> within the 30 s window; that is by design.
 >
 > **Open (OI-04.2):** whether the Toll is used is configuration, not signalled in-band. A mismatched pair fails by
 > parse error or timeout. Proposal: make the Toll mandatory, or give the first byte a discriminator.

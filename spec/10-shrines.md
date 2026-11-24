@@ -285,6 +285,5 @@ These values do not affect interoperability. They are RECOMMENDED defaults:
 | Live Auspice feeds per visit | 32 |
 | Subnet allow/deny fence | applied before the handshake; see [11](11-traversal.md) |
 
-> **Open (OI-10.7):** in the reference host, browser (WebRTC) Pilgrimages bypass the concurrency caps. The Toll
-> cookie on a DataChannel may be bound to an empty address. [design/shrines.md](../design/shrines.md) promises
-> per-source rate limiting on this path.
+> **Resolved (OI-10.7):** browser (WebRTC) Pilgrimages used to bypass the concurrency caps. They now draw on the same
+> visit budget and per-address share as the Shrine port, and the Toll cookie is bound to the browser's address.

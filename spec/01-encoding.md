@@ -39,17 +39,12 @@ A decoder MUST reject the input when:
 - it ends before a fixed-width field or `bytes[n]` is complete;
 - a `bytes<len>` or `string` length is larger than the bytes remaining in the enclosing structure. The decoder MUST
   check this before allocating;
-- a `varuint` reaches an 11th byte.
+- a `varuint` reaches an 11th byte, has bits set above bit 63, or is not in its shortest form (e.g. `80 00` for
+  zero);
+- a `string` is not well-formed UTF-8.
 
-The reference decoder is more lenient than the encoder in three places that the spec still has to settle:
+*Resolved (OI-01.1, OI-01.2, OI-01.3): the reference decoder now enforces these.*
 
-> **Open (OI-01.1):** non-minimal `varuint` encodings (e.g. `80 00` for zero) are accepted. Proposal: MUST reject,
-> as the CupriMark reader already does.
->
-> **Open (OI-01.2):** in a 10-byte `varuint`, bits above bit 63 are silently discarded. Proposal: MUST reject.
->
-> **Open (OI-01.3):** invalid UTF-8 is replaced with U+FFFD rather than rejected. Proposal: MUST reject.
->
 > **Open (OI-01.4):** bytes after a structure's last field are ignored in every structure. Padding (10 §10.3.1) and
 > the trailing optional `targetTag` (04 §4.4) rely on this. Proposal: make it explicit per structure. Structures
 > that permit extension or padding say so; all others MUST reject trailing bytes.

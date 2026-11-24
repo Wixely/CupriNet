@@ -22,14 +22,15 @@ PeerRecord, Intonation, Decree and LanPresence all share one envelope:
 | body | `bytes<len>` |
 | signature | `bytes<len>`: Ed25519 over the exact `body` bytes |
 
-A verifier MUST verify the signature over the `body` bytes **as received**. Signed bodies carry no domain-separation
-label (OI-02.3).
+A verifier MUST verify the signature over the `body` bytes **as received**. A node that stores a document and later
+sends it on (a PeerRecord in gossip, a Decree in a lookup) MUST send the same `body` bytes it received. A decoder
+MUST ignore bytes in a `body` after the last field it knows: they are fields added by a later version, and they
+stay under the signature. Signed bodies carry no domain-separation label (OI-02.3).
 
-> **Open (OI-06.2):** several reference verifiers (PeerRecord, Decree, LanPresence, and `CupriNode.ConjoinAsync`
-> for Intonations) decode the body, *re-encode* it, and verify the re-encoding. A non-canonical body therefore fails
-> on those paths but passes `IntonationValidator`. That makes canonical encoding mandatory in practice
-> (01 OI-01.1–01.4) and rules out adding new fields to these documents without breaking older verifiers.
-> Proposal: verify the received bytes everywhere, and require canonical encoding at decode.
+> **Resolved (OI-06.2):** several reference verifiers used to decode the body, re-encode it and verify the re-
+> encoding, so a document could be valid on one path and refused on another, and no document could gain a field.
+> Decoded documents now carry the body they arrived with; it is what is verified and what is forwarded. Canonical
+> encoding is enforced at decode (01 §1.3).
 
 ## 6.3 Beacon (reachability candidate)
 
@@ -110,7 +111,8 @@ With no trailer fields, the body ends after field 9.
 
 *Reference:* `src/CupriNet.Core/IntonationCodec.cs:14-163`, `src/CupriNet.Core/Monikers.cs:21-77`.
 
-> **Open (OI-06.5):** moniker normalisation depends on the runtime's Unicode tables, and it changes signed bytes.
+> **Open (OI-06.5), reduced:** moniker normalisation depends on the runtime's Unicode tables. It no longer affects
+> whether a document verifies (OI-06.2), but two implementations can still display different names for the same bytes.
 > Pin a Unicode version, or move normalisation to display time.
 >
 > **Open (OI-06.6):** the `0x00` WebRTC sentinel makes pre-Shrine decoders reject links that carry a Shrine but no

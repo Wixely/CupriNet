@@ -171,13 +171,16 @@ A node MAY publish a v3 onion service. It advertises it as an Onion beacon (06 ย
 
 The Vessel over a Tor stream uses byte-stream framing (03 ยง3.1).
 
-In **TorOnly** mode a node advertises only its onion beacon and dials nothing over clearnet.
+In **TorOnly** mode a node advertises only its onion beacon and dials nothing over clearnet. It MUST NOT open a
+TCP connection or send a hole-punch probe from its own address, MUST NOT hold a Ferryman reservation, and MUST NOT
+publish a WebRTC endpoint block. A link restricted to onion beacons MUST NOT carry a WebRTC endpoint block
+either.
 
 > **Open (OI-11.8):** onion peers arrive from `127.0.0.1` through the reverse proxy, so the Toll cookie and the subnet
 > fence both see loopback.
 >
-> **Open (OI-11.9):** in TorOnly mode, Ferryman, LAN-discovered and punch dials are not guarded against clearnet. A
-> WebRTC block in an onion-only link would tie the onion identity to a clearnet UDP endpoint.
+> **Resolved (OI-11.9):** in the reference implementation the Ferryman, mutual-punch and LAN dial paths were not
+> guarded in TorOnly mode, and a WebRTC block could ride in an onion-only link. All are now refused or omitted.
 
 ## 11.7 WebRTC (browser peers)
 
@@ -211,5 +214,5 @@ treated as a channel pairing.
 > TCP ports, and the default Host beacon can be `127.0.0.1`. ICE credentials and the certificate change every time
 > the transport is constructed, so a minted link stops working after a restart.
 >
-> **Open (OI-11.11):** browser connections bypass the subnet fence, the handshake concurrency cap and the Pilgrimage
-> caps (also OI-10.7).
+> **Resolved (OI-11.11):** browser connections used to bypass the subnet fence, the handshake concurrency cap and the
+> Pilgrimage caps (also OI-10.7). They are now admitted on the same terms as TCP callers.

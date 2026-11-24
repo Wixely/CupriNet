@@ -194,12 +194,12 @@ claim      = bytes(persona_public_key) ‖ u8 tag ‖ [tag = 1: bytes(investitur
 `tag` is `0` when the persona is the owner, and `1` when an Investiture follows. The initiator sends its claim first.
 Each side verifies the other's claim against the descriptor.
 
-> **Open (OI-08.8) — security:** both sides sign the *same* commitment, and the responder receives first. A responder
-> that knows the Watchword but holds no Investiture can echo the initiator's own claim back. The initiator then
-> verifies its own signature and Investiture and admits the responder. The verifier never checks that the peer's
-> persona differs from its own, and the commitment carries no role. Proposal: include the role
-> (`"initiator"`/`"responder"`) in the commitment, and reject a peer persona equal to one's own.
-> *Reference:* `src/CupriNet.Hosting/CupriNode.cs:664-742`.
+> **Open (OI-08.8) — security, mitigated:** both sides sign the *same* commitment, and the responder receives first,
+> so a responder that knows the Watchword but holds no Investiture could echo the initiator's own claim back and be
+> admitted. The reference implementation now refuses a claim that names the verifier's own persona, which blocks the
+> reflection. As a side effect two devices sharing one persona cannot pair on a gated channel. The proper fix is
+> planned for `consecration` v2: include the role (`"initiator"` or `"responder"`) in the commitment. *Reference:*
+> `src/CupriNet.Hosting/CupriNode.cs` (`VerifyAdmissionClaim`).
 >
 > **Open (OI-08.9):** whether admission runs is a local setting that is not signalled. A mismatched pair deadlocks or
 > fails with a stream error.
