@@ -57,6 +57,12 @@ public static class CupriMarks
     /// <summary>The Conduit (a Shrine's raw duplex site rite) frame component.</summary>
     public const string Conduit = "conduit";
 
+    /// <summary>The Ferryman (brokered hole-punch signalling between a relay and two NAT'd peers) message component.</summary>
+    public const string Ferryman = "ferryman";
+
+    /// <summary>The RelayRoute (how to reach a node through a Ferryman, published in an Intonation) block component.</summary>
+    public const string RelayRoute = "relay-route";
+
     /// <summary>
     /// The single built-in catalogue for the CupriNet protocol suite. Frozen at first access; its
     /// SHA-256 <see cref="Catalogue.Id"/> identifies exactly this set of definitions, so two builds that
@@ -145,6 +151,18 @@ public static class CupriMarks
         [
             // v1 — the chunked bulk-content frames (manifest and chunk, request and delivery) that carry a
             // Reliquary transfer over a Pilgrimage.
+            new ComponentVersion(1, BumpReason.Functionality, VersionStatus.Active),
+        ]),
+        new Component(Ferryman,
+        [
+            // v1 — reserve / rendezvous / offer / notify. The first versioned form: a target reserves under the
+            // hash of a per-relay rendezvous key and signs over the connection's handshake hash. (What came
+            // before carried no version, reserved under a hash of the Sigil, and signed with the Seal.)
+            new ComponentVersion(1, BumpReason.Functionality, VersionStatus.Active),
+        ]),
+        new Component(RelayRoute,
+        [
+            // v1 — the relay routes on an Intonation: each a relay's Sigil and address plus the handle to ask for.
             new ComponentVersion(1, BumpReason.Functionality, VersionStatus.Active),
         ]),
         new Component(Conduit,

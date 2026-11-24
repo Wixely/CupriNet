@@ -319,8 +319,9 @@ public class CupriNodeTorTests
         var relay = new Beacon(EndpointKind.Relay, "127.0.0.1", 1);
         var someone = NodeIdentity.Generate(node.Suite).Sigil;
 
-        await Assert.ThrowsAsync<CupriNodeException>(() => node.ConjoinViaFerrymanAsync(relay, someone, now, cancellationToken: ct));
-        await Assert.ThrowsAsync<CupriNodeException>(() => node.MaintainFerrymanReservationAsync(relay, ct));
+        var route = new RelayRoute(someone, "127.0.0.1", 1, new byte[RelayRoute.HandleSize]);
+        await Assert.ThrowsAsync<CupriNodeException>(() => node.ConjoinViaFerrymanAsync(route, someone, now, cancellationToken: ct));
+        await Assert.ThrowsAsync<CupriNodeException>(() => node.MaintainFerrymanReservationAsync(relay, cancellationToken: ct));
 
         var socket = new System.Net.Sockets.Socket(
             System.Net.Sockets.AddressFamily.InterNetwork, System.Net.Sockets.SocketType.Dgram, System.Net.Sockets.ProtocolType.Udp);

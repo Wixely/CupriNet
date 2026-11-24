@@ -34,6 +34,9 @@ public sealed record IntonationOptions
     /// node's overlay Sigil (see <see cref="ShrineAddressCodec"/>).
     /// </summary>
     public Sigil? Shrine { get; init; }
+
+    /// <summary>Ferryman relays the inviter can be reached through; stamped into the link (see <see cref="RelayRoute"/>).</summary>
+    public IReadOnlyList<RelayRoute> RelayRoutes { get; init; } = [];
 }
 
 /// <summary>Mints signed Intonations for a node identity (the <c>Intone</c> command).</summary>
@@ -64,6 +67,7 @@ public static class IntonationMint
             Moniker = options.Moniker,
             WebRtc = options.WebRtc,
             Shrine = options.Shrine,
+            RelayRoutes = options.RelayRoutes,
             Signature = [],
         };
 

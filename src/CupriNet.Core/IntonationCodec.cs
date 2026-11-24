@@ -58,17 +58,26 @@ public static class IntonationCodec
         // Interop: a link with a Shrine AND a WebRTC block still parses cleanly on a pre-Shrine build (it reads up to
         // the WebRTC block and ignores the rest). A Shrine with NO WebRTC block writes the 0 sentinel, which such a
         // build rejects as an unknown WebRTC version — so a public Shrine host should advertise both.
+        //
+        // The relay routes come last and follow the same rule: when they are present, an absent Shrine block is
+        // written as the same 0 sentinel, since its real form also begins with a version byte of at least 1.
         var moniker = Monikers.Normalize(intonation.Moniker);
         var webrtc = intonation.WebRtc;
         var shrine = intonation.Shrine;
-        if (moniker is not null || webrtc is not null || shrine is not null)
+        var routes = intonation.RelayRoutes;
+        var hasRoutes = routes.Count > 0;
+        if (moniker is not null || webrtc is not null || shrine is not null || hasRoutes)
             w.WriteString(moniker ?? "");
         if (webrtc is not null)
             WebRtcCodec.Write(w, webrtc);
-        else if (shrine is not null)
+        else if (shrine is not null || hasRoutes)
             w.WriteByte(ShrineAddressCodec.AbsentBlock);
         if (shrine is { } signet)
             ShrineAddressCodec.Write(w, signet);
+        else if (hasRoutes)
+            w.WriteByte(ShrineAddressCodec.AbsentBlock);
+        if (hasRoutes)
+            RelayRouteCodec.Write(w, routes);
 
         return w.ToArray();
     }
@@ -157,7 +166,14 @@ public static class IntonationCodec
             if (block != ShrineAddressCodec.AbsentBlock)
                 webrtc = WebRtcCodec.ReadAfterVersion(ref r, block);
         }
-        Sigil? shrine = r.End ? null : ShrineAddressCodec.Read(ref r);
+        Sigil? shrine = null;
+        if (!r.End)
+        {
+            var block = r.ReadByte();
+            if (block != ShrineAddressCodec.AbsentBlock)
+                shrine = ShrineAddressCodec.ReadAfterVersion(ref r, block);
+        }
+        IReadOnlyList<RelayRoute> routes = r.End ? [] : RelayRouteCodec.Read(ref r);
 
         return new Intonation
         {
@@ -173,6 +189,7 @@ public static class IntonationCodec
             Moniker = moniker,
             WebRtc = webrtc,
             Shrine = shrine,
+            RelayRoutes = routes,
             Signature = [],
         };
     }

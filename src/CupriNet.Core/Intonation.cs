@@ -56,6 +56,13 @@ public sealed record Intonation
     /// </summary>
     public Sigil? Shrine { get; init; }
 
+    /// <summary>
+    /// Ferryman relays through which the inviter can be reached when none of its <see cref="Beacons"/> can be
+    /// dialled — each one a relay to trust (or not) and the handle to ask it for. Empty when the inviter holds no
+    /// relay reservation. See <see cref="RelayRoute"/>.
+    /// </summary>
+    public IReadOnlyList<RelayRoute> RelayRoutes { get; init; } = [];
+
     /// <summary>Detached signature over the canonical body, made with the inviter's Seal.</summary>
     public required byte[] Signature { get; init; }
 

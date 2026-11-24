@@ -206,6 +206,7 @@ public sealed partial class CupriNode : IAsyncDisposable
             // and its port, ICE credentials and DTLS fingerprint would tie that link to this node's clearnet ones.
             WebRtc = transports == LinkTransports.OnionOnly ? null : WebRtcEndpointToAdvertise,
             Shrine = shrineOverride ?? ShrineToAdvertise,
+            RelayRoutes = RelayRoutesToAdvertise(transports),
         }, now);
     }
 

@@ -231,15 +231,13 @@ public sealed class ChatService : IAsyncDisposable
             beacons.Add(new Beacon(EndpointKind.Host, localIp, advPort));
         }
 
-        // Optional Ferryman relay (for a home user behind NAT with no port-forward): reserve with it and put a
-        // Relay beacon in our link so peers who can't reach us directly can broker a connection. host:port via env.
+        // Optional Ferryman relay (for a home user behind NAT with no port-forward): reserve with it, and once the
+        // reservation is confirmed our links carry the route so peers who can't reach us directly can broker a
+        // connection. host:port via env. Nothing goes in the beacons: the node stamps the route into each link.
         _relayBeacon = null;
         var relayEnv = Environment.GetEnvironmentVariable("CUPRICHATLITE_RELAY");
         if (!tor && !string.IsNullOrWhiteSpace(relayEnv) && TryParseHostPort(relayEnv!, out var relHost, out var relPort))
-        {
-            _relayBeacon = new Beacon(EndpointKind.Relay, relHost, relPort);
-            beacons.Add(_relayBeacon);
-        }
+            _relayBeacon = new Beacon(EndpointKind.Manual, relHost, relPort);
 
         Beacon[]? advertised = beacons.Count > 0 ? beacons.ToArray() : null;
 
@@ -294,13 +292,19 @@ public sealed class ChatService : IAsyncDisposable
             _node.LanPeerDiscovered += OnLanPeerDiscovered;
         _kindred = await KindredBook.LoadAsync(_store, _cts.Token);
 
-        // If a relay is configured, keep a reservation live so peers can reach us through it (we dial the relay
-        // as an ordinary address; our link advertised it as a Relay beacon above).
+        // If a relay is configured, keep a reservation live so peers can reach us through it. The relay is not told
+        // who we are; once it confirms, links minted from then on carry the route.
         if (_relayBeacon is not null)
         {
-            var relayDial = new Beacon(EndpointKind.Manual, _relayBeacon.Host, _relayBeacon.Port);
-            _ = Task.Run(() => _node.MaintainFerrymanReservationAsync(relayDial, _cts.Token));
-            Status?.Invoke($"Reachable via relay {_relayBeacon.Host}:{_relayBeacon.Port}.");
+            var relay = _relayBeacon;
+            _node.RelayRouteReady += route =>
+                Status?.Invoke($"Reachable via relay {route.Host}:{route.Port} — new links include it.");
+            _ = Task.Run(async () =>
+            {
+                try { await _node.MaintainFerrymanReservationAsync(relay, sigil => ApproveOwnRelayAsync(relay, sigil), _cts.Token); }
+                catch (OperationCanceledException) { }
+                catch (Exception ex) { Status?.Invoke($"Relay {relay.Host}:{relay.Port} is not in use: {ex.Message}"); }
+            });
         }
 
         _selfId = Convert.ToHexStringLower(_node.Identity.Sigil.Span);
@@ -400,26 +404,26 @@ public sealed class ChatService : IAsyncDisposable
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             // Direct connection failed. If the link offers a Ferryman relay, broker one (with the user's consent).
-            var relay = intonation.Beacons.FirstOrDefault(b => b.Kind == EndpointKind.Relay);
-            if (relay is null)
+            var route = intonation.RelayRoutes.FirstOrDefault();
+            if (route is null)
             {
                 Status?.Invoke($"Couldn't connect directly: {ex.Message}");
                 return;
             }
-            await ConnectViaRelayAsync(relay, intonation.InviterSigil);
+            await ConnectViaRelayAsync(route, intonation.InviterSigil);
         }
     }
 
     /// <summary>Reaches a peer that isn't directly reachable by brokering a hole punch through the relay it advertised.</summary>
-    private async Task ConnectViaRelayAsync(Beacon relay, Sigil target)
+    private async Task ConnectViaRelayAsync(RelayRoute route, Sigil target)
     {
         if (_node is null)
             return;
         try
         {
+            // The link names the relay, so the user is asked about it before we connect to it at all.
             Status?.Invoke("Peer isn't directly reachable — a public relay can broker a direct connection…");
-            var relayDial = new Beacon(EndpointKind.Manual, relay.Host, relay.Port);
-            var peer = await _node.ConjoinViaFerrymanAsync(relayDial, target, DateTimeOffset.UtcNow, ApproveRelayAsync, _cts.Token);
+            var peer = await _node.ConjoinViaFerrymanAsync(route, target, DateTimeOffset.UtcNow, ApproveRelayAsync, _cts.Token);
             Status?.Invoke("Paired via relay.");
             await OnPeerPairedAsync(peer);
         }
@@ -445,13 +449,40 @@ public sealed class ChatService : IAsyncDisposable
         if (approved)
         {
             _knownRelays.Approve(relaySigil, null, DateTimeOffset.UtcNow);
-            if (_store is not null)
-            {
-                try { await _store.StoreAsync(KnownRelaysKey, _knownRelays.Encode(), _cts.Token).ConfigureAwait(false); }
-                catch { /* best-effort persistence */ }
-            }
+            await SaveKnownRelaysAsync().ConfigureAwait(false);
         }
         return approved;
+    }
+
+    /// <summary>
+    /// The trust gate for the relay WE reserve with. Naming it in the configuration is the consent, so its key is
+    /// trusted on first use and remembered against that address — and if the relay at that address later presents a
+    /// different key, it is refused rather than quietly trusted again (SSH's changed-host-key case).
+    /// </summary>
+    private async Task<bool> ApproveOwnRelayAsync(Beacon relay, Sigil relaySigil)
+    {
+        var name = $"{relay.Host}:{relay.Port}";
+        switch (_knownRelays.Evaluate(relaySigil, name))
+        {
+            case RelayTrust.Known:
+                return true;
+            case RelayTrust.NameConflict:
+                Status?.Invoke($"⚠ Relay {name} is presenting a DIFFERENT key than before ({RelayFingerprint(relaySigil)}). Not using it.");
+                return false;
+            default:
+                _knownRelays.Approve(relaySigil, name, DateTimeOffset.UtcNow);
+                await SaveKnownRelaysAsync().ConfigureAwait(false);
+                Status?.Invoke($"Using relay {name} — fingerprint {RelayFingerprint(relaySigil)}.");
+                return true;
+        }
+    }
+
+    private async Task SaveKnownRelaysAsync()
+    {
+        if (_store is null)
+            return;
+        try { await _store.StoreAsync(KnownRelaysKey, _knownRelays.Encode(), _cts.Token).ConfigureAwait(false); }
+        catch { /* best-effort persistence */ }
     }
 
     /// <summary>A human-comparable fingerprint of a relay's identity (grouped hex), for the trust prompt.</summary>

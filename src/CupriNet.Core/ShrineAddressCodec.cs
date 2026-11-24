@@ -32,9 +32,12 @@ public static class ShrineAddressCodec
         writer.WriteBytes(shrine.Span);
     }
 
-    public static Sigil Read(ref CodexReader reader)
+    public static Sigil Read(ref CodexReader reader) => ReadAfterVersion(ref reader, reader.ReadByte());
+
+    /// <summary>Reads the rest of a block whose version byte the caller has already taken (to test it for
+    /// <see cref="AbsentBlock"/>).</summary>
+    public static Sigil ReadAfterVersion(ref CodexReader reader, byte version)
     {
-        var version = reader.ReadByte();
         if (!CupriMarks.Accepts(CupriMarks.ShrineAddress, version))
             throw new CodexFormatException($"Unsupported ShrineAddress version {version}.");
 

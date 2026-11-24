@@ -371,7 +371,8 @@ public sealed record CupriNodeOptions
     /// <summary>
     /// Act as a <b>Ferryman</b>: a public relay that brokers a hole punch between two NAT'd peers by shuttling
     /// their candidate addresses and a session nonce, then dropping out. It carries <em>signaling only</em> — never
-    /// L2 content — and never learns the peers' real identities (they connect with ephemeral keys). Off by default;
+    /// L2 content — and never learns the peers' Sigils (they connect with throwaway identities, and a target
+    /// reserves under a key made for this relay alone). It does see both peers' addresses. Off by default;
     /// a natural role for a reachable keep-alive node (Lodestar). See <c>design/ferryman.md</c>.
     /// </summary>
     public bool EnableFerryman { get; init; }

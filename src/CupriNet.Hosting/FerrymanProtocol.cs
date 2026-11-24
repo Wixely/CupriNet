@@ -1,22 +1,28 @@
 using System.Net;
 using System.Security.Cryptography;
-using CupriNet.Abstractions;
 using CupriNet.Codex;
+using CupriNet.Core;
+using CupriNet.Marks;
 
 namespace CupriNet.Hosting;
 
 /// <summary>
 /// Wire format for the Ferryman rendezvous — the small signaling exchange a relay brokers so two NAT'd peers can
-/// hole-punch a direct connection. The relay only shuttles candidate addresses and a session nonce; it never sees
-/// the peers' real identities (both connect with an ephemeral key) nor any channel content.
+/// hole-punch a direct connection. The relay only shuttles candidate addresses and a session nonce. It sees no
+/// channel content, and neither peer's Sigil: both connect with a throwaway identity, the requester names the
+/// target only by a handle, and the target proves it owns that handle with a key made for this relay alone.
 ///
-/// A target D <c>Reserve</c>s under a <see cref="Handle"/> derived from its Sigil (so the relay learns a blinded
-/// handle, not D's identity). A requester E <c>Rendezvous</c>es for that handle; the relay pushes a <c>Notify</c>
-/// to D and replies with an <c>Offer</c> to E, each carrying the other's punch candidates and a shared nonce.
+/// A target D <c>Reserve</c>s under a <see cref="Handle"/> — the hash of its rendezvous key for this relay — and
+/// signs the reservation with that key over this connection's handshake hash, so the reservation cannot be squatted
+/// and cannot be replayed on any other connection. A requester E, who got the handle from D's link,
+/// <c>Rendezvous</c>es for it; the relay pushes a <c>Notify</c> to D and replies with an <c>Offer</c> to E, each
+/// carrying the other's punch candidates and a shared nonce.
+///
+/// Every message is <c>type ‖ version ‖ …</c>, the version being the CupriMark <c>ferryman</c> ordinal.
 /// </summary>
 internal static class FerrymanProtocol
 {
-    public const byte MsgReserve = 1;    // D -> relay : { handle, candidates }
+    public const byte MsgReserve = 1;    // D -> relay : { handle, candidates, rendezvous key, signature }
     public const byte MsgReserved = 2;   // relay -> D : { status }
     public const byte MsgRendezvous = 3; // E -> relay : { handle, candidates }
     public const byte MsgOffer = 4;      // relay -> E : { status, nonce, candidates(of D) }
@@ -25,100 +31,151 @@ internal static class FerrymanProtocol
     public const byte StatusOk = 0;
     public const byte StatusNotReserved = 1;
 
-    public const int HandleSize = 16;
+    public const int HandleSize = RelayRoute.HandleSize;
     public const int NonceSize = 16;
     public const int MaxCandidates = 8;
 
-    /// <summary>A relay-facing, blinded handle for a target: the relay keys reservations by this, not by the Sigil.</summary>
-    public static byte[] Handle(Sigil target)
+    private static byte Version => checked((byte)CupriMarks.Supported(CupriMarks.Ferryman).Max);
+
+    /// <summary>
+    /// The handle a target is reserved under: a hash of its rendezvous public key. The relay keys reservations by
+    /// this. It is not derived from the target's Sigil, so knowing a Sigil does not reveal it.
+    /// </summary>
+    public static byte[] Handle(ReadOnlySpan<byte> rendezvousPublicKey)
     {
-        var buf = new byte[DomainReserve.Length + Sigil.Size];
-        DomainReserve.CopyTo(buf, 0);
-        target.Span.CopyTo(buf.AsSpan(DomainReserve.Length));
+        var buf = new byte[DomainHandle.Length + rendezvousPublicKey.Length];
+        DomainHandle.CopyTo(buf, 0);
+        rendezvousPublicKey.CopyTo(buf.AsSpan(DomainHandle.Length));
         return SHA256.HashData(buf)[..HandleSize];
     }
 
-    private static readonly byte[] DomainReserve = "cuprinet/ferryman/handle/v1"u8.ToArray();
+    private static readonly byte[] DomainHandle = "cuprinet/ferryman/handle/v2"u8.ToArray();
 
-    /// <summary>The exact bytes a target signs to prove it owns the key behind <paramref name="handle"/> (anti-squat).</summary>
-    public static byte[] ReserveSubject(byte[] handle, IReadOnlyList<IPEndPoint> candidates)
+    /// <summary>
+    /// The exact bytes a target signs to reserve <paramref name="handle"/>: a label, the handshake hash of its
+    /// connection to the relay, the handle and its candidates. The handshake hash is what makes the reservation
+    /// good for this one connection and no other.
+    /// </summary>
+    public static byte[] ReserveSubject(ReadOnlySpan<byte> handshakeHash, byte[] handle, IReadOnlyList<IPEndPoint> candidates)
     {
         var w = new CodexWriter();
         w.WriteBytes(DomainReserveSig);
+        w.WriteBytes(handshakeHash);
         w.WriteBytes(handle);
         WriteCandidates(w, candidates);
         return w.ToArray();
     }
 
-    private static readonly byte[] DomainReserveSig = "cuprinet/ferryman/reserve/v1"u8.ToArray();
+    private static readonly byte[] DomainReserveSig = "cuprinet/ferryman/reserve/v2"u8.ToArray();
 
-    public static byte[] Reserve(byte[] handle, IReadOnlyList<IPEndPoint> candidates, byte[] sealPublicKey, byte[] signature)
+    public static byte[] Reserve(byte[] handle, IReadOnlyList<IPEndPoint> candidates, byte[] rendezvousPublicKey, byte[] signature)
     {
-        var w = new CodexWriter();
-        w.WriteByte(MsgReserve);
+        var w = Begin(MsgReserve);
         w.WriteBytes(handle);
         WriteCandidates(w, candidates);
-        w.WriteBytes(sealPublicKey);
+        w.WriteBytes(rendezvousPublicKey);
         w.WriteBytes(signature);
         return w.ToArray();
     }
 
-    public static byte[] Reserved(byte status) => [MsgReserved, status];
+    public static byte[] Reserved(byte status)
+    {
+        var w = Begin(MsgReserved);
+        w.WriteByte(status);
+        return w.ToArray();
+    }
 
     public static byte[] Rendezvous(byte[] handle, IReadOnlyList<IPEndPoint> candidates)
     {
-        var w = new CodexWriter();
-        w.WriteByte(MsgRendezvous);
+        var w = Begin(MsgRendezvous);
         w.WriteBytes(handle);
         WriteCandidates(w, candidates);
         return w.ToArray();
     }
 
-    public static byte[] Offer(byte status, byte[] nonce, IReadOnlyList<IPEndPoint> candidates)
+    public static byte[] Offer(byte status, byte[] nonce, IReadOnlyList<IPEndPoint> targetCandidates)
     {
-        var w = new CodexWriter();
-        w.WriteByte(MsgOffer);
+        var w = Begin(MsgOffer);
         w.WriteByte(status);
         w.WriteBytes(nonce);
-        WriteCandidates(w, candidates);
+        WriteCandidates(w, targetCandidates);
         return w.ToArray();
     }
 
-    public static byte[] Notify(byte[] nonce, IReadOnlyList<IPEndPoint> candidates)
+    public static byte[] Notify(byte[] nonce, IReadOnlyList<IPEndPoint> requesterCandidates)
+    {
+        var w = Begin(MsgNotify);
+        w.WriteBytes(nonce);
+        WriteCandidates(w, requesterCandidates);
+        return w.ToArray();
+    }
+
+    private static CodexWriter Begin(byte type)
     {
         var w = new CodexWriter();
-        w.WriteByte(MsgNotify);
-        w.WriteBytes(nonce);
-        WriteCandidates(w, candidates);
-        return w.ToArray();
+        w.WriteByte(type);
+        w.WriteByte(Version);
+        return w;
     }
 
     // ---- parsing ------------------------------------------------------------------------------
 
-    public static bool TryReadReserve(ReadOnlySpan<byte> payload, out byte[] handle, out List<IPEndPoint> candidates, out byte[] sealPublicKey, out byte[] signature)
+    /// <summary>The message type of a payload, or 0 if it is empty.</summary>
+    public static byte TypeOf(ReadOnlySpan<byte> payload) => payload.Length > 0 ? payload[0] : (byte)0;
+
+    public static bool TryReadReserve(ReadOnlySpan<byte> payload, out byte[] handle, out List<IPEndPoint> candidates, out byte[] rendezvousPublicKey, out byte[] signature)
     {
         handle = [];
         candidates = [];
-        sealPublicKey = [];
+        rendezvousPublicKey = [];
         signature = [];
         try
         {
             var r = new CodexReader(payload);
-            if (r.ReadByte() != MsgReserve)
+            if (!ReadHeader(ref r, MsgReserve))
                 return false;
             handle = r.ReadBytes().ToArray();
             if (handle.Length != HandleSize)
                 return false;
             candidates = ReadCandidates(ref r);
-            sealPublicKey = r.ReadBytes().ToArray();
+            rendezvousPublicKey = r.ReadBytes().ToArray();
             signature = r.ReadBytes().ToArray();
-            return sealPublicKey.Length is > 0 and <= 64 && signature.Length is > 0 and <= 128;
+            return rendezvousPublicKey.Length is > 0 and <= 64 && signature.Length is > 0 and <= 128;
+        }
+        catch (CodexFormatException) { return false; }
+    }
+
+    public static bool TryReadReserved(ReadOnlySpan<byte> payload, out byte status)
+    {
+        status = StatusNotReserved;
+        try
+        {
+            var r = new CodexReader(payload);
+            if (!ReadHeader(ref r, MsgReserved))
+                return false;
+            status = r.ReadByte();
+            return true;
         }
         catch (CodexFormatException) { return false; }
     }
 
     public static bool TryReadRendezvous(ReadOnlySpan<byte> payload, out byte[] handle, out List<IPEndPoint> candidates)
-        => TryReadHandleAndCandidates(payload, MsgRendezvous, out handle, out candidates);
+    {
+        handle = [];
+        candidates = [];
+        try
+        {
+            var r = new CodexReader(payload);
+            if (!ReadHeader(ref r, MsgRendezvous))
+                return false;
+            handle = r.ReadBytes().ToArray();
+            if (handle.Length != HandleSize)
+                return false;
+            candidates = ReadCandidates(ref r);
+            return true;
+        }
+        catch (CodexFormatException) { return false; }
+    }
 
     public static bool TryReadOffer(ReadOnlySpan<byte> payload, out byte status, out byte[] nonce, out List<IPEndPoint> candidates)
     {
@@ -128,7 +185,7 @@ internal static class FerrymanProtocol
         try
         {
             var r = new CodexReader(payload);
-            if (r.ReadByte() != MsgOffer)
+            if (!ReadHeader(ref r, MsgOffer))
                 return false;
             status = r.ReadByte();
             nonce = r.ReadBytes().ToArray();
@@ -147,7 +204,7 @@ internal static class FerrymanProtocol
         try
         {
             var r = new CodexReader(payload);
-            if (r.ReadByte() != MsgNotify)
+            if (!ReadHeader(ref r, MsgNotify))
                 return false;
             nonce = r.ReadBytes().ToArray();
             if (nonce.Length != NonceSize)
@@ -158,23 +215,8 @@ internal static class FerrymanProtocol
         catch (CodexFormatException) { return false; }
     }
 
-    private static bool TryReadHandleAndCandidates(ReadOnlySpan<byte> payload, byte expected, out byte[] handle, out List<IPEndPoint> candidates)
-    {
-        handle = [];
-        candidates = [];
-        try
-        {
-            var r = new CodexReader(payload);
-            if (r.ReadByte() != expected)
-                return false;
-            handle = r.ReadBytes().ToArray();
-            if (handle.Length != HandleSize)
-                return false;
-            candidates = ReadCandidates(ref r);
-            return true;
-        }
-        catch (CodexFormatException) { return false; }
-    }
+    private static bool ReadHeader(ref CodexReader r, byte expected)
+        => r.ReadByte() == expected && CupriMarks.Accepts(CupriMarks.Ferryman, r.ReadByte());
 
     private static void WriteCandidates(CodexWriter w, IReadOnlyList<IPEndPoint> candidates)
     {
