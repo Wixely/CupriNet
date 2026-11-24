@@ -1,6 +1,7 @@
 using System.Net;
 using CupriNet.Abstractions;
 using CupriNet.Arcanum;
+using CupriNet.Codex;
 using CupriNet.Core;
 using CupriNet.Vessel;
 using Xunit;
@@ -108,8 +109,104 @@ public class ConsecrationTests
         var initiate = ConsecrationHandshake.InitiateAsync(i, mine, a, b, Now, suite, cancellationToken: ct);
         var accept = ConsecrationHandshake.AcceptAsync(r, theirs, b, a, Now, suite, cancellationToken: ct);
 
-        // Both sides exchange all messages, then each rejects the other's confirmation.
+        // The responder rejects the initiator's confirmation and says so; the initiator fails at once on that.
         await Assert.ThrowsAsync<ConsecrationException>(async () => await initiate);
         await Assert.ThrowsAsync<ConsecrationException>(async () => await accept);
+    }
+
+    private static byte[] Hello(long epoch, byte[] nonce)
+    {
+        var w = new CodexWriter();
+        w.WriteByte(1);       // Hello
+        w.WriteByte(1);       // envelope version
+        w.WriteVarUInt(2);    // advertised Consecration range [2, 2]
+        w.WriteVarUInt(2);
+        w.WriteUInt64((ulong)epoch);
+        w.WriteBytes(nonce);
+        return w.ToArray();
+    }
+
+    private static byte[] Confirm(byte[] tag)
+    {
+        var w = new CodexWriter();
+        w.WriteByte(2);       // Confirm
+        w.WriteBytes(tag);
+        return w.ToArray();
+    }
+
+    [Fact]
+    public async Task ACaller_WhoCannotConfirm_GetsARefusal_AndNothingDerivedFromTheWatchword()
+    {
+        using var cts = new CancellationTokenSource(Timeout);
+        var ct = cts.Token;
+        var suite = CryptoSuites.Secure();
+        var keys = ArcanumKeys.Derive(Fixed("Gaming"), suite);
+        var a = NodeIdentity.Generate(suite).Sigil;
+        var b = NodeIdentity.Generate(suite).Sigil;
+
+        var (i, r, listener) = await ConnectedPairAsync(ct);
+        await using var _i = i;
+        await using var _r = r;
+        await using var _l = listener;
+
+        var accept = ConsecrationHandshake.AcceptAsync(r, keys, b, a, Now, suite, cancellationToken: ct);
+
+        // Someone who does not know the Watchword plays the initiator by hand: a proper Hello, then a guess.
+        await i.SendAsync(ConsecrationHandshake.ChannelStream, Hello(Glyph.Epoch(Now), new byte[16]), ct);
+        var hello = await i.ReceiveAsync(ct);
+        Assert.Equal(1, hello!.Value.Payload[0]);
+        await i.SendAsync(ConsecrationHandshake.ChannelStream, Confirm(new byte[32]), ct);
+
+        await Assert.ThrowsAsync<ConsecrationException>(async () => await accept);
+
+        // All that comes back is the one-byte refusal — not the responder's own confirmation tag, which would
+        // have been something to test Watchword guesses against.
+        var answer = await i.ReceiveAsync(ct);
+        Assert.Equal(new byte[] { 3 }, answer!.Value.Payload);
+    }
+
+    [Theory]
+    [InlineData(15)]
+    [InlineData(17)]
+    [InlineData(0)]
+    public async Task AHello_WithANonceOfTheWrongLength_IsRefused(int nonceLength)
+    {
+        using var cts = new CancellationTokenSource(Timeout);
+        var ct = cts.Token;
+        var suite = CryptoSuites.Secure();
+        var keys = ArcanumKeys.Derive(Fixed("Gaming"), suite);
+
+        var (i, r, listener) = await ConnectedPairAsync(ct);
+        await using var _i = i;
+        await using var _r = r;
+        await using var _l = listener;
+
+        var accept = ConsecrationHandshake.AcceptAsync(r, keys, NodeIdentity.Generate(suite).Sigil, NodeIdentity.Generate(suite).Sigil, Now, suite, cancellationToken: ct);
+        await i.SendAsync(ConsecrationHandshake.ChannelStream, Hello(Glyph.Epoch(Now), new byte[nonceLength]), ct);
+
+        await Assert.ThrowsAsync<ConsecrationException>(async () => await accept);
+    }
+
+    [Fact]
+    public async Task AResponder_WhoseClockIsFarOff_IsRefusedByTheInitiator()
+    {
+        using var cts = new CancellationTokenSource(Timeout);
+        var ct = cts.Token;
+        var suite = CryptoSuites.Secure();
+        var keys = ArcanumKeys.Derive(Fixed("Gaming"), suite);
+
+        var (i, r, listener) = await ConnectedPairAsync(ct);
+        await using var _i = i;
+        await using var _r = r;
+        await using var _l = listener;
+
+        var initiate = ConsecrationHandshake.InitiateAsync(i, keys, NodeIdentity.Generate(suite).Sigil, NodeIdentity.Generate(suite).Sigil, Now, suite, cancellationToken: ct);
+
+        // A hand-driven responder that answers with an epoch well outside the window.
+        var hello = await r.ReceiveAsync(ct);
+        Assert.Equal(1, hello!.Value.Payload[0]);
+        await r.SendAsync(ConsecrationHandshake.ChannelStream, Hello(Glyph.Epoch(Now) + 5, new byte[16]), ct);
+
+        await Assert.ThrowsAsync<ConsecrationException>(async () => await initiate);
     }
 }
