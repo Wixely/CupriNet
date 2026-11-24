@@ -367,7 +367,7 @@ public sealed partial class CupriNode : IAsyncDisposable
             await LearnReflexiveAsync(conjunction.Vessel, conjunction.PeerSigil, initiator: true, cancellationToken).ConfigureAwait(false);
             // We reached this peer through an invitation/known-peer relationship, so anchor it.
             Constellation.MarkAnchored(conjunction.PeerSigil);
-            await BootstrapOverlayAsync(conjunction.Vessel, initiator: true, now, cancellationToken).ConfigureAwait(false);
+            await BootstrapOverlayAsync(conjunction.Vessel, conjunction.PeerSigil, initiator: true, now, cancellationToken).ConfigureAwait(false);
             return new PairedPeer(conjunction.Vessel, conjunction.PeerSigil, conjunction.PeerSealPublicKey, isInitiator: true);
         }
         catch
@@ -396,7 +396,7 @@ public sealed partial class CupriNode : IAsyncDisposable
             if (kind != OverlayControl.KindChannel)
                 throw new CupriNodeException("Expected a channel session over this vessel.");
             await LearnReflexiveAsync(conjunction.Vessel, conjunction.PeerSigil, initiator: false, cancellationToken).ConfigureAwait(false);
-            await BootstrapOverlayAsync(conjunction.Vessel, initiator: false, now, cancellationToken).ConfigureAwait(false);
+            await BootstrapOverlayAsync(conjunction.Vessel, conjunction.PeerSigil, initiator: false, now, cancellationToken).ConfigureAwait(false);
             return new PairedPeer(conjunction.Vessel, conjunction.PeerSigil, conjunction.PeerSealPublicKey, isInitiator: false);
         }
         catch
@@ -579,7 +579,7 @@ public sealed partial class CupriNode : IAsyncDisposable
         }
 
         await LearnReflexiveAsync(conjunction.Vessel, conjunction.PeerSigil, initiator: false, cancellationToken).ConfigureAwait(false);
-        await BootstrapOverlayAsync(conjunction.Vessel, initiator: false, DateTimeOffset.UtcNow, cancellationToken).ConfigureAwait(false);
+        await BootstrapOverlayAsync(conjunction.Vessel, conjunction.PeerSigil, initiator: false, DateTimeOffset.UtcNow, cancellationToken).ConfigureAwait(false);
         var peer = new PairedPeer(conjunction.Vessel, conjunction.PeerSigil, conjunction.PeerSealPublicKey, isInitiator: false);
         if (!_accepted.Writer.TryWrite(peer))
             await peer.DisposeAsync().ConfigureAwait(false); // no one is accepting channels (or the backlog is full) — drop it
@@ -676,7 +676,7 @@ public sealed partial class CupriNode : IAsyncDisposable
             await peer.Vessel.SendAsync(ConsecrationHandshake.ChannelStream, myClaim, cancellationToken).ConfigureAwait(false);
         }
 
-        VerifyAdmissionClaim(peerClaim, descriptor, channelId, commitment, now);
+        VerifyAdmissionClaim(peerClaim, persona, descriptor, channelId, commitment, now);
     }
 
     private byte[] AdmissionCommitment(byte[] channelId, byte[] sessionKey)
@@ -710,7 +710,7 @@ public sealed partial class CupriNode : IAsyncDisposable
         return w.ToArray();
     }
 
-    private void VerifyAdmissionClaim(byte[] claim, ChannelDescriptor descriptor, byte[] channelId, byte[] commitment, DateTimeOffset now)
+    private void VerifyAdmissionClaim(byte[] claim, RiteIdentity persona, ChannelDescriptor descriptor, byte[] channelId, byte[] commitment, DateTimeOffset now)
     {
         var r = new Codex.CodexReader(claim);
         var personaPublicKey = r.ReadBytes().ToArray();
@@ -724,6 +724,12 @@ public sealed partial class CupriNode : IAsyncDisposable
             _ => throw new CupriNodeException("Malformed admission claim."),
         };
         var signature = r.ReadBytes().ToArray();
+
+        // Both sides sign the SAME commitment, so a peer holding no credential could simply echo our own claim
+        // back and have it verify. A claim naming our own persona is that reflection — refuse it. (Until the
+        // commitment carries the signer's role, this also refuses two devices that share one persona.)
+        if (personaPublicKey.AsSpan().SequenceEqual(persona.SealPublicKey))
+            throw new CupriNodeException("Peer presented our own persona — a reflected admission claim.");
 
         // Possession + freshness: the peer signed this session's commitment with the persona key it claims.
         if (!Suite.Verifier.Verify(commitment, signature, personaPublicKey))

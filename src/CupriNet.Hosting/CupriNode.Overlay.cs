@@ -98,7 +98,7 @@ public sealed partial class CupriNode
     /// seeds the other into its Constellation. This is what lets a node that joins via a single link then
     /// route overlay discovery through the peer it just met.
     /// </summary>
-    private async Task BootstrapOverlayAsync(IVessel vessel, bool initiator, DateTimeOffset now, CancellationToken cancellationToken)
+    private async Task BootstrapOverlayAsync(IVessel vessel, Sigil peerSigil, bool initiator, DateTimeOffset now, CancellationToken cancellationToken)
     {
         if (!_options.EnablePeerExchange)
             return;
@@ -110,11 +110,11 @@ public sealed partial class CupriNode
             if (initiator)
             {
                 await vessel.SendAsync(PeerExchange.DefaultStream, mine, timed.Token).ConfigureAwait(false);
-                AdmitPeer(await ReceiveRecordAsync(vessel, timed.Token).ConfigureAwait(false), now);
+                AdmitOwnRecord(await ReceiveRecordAsync(vessel, timed.Token).ConfigureAwait(false), peerSigil, now);
             }
             else
             {
-                AdmitPeer(await ReceiveRecordAsync(vessel, timed.Token).ConfigureAwait(false), now);
+                AdmitOwnRecord(await ReceiveRecordAsync(vessel, timed.Token).ConfigureAwait(false), peerSigil, now);
                 await vessel.SendAsync(PeerExchange.DefaultStream, mine, timed.Token).ConfigureAwait(false);
             }
         }
@@ -122,6 +122,17 @@ public sealed partial class CupriNode
         {
             // Enrichment only — a failed bootstrap must never fail the pairing.
         }
+    }
+
+    /// <summary>
+    /// Admits the record a paired peer sent as its own — and only if it is its own. The exchange is "here is my
+    /// record", so a record for any other Sigil (a third party's, replayed or chosen to steer us) is not what was
+    /// asked for, and admitting it would let one connection plant an arbitrary record in a trusted bucket.
+    /// </summary>
+    private void AdmitOwnRecord(PeerRecord record, Sigil peerSigil, DateTimeOffset now)
+    {
+        if (record.Sigil == peerSigil)
+            AdmitPeer(record, now);
     }
 
     private static async Task<PeerRecord> ReceiveRecordAsync(IVessel vessel, CancellationToken cancellationToken)
@@ -185,10 +196,16 @@ public sealed partial class CupriNode
         {
             case OverlayControl.OpDivine:
             {
-                if (body.Length < RoutingKey.Size)
-                    return OverlayControl.StatusResponse(OverlayControl.StatusRejected);
-                var target = new RoutingKey(body[..RoutingKey.Size]);
-                return OverlayControl.PeerRecordsResponse(Constellation.ClosestTo(target, OverlayControl.MaxAugury));
+                // The target is length-prefixed on the wire (DivineRequest writes it with WriteBytes), so read it
+                // the same way: slicing the first 32 raw bytes would take the prefix as part of the key.
+                try
+                {
+                    var targetBytes = new CodexReader(body).ReadBytes();
+                    if (targetBytes.Length != RoutingKey.Size)
+                        return OverlayControl.StatusResponse(OverlayControl.StatusRejected);
+                    return OverlayControl.PeerRecordsResponse(Constellation.ClosestTo(new RoutingKey(targetBytes), OverlayControl.MaxAugury));
+                }
+                catch { return OverlayControl.StatusResponse(OverlayControl.StatusRejected); }
             }
             case OverlayControl.OpPublish:
             {
