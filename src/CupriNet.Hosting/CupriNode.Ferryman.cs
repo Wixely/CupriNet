@@ -123,6 +123,7 @@ public sealed partial class CupriNode
     public async Task MaintainFerrymanReservationAsync(Beacon relayBeacon, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(relayBeacon);
+        EnsureClearnetPermitted("hold a relay reservation");
         while (!cancellationToken.IsCancellationRequested)
         {
             try { await ReserveOnceAsync(relayBeacon, cancellationToken).ConfigureAwait(false); }
@@ -204,6 +205,7 @@ public sealed partial class CupriNode
         Func<Sigil, Task<bool>>? approveRelay = null, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(relayBeacon);
+        EnsureClearnetPermitted("broker a hole punch through a relay");
 
         var punch = NatTraversal.BindSocket(new IPEndPoint(IPAddress.Any, 0));
         var consumed = false;

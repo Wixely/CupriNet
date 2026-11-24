@@ -202,7 +202,9 @@ public sealed partial class CupriNode : IAsyncDisposable
             Lifetime = lifetime,
             Petition = petition,
             Moniker = _options.Moniker,
-            WebRtc = WebRtcEndpointToAdvertise,
+            // An onion-only link names no address a browser could dial, so the WebRTC block would be dead weight —
+            // and its port, ICE credentials and DTLS fingerprint would tie that link to this node's clearnet ones.
+            WebRtc = transports == LinkTransports.OnionOnly ? null : WebRtcEndpointToAdvertise,
             Shrine = shrineOverride ?? ShrineToAdvertise,
         }, now);
     }
@@ -249,8 +251,9 @@ public sealed partial class CupriNode : IAsyncDisposable
     /// Enforces the subnet policy on a vessel the caller handed us, in either direction. The policy is a containment
     /// control — an operator restricting a node to a subnet means it should not talk outside that subnet, by any
     /// path — so it applies to a caller-owned vessel exactly as it does to one this node accepted or dialled itself.
-    /// A transport with no IP endpoint (an in-memory pair, a DataChannel) has nothing to filter on and passes, the
-    /// same way <see cref="IsBeaconAllowed"/> lets an onion or hostname beacon through.
+    /// A transport with no IP endpoint (an in-memory pair) has nothing to filter on and passes, the same way
+    /// <see cref="IsBeaconAllowed"/> lets an onion or hostname beacon through. A browser DataChannel does report
+    /// the browser's address, so it is fenced like any other.
     /// </summary>
     private async Task EnsureAddressAllowedAsync(IVessel vessel)
     {
@@ -336,9 +339,20 @@ public sealed partial class CupriNode : IAsyncDisposable
             .OrderBy(b => Rank(b.Kind)).ToList();
     }
 
+    /// <summary>
+    /// Tor-only means no clearnet path at all: every route that would put this node's own address on the wire —
+    /// a TCP dial, a hole punch, a relay reservation — is refused here rather than left to each caller to avoid.
+    /// </summary>
+    private void EnsureClearnetPermitted(string action)
+    {
+        if (_options.Mode == ReachabilityMode.TorOnly)
+            throw new CupriNodeException($"This node is Tor-only and will not {action}: that would reveal its IP address.");
+    }
+
     /// <summary>Dials a beacon over TCP with a bounded connect timeout, so an unreachable (e.g. off-LAN private) candidate fails fast.</summary>
     private async Task<IVessel> DialTcpAsync(Beacon beacon, CancellationToken cancellationToken)
     {
+        EnsureClearnetPermitted("dial a clearnet address");
         if (!IsBeaconAllowed(beacon))
             throw new CupriNodeException($"Address {beacon.Host} is not permitted by this node's subnet policy.");
         using var timed = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -356,6 +370,7 @@ public sealed partial class CupriNode : IAsyncDisposable
     public async Task<PairedPeer> ConjoinOverVesselAsync(IVessel vessel, Sigil expectedPeer, DateTimeOffset now, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(vessel);
+        await EnsureAddressAllowedAsync(vessel).ConfigureAwait(false);
         try
         {
             using var timed = LinkedHandshakeToken(cancellationToken);
@@ -386,6 +401,7 @@ public sealed partial class CupriNode : IAsyncDisposable
     public async Task<PairedPeer> AcceptChannelOverVesselAsync(IVessel vessel, DateTimeOffset now, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(vessel);
+        await EnsureAddressAllowedAsync(vessel).ConfigureAwait(false);
         try
         {
             using var timed = LinkedHandshakeToken(cancellationToken);

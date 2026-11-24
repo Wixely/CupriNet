@@ -290,4 +290,74 @@ public class CupriNodeTorTests
         Assert.Null(kv.Read("entry-guards"));
         await Task.CompletedTask;
     }
+
+    private static readonly WebRtcEndpoint StaticWebRtc = new()
+    {
+        IceUfrag = "ufrag123",
+        IcePassword = "passwordpasswordpassword",
+        FingerprintAlgorithm = "sha-256",
+        Fingerprint = new byte[32],
+        Port = 40000,
+    };
+
+    [Fact]
+    public async Task TorOnly_RefusesEveryClearnetRoute()
+    {
+        using var cts = new CancellationTokenSource(Timeout);
+        var ct = cts.Token;
+        var now = DateTimeOffset.UtcNow;
+
+        var fake = new FakeOnionTransport((_, _) => throw new InvalidOperationException());
+        await using var node = await CupriNode.CreateAsync(new CupriNodeOptions
+        {
+            Concordium = "tor.test", EnableOverlayGossip = false,
+            Mode = ReachabilityMode.TorOnly, SecretStore = new DurableStore(), OnionTransport = fake,
+        }, ct);
+
+        // Each of these would put the node's own address on the wire: a TCP dial to a relay, a UDP punch. Tor-only
+        // must refuse them itself rather than rely on the application never calling them.
+        var relay = new Beacon(EndpointKind.Relay, "127.0.0.1", 1);
+        var someone = NodeIdentity.Generate(node.Suite).Sigil;
+
+        await Assert.ThrowsAsync<CupriNodeException>(() => node.ConjoinViaFerrymanAsync(relay, someone, now, cancellationToken: ct));
+        await Assert.ThrowsAsync<CupriNodeException>(() => node.MaintainFerrymanReservationAsync(relay, ct));
+
+        var socket = new System.Net.Sockets.Socket(
+            System.Net.Sockets.AddressFamily.InterNetwork, System.Net.Sockets.SocketType.Dgram, System.Net.Sockets.ProtocolType.Udp);
+        socket.Bind(new IPEndPoint(IPAddress.Loopback, 0));
+        await Assert.ThrowsAsync<CupriNodeException>(() => node.ConjoinViaMutualPunchAsync(
+            socket, [new IPEndPoint(IPAddress.Loopback, 9)], someone, now, cancellationToken: ct));
+    }
+
+    [Fact]
+    public async Task TorOnly_Link_CarriesNoWebRtcBlock()
+    {
+        using var cts = new CancellationTokenSource(Timeout);
+        var ct = cts.Token;
+
+        var fake = new FakeOnionTransport((_, _) => throw new InvalidOperationException());
+        await using var node = await CupriNode.CreateAsync(new CupriNodeOptions
+        {
+            Concordium = "tor.test", EnableOverlayGossip = false,
+            Mode = ReachabilityMode.TorOnly, SecretStore = new DurableStore(), OnionTransport = fake,
+            WebRtc = StaticWebRtc,
+        }, ct);
+
+        // The block describes a clearnet UDP endpoint; publishing it beside the onion would tie the two together.
+        Assert.Null(node.Intone(TimeSpan.FromHours(1), DateTimeOffset.UtcNow).WebRtc);
+    }
+
+    [Fact]
+    public async Task OnionOnlyLink_FromAClearnetNode_CarriesNoWebRtcBlock()
+    {
+        using var cts = new CancellationTokenSource(Timeout);
+        var ct = cts.Token;
+        var now = DateTimeOffset.UtcNow;
+
+        await using var node = await CupriNode.CreateAsync(
+            new CupriNodeOptions { Concordium = "tor.test", EnableOverlayGossip = false, WebRtc = StaticWebRtc }, ct);
+
+        Assert.NotNull(node.Intone(TimeSpan.FromHours(1), now, LinkTransports.All).WebRtc);
+        Assert.Null(node.Intone(TimeSpan.FromHours(1), now, LinkTransports.OnionOnly).WebRtc);
+    }
 }

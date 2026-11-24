@@ -144,6 +144,11 @@ public sealed partial class CupriNode
     private VesselListener? _shrineListener;
     private SemaphoreSlim? _pilgrimSlots;
 
+    /// <summary>The concurrent-visit budget, shared by every way a Pilgrim can arrive (the Shrine port, a browser
+    /// DataChannel) so the cap means what it says.</summary>
+    private SemaphoreSlim PilgrimSlots
+        => LazyInitializer.EnsureInitialized(ref _pilgrimSlots, () => new SemaphoreSlim(Math.Max(1, _options.MaxConcurrentPilgrimages)));
+
     // Concurrent visits per source address. The global slot count alone leaves the Shrine trivially exhaustible: a
     // visit slot is held for the WHOLE visit, so one address could take every slot and hold them idle for the price
     // of that many Toll solves. The overlay path has held a per-peer budget beside its global cap since the first
@@ -205,8 +210,7 @@ public sealed partial class CupriNode
         var listener = new VesselListener(new IPEndPoint(_options.ListenAddress, port));
         listener.Start();
         _shrineListener = listener;
-        _pilgrimSlots = new SemaphoreSlim(Math.Max(1, _options.MaxConcurrentPilgrimages));
-        _ = PilgrimAcceptLoopAsync(listener, _pilgrimSlots, _lifetime.Token);
+        _ = PilgrimAcceptLoopAsync(listener, PilgrimSlots, _lifetime.Token);
         return listener.LocalEndPoint;
     }
 

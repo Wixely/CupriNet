@@ -107,6 +107,8 @@ public sealed partial class CupriNode
     {
         ArgumentNullException.ThrowIfNull(boundPunchSocket);
         ArgumentNullException.ThrowIfNull(peerCandidates);
+        try { EnsureClearnetPermitted("hole-punch"); }
+        catch { boundPunchSocket.Dispose(); throw; }
 
         // Subnet fence: only punch toward candidate addresses the policy permits.
         var candidates = peerCandidates.Where(c => IsAddressAllowed(c.Address)).ToList();
