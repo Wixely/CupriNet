@@ -65,9 +65,10 @@ public sealed class UdpVesselListener : IAsyncDisposable
             }
 
             // A new source. UDP source addresses are trivially spoofable, so opening per-peer state (an ArqStream
-            // with background loops + a Vessel) is gated: drop datagrams too small to be a valid ARQ segment, and
+            // with background loops + a Vessel) is gated: drop datagrams that are not a well-formed ARQ segment (a
+            // hole-punch probe or stray junk on the port is not a connection attempt), and
             // never exceed the peer cap — so a flood of spoofed sources cannot exhaust memory or the thread pool.
-            if (received.ReceivedBytes < ReliableArq.MinSegmentSize || _peers.Count >= _maxPeers)
+            if (!ReliableArq.IsSegment(buffer.AsSpan(0, received.ReceivedBytes)) || _peers.Count >= _maxPeers)
                 continue;
 
             var link = _peers.GetOrAdd(remote, OpenPeer);

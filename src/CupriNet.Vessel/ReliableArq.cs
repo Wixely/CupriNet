@@ -24,9 +24,6 @@ public sealed class ReliableArq
     private const byte CmdClose = 3; // a sequenced end-of-stream marker (delivered in order, like an empty push)
     private const int Header = 11;
 
-    /// <summary>Smallest valid segment (header, no payload) — a cheap pre-filter for a listener before it allocates state.</summary>
-    internal const int MinSegmentSize = Header;
-
     /// <summary>Max application payload per segment (keeps a datagram comfortably under a typical MTU).</summary>
     public const int Mss = 1152;
 
@@ -96,6 +93,15 @@ public sealed class ReliableArq
     /// <summary>How many segments may still be queued before back-pressure should stop the writer.</summary>
     public bool CanQueueMore => _sendQueue.Count + _sendBuf.Count < _sendWindow * 2;
 
+    /// <summary>
+    /// Whether a datagram is shaped like a segment of this protocol: a known command and a length that fits. A
+    /// listener uses it to decide whether an unknown source has earned any state at all.
+    /// </summary>
+    public static bool IsSegment(ReadOnlySpan<byte> datagram)
+        => datagram.Length >= Header
+           && datagram[0] is (CmdPush or CmdAck or CmdClose)
+           && datagram.Length >= Header + BinaryPrimitives.ReadUInt16BigEndian(datagram[9..]);
+
     /// <summary>Feeds one received datagram into the protocol (ignoring anything malformed or out of window).</summary>
     public void Input(ReadOnlySpan<byte> datagram)
     {
@@ -127,6 +133,10 @@ public sealed class ReliableArq
 
     private void AcknowledgeThrough(uint una)
     {
+        // Only ever acknowledge what was actually sent. A `una` beyond `_sndNext` cannot be honest; taking it would
+        // discard in-flight segments as delivered and leave every later segment "already acknowledged".
+        if (SeqLess(_sndNext, una))
+            return;
         if (SeqLess(_sndUna, una))
             _sndUna = una;
         while (_sendBuf.First is { } node && SeqLess(node.Value.Seq, _sndUna))
@@ -135,8 +145,9 @@ public sealed class ReliableArq
 
     private void AcceptSequenced(uint seq, byte[]? payload)
     {
-        // Already delivered, or beyond the receive window → drop, but (re-)ack so a lost ack recovers.
-        if (SeqLess(seq, _rcvNext) || SeqGreaterEqual(seq, _rcvNext + (uint)_recvWindow))
+        // Already delivered, past the peer's CLOSE, or beyond the receive window → drop, but (re-)ack so a lost ack
+        // recovers.
+        if (_peerClosed || SeqLess(seq, _rcvNext) || SeqGreaterEqual(seq, _rcvNext + (uint)_recvWindow))
         {
             _needAck = true;
             return;
