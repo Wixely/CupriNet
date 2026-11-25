@@ -307,8 +307,8 @@ public class ConduitShrineTests
         await using var _b = b;
         await using var _l = listener;
 
-        var sender = new ConduitSession(a, sessionKey, suite);
-        var receiver = new ConduitSession(b, sessionKey, suite);
+        var sender = new ConduitSession(a, sessionKey, suite, VeilRole.Initiator);
+        var receiver = new ConduitSession(b, sessionKey, suite, VeilRole.Responder);
 
         await sender.SendAsync(new ConduitFrame
         {
@@ -393,8 +393,8 @@ public class ConduitShrineTests
         await using var _b = b;
         await using var _l = listener;
 
-        var sender = new ConduitSession(a, sessionKey, suite);
-        var receiver = new ConduitSession(b, sessionKey, suite);
+        var sender = new ConduitSession(a, sessionKey, suite, VeilRole.Initiator);
+        var receiver = new ConduitSession(b, sessionKey, suite, VeilRole.Responder);
 
         Assert.True(ConduitCodec.MaxChannelPayloadBytes < FrameCodec.DefaultMaxFrameSize,
             "the channel ceiling must leave room for framing, the Veil and the vessel header");

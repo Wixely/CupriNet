@@ -35,16 +35,16 @@ public sealed class OracleSession
     private readonly IStreamChannel _channel;
     private readonly VeilCipher? _veil;
 
-    public OracleSession(IStreamChannel channel, ReadOnlyMemory<byte> sessionKey, ICryptoSuite suite)
+    public OracleSession(IStreamChannel channel, ReadOnlyMemory<byte> sessionKey, ICryptoSuite suite, VeilRole role)
     {
         _channel = channel ?? throw new ArgumentNullException(nameof(channel));
         ArgumentNullException.ThrowIfNull(suite);
-        _veil = new VeilCipher(sessionKey, suite);
+        _veil = new VeilCipher(sessionKey, suite, "oracle", role);
     }
 
     /// <summary>Convenience: bind to a single Vessel stream directly (single-stream use only).</summary>
-    public OracleSession(VesselSession vessel, ReadOnlyMemory<byte> sessionKey, ICryptoSuite suite, ushort stream = RequestStream)
-        : this(new VesselStreamChannel(vessel, stream), sessionKey, suite)
+    public OracleSession(VesselSession vessel, ReadOnlyMemory<byte> sessionKey, ICryptoSuite suite, VeilRole role, ushort stream = RequestStream)
+        : this(new VesselStreamChannel(vessel, stream), sessionKey, suite, role)
     {
     }
 
@@ -89,7 +89,7 @@ public sealed class OracleSession
 
         var plaintext = _veil is null
             ? body.ToArray()
-            : _veil.Open(body) ?? throw new EpistleException("Oracle content failed authentication (Veil).");
+            : _veil.Open(body, [(byte)type]) ?? throw new EpistleException("Oracle content failed authentication (Veil).");
 
         return type switch
         {
@@ -114,7 +114,7 @@ public sealed class OracleSession
     {
         var w = new CodexWriter();
         w.WriteByte((byte)type);
-        w.WriteBytes(_veil is null ? body : _veil.Seal(body));
+        w.WriteBytes(_veil is null ? body : _veil.Seal(body, [(byte)type]));
         await _channel.SendAsync(w.ToArray(), cancellationToken).ConfigureAwait(false);
     }
 }

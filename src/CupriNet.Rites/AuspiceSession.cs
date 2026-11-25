@@ -24,11 +24,11 @@ public sealed class AuspiceSession
     private readonly AuspicePadding _padding;
     private readonly SemaphoreSlim _sendLock = new(1, 1);
 
-    public AuspiceSession(IStreamChannel channel, ReadOnlyMemory<byte> sessionKey, ICryptoSuite suite, AuspicePadding? padding = null)
+    public AuspiceSession(IStreamChannel channel, ReadOnlyMemory<byte> sessionKey, ICryptoSuite suite, VeilRole role, AuspicePadding? padding = null)
     {
         _channel = channel ?? throw new ArgumentNullException(nameof(channel));
         ArgumentNullException.ThrowIfNull(suite);
-        _veil = new VeilCipher(sessionKey, suite);
+        _veil = new VeilCipher(sessionKey, suite, "auspice", role);
         _padding = padding ?? AuspicePadding.Default;
     }
 

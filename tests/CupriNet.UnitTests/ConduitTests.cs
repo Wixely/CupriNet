@@ -39,8 +39,8 @@ public class ConduitTests
         await using var _b = vb;
         await using var _l = listener;
 
-        var sender = new ConduitSession(va, sessionKey, suite);
-        var receiver = new ConduitSession(vb, sessionKey, suite);
+        var sender = new ConduitSession(va, sessionKey, suite, VeilRole.Initiator);
+        var receiver = new ConduitSession(vb, sessionKey, suite, VeilRole.Responder);
 
         await sender.SendAsync(new ConduitFrame { ProtocolId = 7, SchemaVersion = 1, Flags = 0, Payload = "state-sync"u8.ToArray() }, ct);
         var got = await receiver.ReceiveAsync(ct);

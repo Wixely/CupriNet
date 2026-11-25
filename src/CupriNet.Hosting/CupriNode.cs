@@ -679,7 +679,8 @@ public sealed partial class CupriNode : IAsyncDisposable
 
         // L1 anchoring uses the OVERLAY Sigil (cultivating the network) — deliberately not the persona.
         Constellation.MarkAnchored(peer.PeerSigil);
-        return new ArcanumSession(peer.Vessel, consecration.Epoch, consecration.SessionKey, Suite, persona, _options.RequireSignedAuthors);
+        return new ArcanumSession(peer.Vessel, consecration.Epoch, consecration.SessionKey, Suite,
+            peer.IsInitiator ? VeilRole.Initiator : VeilRole.Responder, persona, _options.RequireSignedAuthors);
     }
 
     private async Task EnforceAdmissionAsync(PairedPeer peer, ArcanumAdmission admission, RiteIdentity persona, byte[] sessionKey, byte[] channelId, DateTimeOffset now, CancellationToken cancellationToken)

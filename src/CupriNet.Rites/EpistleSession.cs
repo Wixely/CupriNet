@@ -42,20 +42,20 @@ public sealed class EpistleSession
     private readonly RiteIdentity? _author;
     private readonly bool _requireAuthor;
 
-    public EpistleSession(IStreamChannel channel, ReadOnlyMemory<byte> sessionKey, ICryptoSuite suite,
+    public EpistleSession(IStreamChannel channel, ReadOnlyMemory<byte> sessionKey, ICryptoSuite suite, VeilRole role,
         RiteIdentity? author = null, bool requireAuthor = false)
     {
         _channel = channel ?? throw new ArgumentNullException(nameof(channel));
         _suite = suite ?? throw new ArgumentNullException(nameof(suite));
-        _veil = new VeilCipher(sessionKey, suite);
+        _veil = new VeilCipher(sessionKey, suite, "epistle", role);
         _author = author;
         _requireAuthor = requireAuthor;
     }
 
     /// <summary>Convenience: bind to a single Vessel stream directly (single-stream use only).</summary>
-    public EpistleSession(VesselSession vessel, ReadOnlyMemory<byte> sessionKey, ICryptoSuite suite,
+    public EpistleSession(VesselSession vessel, ReadOnlyMemory<byte> sessionKey, ICryptoSuite suite, VeilRole role,
         RiteIdentity? author = null, bool requireAuthor = false, ushort stream = ContentStream)
-        : this(new VesselStreamChannel(vessel, stream), sessionKey, suite, author, requireAuthor)
+        : this(new VesselStreamChannel(vessel, stream), sessionKey, suite, role, author, requireAuthor)
     {
     }
 
@@ -88,7 +88,8 @@ public sealed class EpistleSession
         var type = (FrameType)reader.ReadByte();
         var sealedBody = reader.ReadBytes();
 
-        var plaintext = _veil.Open(sealedBody)
+        // The type byte travels outside the seal, so it is bound in as associated data: change it and the frame fails.
+        var plaintext = _veil.Open(sealedBody, [(byte)type])
                         ?? throw new EpistleException("Channel content failed authentication (Veil).");
 
         return type switch
@@ -112,7 +113,7 @@ public sealed class EpistleSession
     {
         var w = new CodexWriter();
         w.WriteByte((byte)type);
-        w.WriteBytes(_veil.Seal(body));
+        w.WriteBytes(_veil.Seal(body, [(byte)type]));
         await _channel.SendAsync(w.ToArray(), cancellationToken).ConfigureAwait(false);
     }
 }

@@ -13,11 +13,32 @@ public class RitesCoreTests
     public void VeilCipher_RoundTrips(ICryptoSuite suite)
     {
         var key = new byte[suite.Aead.KeySize];
-        var veil = new VeilCipher(key, suite);
+        var initiator = new VeilCipher(key, suite, "epistle", VeilRole.Initiator);
+        var responder = new VeilCipher(key, suite, "epistle", VeilRole.Responder);
         byte[] plaintext = [1, 2, 3, 4, 5];
 
-        var opened = veil.Open(veil.Seal(plaintext));
-        Assert.Equal(plaintext, opened);
+        Assert.Equal(plaintext, responder.Open(initiator.Seal(plaintext)));
+        Assert.Equal(plaintext, initiator.Open(responder.Seal(plaintext)));
+    }
+
+    [Fact]
+    public void VeilCipher_AFrame_OpensOnlyForTheOtherSide_OfTheSameRite_WithTheSameAssociatedData()
+    {
+        var suite = CryptoSuites.Secure();
+        var key = System.Security.Cryptography.RandomNumberGenerator.GetBytes(suite.Aead.KeySize);
+        var initiator = new VeilCipher(key, suite, "epistle", VeilRole.Initiator);
+        var responder = new VeilCipher(key, suite, "epistle", VeilRole.Responder);
+
+        var frame = initiator.Seal([7, 7, 7], [1]);
+        Assert.Equal(new byte[] { 7, 7, 7 }, responder.Open(frame, [1]));
+
+        // Handed back to the side that sent it: each direction has its own key, so it does not open.
+        Assert.Null(initiator.Open(frame, [1]));
+        // Moved to another rite on the same channel: each rite has its own keys.
+        Assert.Null(new VeilCipher(key, suite, "conduit", VeilRole.Responder).Open(frame, [1]));
+        // With the byte that travels outside the seal changed, or dropped.
+        Assert.Null(responder.Open(frame, [2]));
+        Assert.Null(responder.Open(frame));
     }
 
     [Fact]
@@ -25,15 +46,16 @@ public class RitesCoreTests
     {
         var suite = CryptoSuites.Secure();
         var key = System.Security.Cryptography.RandomNumberGenerator.GetBytes(suite.Aead.KeySize);
-        var veil = new VeilCipher(key, suite);
+        var veil = new VeilCipher(key, suite, "epistle", VeilRole.Initiator);
+        var peer = new VeilCipher(key, suite, "epistle", VeilRole.Responder);
 
         var sealed_ = veil.Seal([9, 9, 9]);
         var tampered = (byte[])sealed_.Clone();
         tampered[^1] ^= 0xFF;
-        Assert.Null(veil.Open(tampered));
+        Assert.Null(peer.Open(tampered));
 
         var otherKey = System.Security.Cryptography.RandomNumberGenerator.GetBytes(suite.Aead.KeySize);
-        Assert.Null(new VeilCipher(otherKey, suite).Open(sealed_));
+        Assert.Null(new VeilCipher(otherKey, suite, "epistle", VeilRole.Responder).Open(sealed_));
     }
 
     [Fact]

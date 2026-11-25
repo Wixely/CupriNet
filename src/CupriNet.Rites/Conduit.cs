@@ -233,13 +233,13 @@ public sealed class ConduitSession
     private readonly SemaphoreSlim _sendLock = new(1, 1);
     private bool _sealed;
 
-    public ConduitSession(IStreamChannel channel, ReadOnlyMemory<byte> sessionKey, ICryptoSuite suite,
+    public ConduitSession(IStreamChannel channel, ReadOnlyMemory<byte> sessionKey, ICryptoSuite suite, VeilRole role,
         RiteIdentity? author = null, bool requireAuthor = false,
         ConduitPadding? padding = null, int maxPayloadBytes = ConduitCodec.MaxChannelPayloadBytes)
     {
         _channel = channel ?? throw new ArgumentNullException(nameof(channel));
         _suite = suite ?? throw new ArgumentNullException(nameof(suite));
-        _veil = new VeilCipher(sessionKey, suite);
+        _veil = new VeilCipher(sessionKey, suite, "conduit", role);
         _author = author;
         _requireAuthor = requireAuthor;
         _padding = padding ?? ConduitPadding.None;
@@ -248,9 +248,9 @@ public sealed class ConduitSession
     }
 
     /// <summary>Convenience: bind to a single Vessel stream directly (single-stream use only).</summary>
-    public ConduitSession(VesselSession vessel, ReadOnlyMemory<byte> sessionKey, ICryptoSuite suite,
+    public ConduitSession(VesselSession vessel, ReadOnlyMemory<byte> sessionKey, ICryptoSuite suite, VeilRole role,
         RiteIdentity? author = null, bool requireAuthor = false, ushort stream = DataStream)
-        : this(new VesselStreamChannel(vessel, stream), sessionKey, suite, author, requireAuthor)
+        : this(new VesselStreamChannel(vessel, stream), sessionKey, suite, role, author, requireAuthor)
     {
     }
 

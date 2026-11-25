@@ -112,8 +112,8 @@ public class OracleHandlerTests : IDisposable
         await using var _b = vb;
         await using var _l = listener;
 
-        var pilgrim = new OracleSession(va, sessionKey, suite);
-        var shrine = new OracleSession(vb, sessionKey, suite);
+        var pilgrim = new OracleSession(va, sessionKey, suite, VeilRole.Initiator);
+        var shrine = new OracleSession(vb, sessionKey, suite, VeilRole.Responder);
 
         // A handler that produces a body the rite cannot carry: the host must answer 500 (pointing at the Relic
         // rite) instead of throwing at send time and tearing the visit down.
@@ -154,8 +154,8 @@ public class OracleHandlerTests : IDisposable
         await using var _b = vb;
         await using var _l = listener;
 
-        var pilgrim = new OracleSession(va, sessionKey, suite);
-        var shrine = new OracleSession(vb, sessionKey, suite);
+        var pilgrim = new OracleSession(va, sessionKey, suite, VeilRole.Initiator);
+        var shrine = new OracleSession(vb, sessionKey, suite, VeilRole.Responder);
 
         using var hostCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         var hostTask = OracleHost.ServeAsync(shrine, new StaticFileOracleHandler(_root.FullName), hostCts.Token);

@@ -116,8 +116,8 @@ public class OracleTests
         await using var _b = vb;
         await using var _l = listener;
 
-        var pilgrim = new OracleSession(va, sessionKey, suite);
-        var shrine = new OracleSession(vb, sessionKey, suite);
+        var pilgrim = new OracleSession(va, sessionKey, suite, VeilRole.Initiator);
+        var shrine = new OracleSession(vb, sessionKey, suite, VeilRole.Responder);
 
         // Shrine host: read one request, answer it.
         var hostTask = Task.Run(async () =>

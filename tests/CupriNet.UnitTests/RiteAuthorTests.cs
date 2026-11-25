@@ -93,8 +93,8 @@ public class RiteAuthorTests
         await using var _b = vb;
         await using var _l = listener;
 
-        var sender = new EpistleSession(va, sessionKey, suite, alice, requireAuthor: true);
-        var receiver = new EpistleSession(vb, sessionKey, suite, author: null, requireAuthor: true);
+        var sender = new EpistleSession(va, sessionKey, suite, VeilRole.Initiator, alice, requireAuthor: true);
+        var receiver = new EpistleSession(vb, sessionKey, suite, VeilRole.Responder, author: null, requireAuthor: true);
 
         await sender.SendMessageAsync(Epistle.Text("signed hello", Now), ct);
         var message = Assert.IsType<MessageReceived>(await receiver.ReceiveAsync(ct));
@@ -117,8 +117,8 @@ public class RiteAuthorTests
         await using var _b = vb;
         await using var _l = listener;
 
-        var sender = new EpistleSession(va, sessionKey, suite, author: null, requireAuthor: false); // sends unsigned
-        var receiver = new EpistleSession(vb, sessionKey, suite, author: null, requireAuthor: true);
+        var sender = new EpistleSession(va, sessionKey, suite, VeilRole.Initiator, author: null, requireAuthor: false); // sends unsigned
+        var receiver = new EpistleSession(vb, sessionKey, suite, VeilRole.Responder, author: null, requireAuthor: true);
 
         await sender.SendMessageAsync(Epistle.Text("no signature", Now), ct);
         await Assert.ThrowsAsync<EpistleException>(async () => await receiver.ReceiveAsync(ct));
@@ -140,10 +140,10 @@ public class RiteAuthorTests
         await using var _1 = va; await using var _2 = vRelayIn; await using var _3 = l1;
         await using var _4 = vRelayOut; await using var _5 = vCarol; await using var _6 = l2;
 
-        var aliceSession = new EpistleSession(va, sessionKey, suite, alice, requireAuthor: true);
-        var relayIn = new EpistleSession(vRelayIn, sessionKey, suite, relay, requireAuthor: true);
-        var relayOut = new EpistleSession(vRelayOut, sessionKey, suite, relay, requireAuthor: true);
-        var carol = new EpistleSession(vCarol, sessionKey, suite, author: null, requireAuthor: true);
+        var aliceSession = new EpistleSession(va, sessionKey, suite, VeilRole.Initiator, alice, requireAuthor: true);
+        var relayIn = new EpistleSession(vRelayIn, sessionKey, suite, VeilRole.Responder, relay, requireAuthor: true);
+        var relayOut = new EpistleSession(vRelayOut, sessionKey, suite, VeilRole.Initiator, relay, requireAuthor: true);
+        var carol = new EpistleSession(vCarol, sessionKey, suite, VeilRole.Responder, author: null, requireAuthor: true);
 
         await aliceSession.SendMessageAsync(Epistle.Text("relay me", Now), ct);
         var atRelay = Assert.IsType<MessageReceived>(await relayIn.ReceiveAsync(ct));

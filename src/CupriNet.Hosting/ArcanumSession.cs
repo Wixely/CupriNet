@@ -17,12 +17,12 @@ public sealed class ArcanumSession : IAsyncDisposable
     private int _disposed;
 
     internal ArcanumSession(VesselSession vessel, long epoch, ReadOnlyMemory<byte> sessionKey, ICryptoSuite suite,
-        RiteIdentity author, bool requireSignedAuthors)
+        VeilRole role, RiteIdentity author, bool requireSignedAuthors)
     {
         Epoch = epoch;
         _mux = new VesselMux(vessel, ownsVessel: false);
-        Epistles = new EpistleSession(_mux.Stream(EpistleSession.ContentStream), sessionKey, suite, author, requireSignedAuthors);
-        Conduits = new ConduitSession(_mux.Stream(ConduitSession.DataStream), sessionKey, suite, author, requireSignedAuthors);
+        Epistles = new EpistleSession(_mux.Stream(EpistleSession.ContentStream), sessionKey, suite, role, author, requireSignedAuthors);
+        Conduits = new ConduitSession(_mux.Stream(ConduitSession.DataStream), sessionKey, suite, role, author, requireSignedAuthors);
     }
 
     /// <summary>The epoch the Consecration was bound to.</summary>

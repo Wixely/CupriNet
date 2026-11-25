@@ -37,8 +37,8 @@ public class EpistleSessionTests
         await using var _b = vb;
         await using var _l = listener;
 
-        var alice = new EpistleSession(va, sessionKey, suite);
-        var bob = new EpistleSession(vb, sessionKey, suite);
+        var alice = new EpistleSession(va, sessionKey, suite, VeilRole.Initiator);
+        var bob = new EpistleSession(vb, sessionKey, suite, VeilRole.Responder);
 
         var deduper = new EpistleDeduper();
         var vigil = new Vigil();
@@ -76,8 +76,8 @@ public class EpistleSessionTests
         await using var _b = vb;
         await using var _l = listener;
 
-        var alice = new EpistleSession(va, sessionKey, suite);
-        var bob = new EpistleSession(vb, sessionKey, suite);
+        var alice = new EpistleSession(va, sessionKey, suite, VeilRole.Initiator);
+        var bob = new EpistleSession(vb, sessionKey, suite, VeilRole.Responder);
         var deduper = new EpistleDeduper();
 
         // Simulate a lost ack: Alice sends the same Epistle twice.
@@ -90,5 +90,58 @@ public class EpistleSessionTests
 
         Assert.True(deduper.TryMarkSeen(first.Epistle.MessageId));   // delivered
         Assert.False(deduper.TryMarkSeen(second.Epistle.MessageId)); // duplicate -> not delivered again
+    }
+
+    /// <summary>A stream channel that hands over exactly the payloads it is given, so a test can alter one in between.</summary>
+    private sealed class Wire : IStreamChannel
+    {
+        public readonly Queue<byte[]> Sent = new();
+        public readonly Queue<byte[]> Incoming = new();
+
+        public ValueTask SendAsync(ReadOnlyMemory<byte> payload, CancellationToken cancellationToken = default)
+        {
+            Sent.Enqueue(payload.ToArray());
+            return ValueTask.CompletedTask;
+        }
+
+        public ValueTask<byte[]?> ReceiveAsync(CancellationToken cancellationToken = default)
+            => ValueTask.FromResult(Incoming.TryDequeue(out var next) ? next : null);
+    }
+
+    [Fact]
+    public async Task TheFrameType_IsAuthenticated_SoAnAckCannotBeRelabelledAsAMessage()
+    {
+        var suite = CryptoSuites.Secure();
+        var sessionKey = RandomNumberGenerator.GetBytes(suite.Aead.KeySize);
+        var aliceWire = new Wire();
+        var bobWire = new Wire();
+        var alice = new EpistleSession(aliceWire, sessionKey, suite, VeilRole.Initiator);
+        var bob = new EpistleSession(bobWire, sessionKey, suite, VeilRole.Responder);
+
+        await alice.SendAttestationAsync(new byte[16]);
+        var frame = aliceWire.Sent.Dequeue();
+
+        // Untouched, it arrives as what it is.
+        bobWire.Incoming.Enqueue((byte[])frame.Clone());
+        Assert.IsType<AttestationReceived>(await bob.ReceiveAsync());
+
+        // With the type byte — which sits outside the seal — changed from Attestation to Message, it is refused.
+        frame[0] = 1;
+        bobWire.Incoming.Enqueue(frame);
+        await Assert.ThrowsAsync<EpistleException>(async () => await bob.ReceiveAsync());
+    }
+
+    [Fact]
+    public async Task AFrame_ReflectedBackAtItsSender_IsRefused()
+    {
+        var suite = CryptoSuites.Secure();
+        var sessionKey = RandomNumberGenerator.GetBytes(suite.Aead.KeySize);
+        var wire = new Wire();
+        var alice = new EpistleSession(wire, sessionKey, suite, VeilRole.Initiator);
+
+        await alice.SendMessageAsync(Epistle.Text("mine", Now));
+        wire.Incoming.Enqueue(wire.Sent.Dequeue());
+
+        await Assert.ThrowsAsync<EpistleException>(async () => await alice.ReceiveAsync());
     }
 }
