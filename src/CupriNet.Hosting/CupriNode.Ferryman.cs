@@ -5,6 +5,7 @@ using System.Security.Cryptography;
 using CupriNet.Abstractions;
 using CupriNet.Alembic;
 using CupriNet.Codex;
+using CupriNet.Concordance;
 using CupriNet.Conjunction;
 using CupriNet.Core;
 using CupriNet.Traversal;
@@ -100,8 +101,22 @@ public sealed partial class CupriNode
             }
 
             if (FerrymanProtocol.TypeOf(payload) == FerrymanProtocol.MsgRendezvous
-                && FerrymanProtocol.TryReadRendezvous(payload, out var wanted, out var requesterCandidates))
+                && FerrymanProtocol.TryReadRendezvous(payload, out var wanted, out var requesterCandidates, out var tribute))
             {
+                // A rendezvous is priced before anything is looked up or the target disturbed. The price is the
+                // same for every handle, so being quoted it says nothing about who is reserved here. A caller that
+                // underpays is told the price and may ask once more on this connection, with fresh time to pay.
+                if (!RendezvousIsPaid(vessel, wanted, tribute))
+                {
+                    await vessel.SendAsync(OverlayControl.Stream, FerrymanProtocol.OfferTributeTooLow(RequiredFerrymanTribute), request.Token).ConfigureAwait(false);
+                    request.CancelAfter(_options.FerrymanRequestTimeout);
+                    var again = await vessel.ReceiveAsync(request.Token).ConfigureAwait(false);
+                    if (again is null || again.Value.StreamId != OverlayControl.Stream
+                        || !FerrymanProtocol.TryReadRendezvous(again.Value.Payload, out wanted, out requesterCandidates, out tribute)
+                        || !RendezvousIsPaid(vessel, wanted, tribute))
+                        return;
+                }
+
                 var key = Convert.ToHexStringLower(wanted);
                 if (_reservations.TryGetValue(key, out var reservation))
                 {
@@ -135,6 +150,13 @@ public sealed partial class CupriNode
             await vessel.DisposeAsync().ConfigureAwait(false);
         }
     }
+
+    private int RequiredFerrymanTribute => Math.Clamp(_options.RequiredFerrymanTributeDifficulty, 0, Tribute.MaxDifficulty);
+
+    /// <summary>Whether a rendezvous for <paramref name="handle"/> on this connection carries the work this relay requires.</summary>
+    private bool RendezvousIsPaid(NoiseVessel vessel, byte[] handle, byte[] tribute)
+        => RequiredFerrymanTribute == 0
+           || Tribute.Verify(FerrymanProtocol.TributeSubject(vessel.HandshakeHash.Span, handle), tribute, RequiredFerrymanTribute);
 
     /// <summary>What a relay budgets a caller by: its IPv4 address, or its IPv6 /64. Null when there is no address.</summary>
     private static string? FerrymanSourceKey(EndPoint? remote)
@@ -428,9 +450,22 @@ public sealed partial class CupriNode
             var (vessel, _) = await DialFerrymanAsync(relayDial, route.RelaySigil, cancellationToken).ConfigureAwait(false);
             try
             {
-                await vessel.SendAsync(OverlayControl.Stream, FerrymanProtocol.Rendezvous(route.Handle, candidates), cancellationToken).ConfigureAwait(false);
-                var offer = await vessel.ReceiveAsync(cancellationToken).ConfigureAwait(false)
-                            ?? throw new CupriNodeException("The relay closed during rendezvous.");
+                // Pay for the request: work over this connection's handshake hash and the handle. A relay that
+                // wants more than we offered says how much, and we pay that — once, and never past the ceiling.
+                var subject = FerrymanProtocol.TributeSubject(vessel.HandshakeHash.Span, route.Handle);
+                var paid = Math.Clamp(_options.FerrymanTributeDifficulty, 0, Tribute.MaxDifficulty);
+                var offer = await RendezvousAsync(paid).ConfigureAwait(false);
+                if (FerrymanProtocol.TryReadRequiredTribute(offer.Payload, out var required) && required > paid)
+                    offer = await RendezvousAsync(required).ConfigureAwait(false);
+
+                async Task<VesselFrame> RendezvousAsync(int difficulty)
+                {
+                    var tribute = await Task.Run(() => Tribute.Solve(subject, difficulty, cancellationToken), cancellationToken).ConfigureAwait(false);
+                    await vessel.SendAsync(OverlayControl.Stream, FerrymanProtocol.Rendezvous(route.Handle, candidates, tribute), cancellationToken).ConfigureAwait(false);
+                    return await vessel.ReceiveAsync(cancellationToken).ConfigureAwait(false)
+                           ?? throw new CupriNodeException("The relay closed during rendezvous.");
+                }
+
                 if (!FerrymanProtocol.TryReadOffer(offer.Payload, out var status, out var nonce, out var targetCandidates)
                     || status != FerrymanProtocol.StatusOk)
                     throw new CupriNodeException("The target is not reachable through this relay (no reservation).");

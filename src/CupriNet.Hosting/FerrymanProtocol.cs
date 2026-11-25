@@ -16,7 +16,8 @@ namespace CupriNet.Hosting;
 /// signs the reservation with that key over this connection's handshake hash, so the reservation cannot be squatted
 /// and cannot be replayed on any other connection. A requester E, who got the handle from D's link,
 /// <c>Rendezvous</c>es for it; the relay pushes a <c>Notify</c> to D and replies with an <c>Offer</c> to E, each
-/// carrying the other's punch candidates and a shared nonce.
+/// carrying the other's punch candidates and a shared nonce. A <c>Rendezvous</c> is priced: it carries a Tribute
+/// (proof of work) over this connection's handshake hash and the handle, at whatever difficulty the relay demands.
 ///
 /// Every message is <c>type ‖ version ‖ …</c>, the version being the CupriMark <c>ferryman</c> ordinal.
 /// </summary>
@@ -24,17 +25,19 @@ internal static class FerrymanProtocol
 {
     public const byte MsgReserve = 1;    // D -> relay : { handle, candidates, rendezvous key, signature }
     public const byte MsgReserved = 2;   // relay -> D : { status }
-    public const byte MsgRendezvous = 3; // E -> relay : { handle, candidates }
-    public const byte MsgOffer = 4;      // relay -> E : { status, nonce, candidates(of D) }
+    public const byte MsgRendezvous = 3; // E -> relay : { handle, candidates, tribute }
+    public const byte MsgOffer = 4;      // relay -> E : { status, nonce, candidates(of D) [, required tribute] }
     public const byte MsgNotify = 5;     // relay -> D : { nonce, candidates(of E) } (pushed)
     public const byte MsgKeepAlive = 6;  // D -> relay : { } — the reservation is still wanted
 
     public const byte StatusOk = 0;
     public const byte StatusNotReserved = 1;
+    public const byte StatusTributeTooLow = 2; // the OFFER ends with the difficulty the relay requires
 
     public const int HandleSize = RelayRoute.HandleSize;
     public const int NonceSize = 16;
     public const int MaxCandidates = 8;
+    public const int MaxTributeSize = 64;
 
     private static byte Version => checked((byte)CupriMarks.Supported(CupriMarks.Ferryman).Max);
 
@@ -86,11 +89,39 @@ internal static class FerrymanProtocol
         return w.ToArray();
     }
 
-    public static byte[] Rendezvous(byte[] handle, IReadOnlyList<IPEndPoint> candidates)
+    /// <summary>
+    /// What a requester's Tribute is ground over: a label, the handshake hash of its connection to the relay, and
+    /// the handle it asks for. The handshake hash is fresh to each connection, so the work cannot be done before
+    /// connecting and is worth nothing on any other connection.
+    /// </summary>
+    public static byte[] TributeSubject(ReadOnlySpan<byte> handshakeHash, byte[] handle)
+    {
+        var w = new CodexWriter();
+        w.WriteBytes(DomainRendezvousTribute);
+        w.WriteBytes(handshakeHash);
+        w.WriteBytes(handle);
+        return w.ToArray();
+    }
+
+    private static readonly byte[] DomainRendezvousTribute = "cuprinet/ferryman/rendezvous-tribute/v1"u8.ToArray();
+
+    public static byte[] Rendezvous(byte[] handle, IReadOnlyList<IPEndPoint> candidates, byte[] tribute)
     {
         var w = Begin(MsgRendezvous);
         w.WriteBytes(handle);
         WriteCandidates(w, candidates);
+        w.WriteBytes(tribute);
+        return w.ToArray();
+    }
+
+    /// <summary>The OFFER a relay answers an underpaid rendezvous with: no nonce, no candidates, and its price.</summary>
+    public static byte[] OfferTributeTooLow(int requiredDifficulty)
+    {
+        var w = Begin(MsgOffer);
+        w.WriteByte(StatusTributeTooLow);
+        w.WriteBytes(new byte[NonceSize]);
+        WriteCandidates(w, []);
+        w.WriteByte(checked((byte)requiredDifficulty));
         return w.ToArray();
     }
 
@@ -185,10 +216,11 @@ internal static class FerrymanProtocol
         catch (CodexFormatException) { return false; }
     }
 
-    public static bool TryReadRendezvous(ReadOnlySpan<byte> payload, out byte[] handle, out List<IPEndPoint> candidates)
+    public static bool TryReadRendezvous(ReadOnlySpan<byte> payload, out byte[] handle, out List<IPEndPoint> candidates, out byte[] tribute)
     {
         handle = [];
         candidates = [];
+        tribute = [];
         try
         {
             var r = new CodexReader(payload);
@@ -198,7 +230,25 @@ internal static class FerrymanProtocol
             if (handle.Length != HandleSize)
                 return false;
             candidates = ReadCandidates(ref r);
-            return true;
+            tribute = r.ReadBytes().ToArray();
+            return tribute.Length <= MaxTributeSize;
+        }
+        catch (CodexFormatException) { return false; }
+    }
+
+    /// <summary>True when <paramref name="payload"/> is an OFFER refusing an underpaid rendezvous; gives the relay's price.</summary>
+    public static bool TryReadRequiredTribute(ReadOnlySpan<byte> payload, out int requiredDifficulty)
+    {
+        requiredDifficulty = 0;
+        try
+        {
+            var r = new CodexReader(payload);
+            if (!ReadHeader(ref r, MsgOffer) || r.ReadByte() != StatusTributeTooLow)
+                return false;
+            r.ReadBytes();
+            ReadCandidates(ref r);
+            requiredDifficulty = r.ReadByte();
+            return requiredDifficulty <= CupriNet.Concordance.Tribute.MaxDifficulty;
         }
         catch (CodexFormatException) { return false; }
     }

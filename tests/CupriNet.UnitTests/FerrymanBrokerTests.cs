@@ -22,13 +22,15 @@ public class FerrymanBrokerTests
 {
     private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(30);
 
-    private static Task<CupriNode> NodeAsync(bool relay, CancellationToken ct, ISecretStore? store = null) =>
+    private static Task<CupriNode> NodeAsync(bool relay, CancellationToken ct, ISecretStore? store = null, int pays = 16, int requires = 16) =>
         CupriNode.CreateAsync(new CupriNodeOptions
         {
             Concordium = "example.chat",
             EnableOverlayGossip = false,
             EnableFerryman = relay,
             SecretStore = store,
+            FerrymanTributeDifficulty = pays,
+            RequiredFerrymanTributeDifficulty = requires,
         }, ct);
 
     private static Beacon RelayBeacon(CupriNode relay) =>
@@ -43,6 +45,30 @@ public class FerrymanBrokerTests
                 return route;
             await Task.Delay(25, ct);
         }
+    }
+
+    [Fact]
+    public async Task ARequester_ThatOffersLessWorkThanTheRelayWants_PaysThePriceItIsTold_AndIsBrokered()
+    {
+        using var cts = new CancellationTokenSource(Timeout);
+        var ct = cts.Token;
+        var now = DateTimeOffset.UtcNow;
+
+        await using var relay = await NodeAsync(relay: true, ct, requires: 14);
+        await using var target = await NodeAsync(relay: false, ct);
+        await using var requester = await NodeAsync(relay: false, ct, pays: 2);
+
+        using var reserve = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        var maintaining = target.MaintainFerrymanReservationAsync(RelayBeacon(relay), cancellationToken: reserve.Token);
+        var route = await RouteVia(target, relay, ct);
+
+        var accepting = target.AcceptAsync(ct);
+        await using var fromRequester = await requester.ConjoinViaFerrymanAsync(route, target.Identity.Sigil, now, cancellationToken: ct);
+        await using var fromTarget = await accepting;
+        Assert.Equal(target.Identity.Sigil, fromRequester.PeerSigil);
+
+        reserve.Cancel();
+        try { await maintaining; } catch { /* cancelled */ }
     }
 
     [Fact]

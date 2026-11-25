@@ -108,6 +108,11 @@ public sealed partial class CupriNode : IAsyncDisposable
                 $"{CupriNet.Concordance.Tribute.MaxDifficulty} bits. No publisher will grind past the ceiling, so a higher " +
                 "requirement could only be met by treating it as the ceiling — set it to the ceiling or lower.");
 
+        if (options.RequiredFerrymanTributeDifficulty > CupriNet.Concordance.Tribute.MaxDifficulty)
+            throw new CupriNodeException(
+                $"RequiredFerrymanTributeDifficulty is {options.RequiredFerrymanTributeDifficulty}, above the protocol ceiling of " +
+                $"{CupriNet.Concordance.Tribute.MaxDifficulty} bits. No requester will grind past the ceiling — set it to the ceiling or lower.");
+
         var secretStore = options.SecretStore ?? new InMemorySecretStore();
         var identity = await new IdentityStore(secretStore).LoadOrCreateAsync(suite, cancellationToken).ConfigureAwait(false);
 

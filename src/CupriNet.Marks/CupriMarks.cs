@@ -166,8 +166,9 @@ public static class CupriMarks
         new Component(Ferryman,
         [
             // v1 — reserve / rendezvous / offer / notify. The first versioned form: a target reserves under the
-            // hash of a per-relay rendezvous key and signs over the connection's handshake hash. (What came
-            // before carried no version, reserved under a hash of the Sigil, and signed with the Seal.)
+            // hash of a per-relay rendezvous key and signs over the connection's handshake hash, and a requester
+            // pays a Tribute over its own. (What came before carried no version, reserved under a hash of the
+            // Sigil, signed with the Seal, and priced nothing.)
             new ComponentVersion(1, BumpReason.Functionality, VersionStatus.Active),
         ]),
         new Component(RelayRoute,

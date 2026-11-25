@@ -33,6 +33,12 @@ public class NodeStartupGuardTests
             Concordium = "example.chat",
             RequiredTributeDifficulty = Tribute.MaxDifficulty + 1,
         }));
+        await Assert.ThrowsAsync<CupriNodeException>(() => CupriNode.CreateAsync(new CupriNodeOptions
+        {
+            Concordium = "example.chat",
+            EnableFerryman = true,
+            RequiredFerrymanTributeDifficulty = Tribute.MaxDifficulty + 1,
+        }));
     }
 
     [Fact]

@@ -399,6 +399,21 @@ public sealed record CupriNodeOptions
     /// </summary>
     public TimeSpan FerrymanReservationIdleTimeout { get; init; } = TimeSpan.FromSeconds(90);
 
+    /// <summary>
+    /// Proof-of-work difficulty (leading zero bits) this node grinds up front when it asks a relay to broker a
+    /// hole punch. A relay that wants more says so and this node pays that instead, up to
+    /// <see cref="CupriNet.Concordance.Tribute.MaxDifficulty"/>. Default 16 (~65k hashes, a few ms).
+    /// </summary>
+    public int FerrymanTributeDifficulty { get; init; } = 16;
+
+    /// <summary>
+    /// Proof-of-work difficulty this relay <em>requires</em> on a rendezvous request before it looks the handle up
+    /// or disturbs the target (a local policy, like <see cref="RequiredTributeDifficulty"/>). 0 asks for none. The
+    /// work is bound to the caller's connection, so it cannot be done ahead of time or spent twice. A caller told
+    /// the price gets a fresh <see cref="FerrymanRequestTimeout"/> to pay it — raise that if you raise this far.
+    /// </summary>
+    public int RequiredFerrymanTributeDifficulty { get; init; } = 16;
+
     /// <summary>How often this node, as a target, tells a relay its reservation is still wanted.</summary>
     public TimeSpan FerrymanKeepAliveInterval { get; init; } = TimeSpan.FromSeconds(30);
 }
