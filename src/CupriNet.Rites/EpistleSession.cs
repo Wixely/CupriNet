@@ -14,8 +14,12 @@ public abstract record EpistleEvent;
 /// <summary>A message arrived.</summary>
 public sealed record MessageReceived(Epistle Epistle) : EpistleEvent;
 
-/// <summary>An acknowledgement (Attestation) arrived for a MessageId.</summary>
-public sealed record AttestationReceived(byte[] MessageId) : EpistleEvent;
+/// <summary>
+/// An acknowledgement (Attestation) arrived for a MessageId. When the attesting member signed it, the envelope
+/// names them: on a channel where every peer is the member it speaks for, that is the peer; where an application
+/// relays, it is whoever first acknowledged, whichever peer handed it on.
+/// </summary>
+public sealed record AttestationReceived(byte[] MessageId, byte[]? AuthorSealPublicKey = null, byte[]? AuthorSignature = null) : EpistleEvent;
 
 /// <summary>
 /// Carries the Epistolary rite over a stream channel: Veil-sealed Messages and Attestations. This type
@@ -35,6 +39,9 @@ public sealed class EpistleSession
 
     /// <summary>Domain tag for the authenticated-authorship envelope (see <see cref="RiteAuthor"/>).</summary>
     private const string AuthorDomain = "epistle";
+
+    /// <summary>Its own domain, so a signature over a message can never stand as an acknowledgement, or the reverse.</summary>
+    private const string AttestationDomain = "epistle-attestation";
 
     private readonly IStreamChannel _channel;
     private readonly VeilCipher _veil;
@@ -74,11 +81,52 @@ public sealed class EpistleSession
         return SendFrameAsync(FrameType.Message, EpistleCodec.Encode(epistle), cancellationToken);
     }
 
+    /// <summary>Acknowledges a message, signed as this session's author when it has one — as a message would be.</summary>
     public Task SendAttestationAsync(ReadOnlySpan<byte> messageId, CancellationToken cancellationToken = default)
     {
         if (messageId.Length != Epistle.MessageIdSize)
             throw new ArgumentException($"An Attestation names a MessageId, which is {Epistle.MessageIdSize} bytes.", nameof(messageId));
-        return SendFrameAsync(FrameType.Attestation, messageId.ToArray(), cancellationToken);
+        var id = messageId.ToArray();
+        var (key, signature) = _author is null
+            ? ((byte[]?)null, (byte[]?)null)
+            : RiteAuthor.Sign(AttestationDomain, EncodeAttestation(id, null, null), _author, _suite);
+        return SendFrameAsync(FrameType.Attestation, EncodeAttestation(id, key, signature), cancellationToken);
+    }
+
+    /// <summary>
+    /// Hands on an acknowledgement received from another member, unchanged, so its signature still names whoever
+    /// made it. The library never does this itself — peers speak for themselves — but an application that relays can.
+    /// </summary>
+    public Task SendAttestationAsync(AttestationReceived attestation, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(attestation);
+        if (attestation.AuthorSealPublicKey is null || attestation.AuthorSignature is null)
+            return SendAttestationAsync(attestation.MessageId, cancellationToken);
+        if (attestation.MessageId is not { Length: Epistle.MessageIdSize })
+            throw new ArgumentException($"An Attestation names a MessageId, which is {Epistle.MessageIdSize} bytes.", nameof(attestation));
+        return SendFrameAsync(FrameType.Attestation,
+            EncodeAttestation(attestation.MessageId, attestation.AuthorSealPublicKey, attestation.AuthorSignature), cancellationToken);
+    }
+
+    private static byte[] EncodeAttestation(byte[] messageId, byte[]? authorKey, byte[]? authorSignature)
+    {
+        var w = new CodexWriter();
+        w.WriteBytes(messageId);
+        AuthorEnvelope.Write(w, authorKey, authorSignature);
+        return w.ToArray();
+    }
+
+    /// <summary>Decodes an acknowledgement and holds it to the same author policy as a message.</summary>
+    private AttestationReceived ReadAttestation(byte[] plaintext)
+    {
+        var r = new CodexReader(plaintext);
+        var messageId = r.ReadBytes().ToArray();
+        if (messageId.Length != Epistle.MessageIdSize)
+            throw new EpistleException($"An Attestation must name a {Epistle.MessageIdSize}-byte MessageId.");
+        var (key, signature) = AuthorEnvelope.Read(ref r);
+        if (!RiteAuthor.Verify(AttestationDomain, EncodeAttestation(messageId, null, null), key, signature, _suite, _requireAuthor))
+            throw new EpistleException("Attestation author authentication failed.");
+        return new AttestationReceived(messageId, key, signature);
     }
 
     /// <summary>Reads the next content event, or null when the peer closes the connection.</summary>
@@ -99,9 +147,7 @@ public sealed class EpistleSession
         return type switch
         {
             FrameType.Message => new MessageReceived(VerifyAuthor(EpistleCodec.Decode(plaintext))),
-            FrameType.Attestation => plaintext.Length == Epistle.MessageIdSize
-                ? new AttestationReceived(plaintext)
-                : throw new EpistleException($"An Attestation must name a {Epistle.MessageIdSize}-byte MessageId."),
+            FrameType.Attestation => ReadAttestation(plaintext),
             _ => throw new EpistleException($"Unknown content frame type {(byte)type}."),
         };
     }
