@@ -1,5 +1,6 @@
 using System.Net;
 using System.Security.Cryptography;
+using CupriNet.Codex;
 using CupriNet.Rites;
 using CupriNet.Vessel;
 using Xunit;
@@ -106,6 +107,50 @@ public class EpistleSessionTests
 
         public ValueTask<byte[]?> ReceiveAsync(CancellationToken cancellationToken = default)
             => ValueTask.FromResult(Incoming.TryDequeue(out var next) ? next : null);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(15)]
+    [InlineData(17)]
+    [InlineData(4096)]
+    public async Task AMessageId_IsSixteenBytes_AndNothingElseIsSentOrAccepted(int length)
+    {
+        var suite = CryptoSuites.Secure();
+        var sessionKey = RandomNumberGenerator.GetBytes(suite.Aead.KeySize);
+        var aliceWire = new Wire();
+        var bobWire = new Wire();
+        var alice = new EpistleSession(aliceWire, sessionKey, suite, VeilRole.Initiator);
+        var bob = new EpistleSession(bobWire, sessionKey, suite, VeilRole.Responder);
+        var odd = new byte[length];
+
+        // An honest sender will not produce one.
+        await Assert.ThrowsAsync<ArgumentException>(() => alice.SendMessageAsync(Epistle.Text("hi", Now) with { MessageId = odd }));
+        await Assert.ThrowsAsync<ArgumentException>(() => alice.SendMessageAsync(Epistle.Text("hi", Now) with { InReplyTo = odd }));
+        await Assert.ThrowsAsync<ArgumentException>(() => alice.SendAttestationAsync(odd));
+
+        // And one built by hand is refused at decode, as a message id, a reply reference or an acknowledgement.
+        var good = EpistleCodec.Encode(Epistle.Text("hi", Now) with { MessageId = new byte[16], InReplyTo = new byte[16] });
+        Assert.Throws<CodexFormatException>(() => EpistleCodec.Decode(Resize(good, 0, length)));
+        var replyAt = good.Length - 18; // … flag ‖ len ‖ reply(16) ‖ no-author flag
+        Assert.Equal(1, good[replyAt - 1]);
+        Assert.Throws<CodexFormatException>(() => EpistleCodec.Decode(Resize(good, replyAt, length)));
+
+        var veil = new VeilCipher(sessionKey, suite, "epistle", VeilRole.Initiator);
+        var w = new CodexWriter();
+        w.WriteByte(2);
+        w.WriteBytes(veil.Seal(odd, [2]));
+        bobWire.Incoming.Enqueue(w.ToArray());
+        await Assert.ThrowsAsync<EpistleException>(() => bob.ReceiveAsync());
+    }
+
+    /// <summary>Replaces the 16-byte length-prefixed field at <paramref name="at"/> with one of <paramref name="length"/> zero bytes.</summary>
+    private static byte[] Resize(byte[] encoded, int at, int length)
+    {
+        Assert.Equal(16, encoded[at]);
+        var w = new CodexWriter();
+        w.WriteBytes(new byte[length]);
+        return [.. encoded[..at], .. w.ToArray(), .. encoded[(at + 17)..]];
     }
 
     [Fact]

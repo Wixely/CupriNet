@@ -48,6 +48,10 @@ public static class EpistleCodec
     public static byte[] Encode(Epistle epistle)
     {
         ArgumentNullException.ThrowIfNull(epistle);
+        if (epistle.MessageId is not { Length: Epistle.MessageIdSize })
+            throw new ArgumentException($"An Epistle's MessageId is {Epistle.MessageIdSize} bytes.", nameof(epistle));
+        if (epistle.InReplyTo is { Length: not Epistle.MessageIdSize })
+            throw new ArgumentException($"InReplyTo names a MessageId, which is {Epistle.MessageIdSize} bytes.", nameof(epistle));
         var w = new CodexWriter();
         w.WriteBytes(epistle.MessageId);
         w.WriteUInt64((ulong)epistle.TimestampUnixMs);
@@ -70,7 +74,11 @@ public static class EpistleCodec
     public static Epistle Decode(ReadOnlySpan<byte> data)
     {
         var r = new CodexReader(data);
+        // An id is a fixed size: it keys the receiver's dedup set and the sender's retry table, so a peer does not
+        // get to choose how much of either one message occupies.
         var messageId = r.ReadBytes().ToArray();
+        if (messageId.Length != Epistle.MessageIdSize)
+            throw new CodexFormatException($"An Epistle's MessageId must be {Epistle.MessageIdSize} bytes.");
         var timestamp = (long)r.ReadUInt64();
         var contentType = r.ReadString();
         var payload = r.ReadBytes().ToArray();
@@ -81,6 +89,8 @@ public static class EpistleCodec
             1 => r.ReadBytes().ToArray(),
             _ => throw new CodexFormatException("Invalid InReplyTo presence flag."),
         };
+        if (inReplyTo is { Length: not Epistle.MessageIdSize })
+            throw new CodexFormatException($"InReplyTo must be a {Epistle.MessageIdSize}-byte MessageId.");
         var (authorKey, authorSig) = AuthorEnvelope.Read(ref r);
 
         return new Epistle

@@ -75,7 +75,11 @@ public sealed class EpistleSession
     }
 
     public Task SendAttestationAsync(ReadOnlySpan<byte> messageId, CancellationToken cancellationToken = default)
-        => SendFrameAsync(FrameType.Attestation, messageId.ToArray(), cancellationToken);
+    {
+        if (messageId.Length != Epistle.MessageIdSize)
+            throw new ArgumentException($"An Attestation names a MessageId, which is {Epistle.MessageIdSize} bytes.", nameof(messageId));
+        return SendFrameAsync(FrameType.Attestation, messageId.ToArray(), cancellationToken);
+    }
 
     /// <summary>Reads the next content event, or null when the peer closes the connection.</summary>
     public async Task<EpistleEvent?> ReceiveAsync(CancellationToken cancellationToken = default)
@@ -95,7 +99,9 @@ public sealed class EpistleSession
         return type switch
         {
             FrameType.Message => new MessageReceived(VerifyAuthor(EpistleCodec.Decode(plaintext))),
-            FrameType.Attestation => new AttestationReceived(plaintext),
+            FrameType.Attestation => plaintext.Length == Epistle.MessageIdSize
+                ? new AttestationReceived(plaintext)
+                : throw new EpistleException($"An Attestation must name a {Epistle.MessageIdSize}-byte MessageId."),
             _ => throw new EpistleException($"Unknown content frame type {(byte)type}."),
         };
     }
