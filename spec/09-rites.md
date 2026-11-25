@@ -15,26 +15,35 @@ key ([08 §8.4.3](08-channels.md)). There is one key for each rite and each dire
 key(rite, role) = HKDF(session_key, salt = "", info = "cuprinet/arcanum/veil/" ‖ rite ‖ "/" ‖ role ‖ "/v1", 32)
                   ; rite ∈ { epistle, conduit, oracle, auspice }     role ∈ { initiator, responder }
 
-veil(pt, ad)    = nonce (12 random bytes) ‖ ChaCha20-Poly1305(key = key(rite, sender's role), nonce, ad, pt)
+veil(pt, ad)    = nonce (12 random bytes) ‖ ChaCha20-Poly1305(key = key(rite, sender's role), nonce, ad, seq ‖ pt)
+                  ; seq = u64, big-endian: 1 for the first frame a side seals under this key, then +1 per frame
 ```
 
 `role` is the sender's role in the Consecration. `ad` is whatever the rite leaves outside the seal: the frame-type
 byte for the Epistle rite (§9.3) and the Oracle rite, and empty for the Conduit and the Auspice, which seal the whole
 frame.
 
-A receiver MUST open a frame with the key for the **other** role, and MUST reject input shorter than 28 bytes and
+A receiver MUST open a frame with the key for the **other** role, and MUST reject input shorter than 36 bytes and
 any input that fails authentication. A frame therefore fails if it is moved to another rite, returned to its
 sender, or has its type byte changed.
 
+**Replay.** A receiver MUST accept each `seq` at most once per key, and MUST reject `seq = 0`. It keeps the highest
+`seq` it has opened and a record of which of the 64 values at and below it have been opened; a frame whose `seq` is
+already recorded, or is 64 or more below the highest, is rejected exactly as a frame that fails authentication is.
+A frame within that window that has not been seen is accepted, so a rite's senders need not queue behind one
+another. Only a frame that authenticates may advance the window. The Veil does this itself and does not rely on
+the transport beneath it.
+
 The Veil's purpose is unchanged: opening a frame shows the sender holds the channel secret, which the Noise session
-— an authentication of the node — does not. Nonces are random by design: several rite sessions seal under keys
-from one session key with no shared state, which a counter would require. The overhead is still 28 bytes.
+— an authentication of the node — does not. Nonces are random by design, and `seq` is not the nonce: a counter
+nonce is safe only while nothing else seals under the same key, which the Veil cannot promise. The overhead is 36
+bytes: nonce 12, `seq` 8, tag 16.
 
 *Reference:* `src/CupriNet.Rites/VeilCipher.cs`.
 
 > **Open (OI-09.1), partly resolved:** the Veil used one key for both directions and every rite, and bound nothing
-> outside the seal. It now has a key per rite and direction and takes associated data. Still open: it has no replay
-> protection of its own (it relies on Noise), and no usage limit or rekey.
+> outside the seal. It now has a key per rite and direction, takes associated data, and refuses replays itself.
+> Still open: no usage limit or rekey (a key lasts one Consecration, far short of any limit).
 
 ## 9.2 Author envelope
 
@@ -53,7 +62,7 @@ signature = Ed25519(persona, digest)
 ```
 
 `content` is the frame's encoding with the envelope **absent**, so it ends in `0x00`. `domain` is one of
-`epistle`, `conduit` or `reliquary`. A node configured to require signed authors (the reference default) MUST reject
+`epistle`, `epistle-attestation`, `conduit` or `reliquary`. A node configured to require signed authors (the reference default) MUST reject
 frames that have no envelope.
 
 *Reference:* `src/CupriNet.Rites/RiteAuthor.cs:12-100`.
@@ -69,7 +78,7 @@ Each frame is `u8 type ‖ bytes<len>(veil(body))`:
 | type | body |
 |---|---|
 | `1` Message | an Epistle, below |
-| `2` Attestation | the acknowledged message's `messageId`, raw: exactly 16 bytes |
+| `2` Attestation | `bytes<len>` the acknowledged message's `messageId` (exactly 16 bytes) ‖ author envelope (§9.2), domain `epistle-attestation` |
 
 **Epistle body**
 
@@ -90,8 +99,14 @@ A sender MUST NOT produce, and a receiver MUST reject, a `messageId`, an `inRepl
 other length. The id keys the receiver's dedup set and the sender's retry table, so its size is not the peer's to
 choose.
 
-> **Open (OI-09.3), partly resolved:** the type byte is still outside the seal but is now its associated data
-> (§9.1), so it is authenticated, and id lengths are checked. Still open: Attestations are unsigned.
+An Attestation is signed on the same terms as a message: a member with a persona signs it, and a receiver applies
+the same policy to it (a node that requires signed authors MUST reject an unsigned Attestation). The protocol does
+not relay — a peer is the member it speaks for — so the signer is ordinarily the peer that sent the frame. An
+application that does relay MUST forward a signed Attestation unchanged; its signature then names the member who
+acknowledged, whichever peer delivered it.
+
+> **Resolved (OI-09.3):** the type byte is outside the seal but is its associated data (§9.1), id lengths are
+> checked, and an Attestation carries the author envelope.
 
 ## 9.4 Vigil (acknowledged retry)
 

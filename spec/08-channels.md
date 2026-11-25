@@ -106,6 +106,11 @@ The responder MUST verify the initiator's tag before sending its own, and MUST N
 side that abandons the handshake — an epoch outside the window, or a tag that does not verify — SHOULD send Refuse,
 so that the other side fails at once and not at its timeout. Refuse carries no reason.
 
+Nothing else may be sent until the Consecration ends: from its first Hello until it has verified the other side's
+tag, a side MUST NOT send a frame on any other stream, and a side that receives one MUST abandon the handshake. A
+peer that has something to say early holds it until then; that buffering is the sender's affair, not the
+protocol's.
+
 ### 8.4.3 Transcript and keys
 
 ```
@@ -134,9 +139,9 @@ weaker is as weak as it was chosen to be. No password-authenticated key exchange
 
 *Reference:* `src/CupriNet.Arcanum/ConsecrationHandshake.cs:31-210`.
 
-> **Open (OI-08.3), partly resolved:** lengths are now checked, both epochs are in the transcript and each side
-> bounds the other's, the responder verifies before it answers, and a failure is signalled. Still open: a frame on
-> any other stream aborts the handshake.
+> **Resolved (OI-08.3):** lengths are checked, both epochs are in the transcript and each side bounds the other's,
+> the responder verifies before it answers, and a failure is signalled. That a frame on any other stream aborts the
+> handshake is now the rule, above.
 
 ## 8.5 Ownership and admission
 

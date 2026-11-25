@@ -85,7 +85,7 @@ public static class ConduitCodec
     /// <summary>
     /// Headroom the channel ceiling leaves under the Vessel frame size, for the same reason the Pilgrimage ceiling
     /// leaves 64 KiB under the browser's 256 KiB: a payload is not what goes on the wire. Around it sit this rite's
-    /// framing, the Veil's nonce and tag, the vessel's own header, and Noise's ciphertext expansion. Measured, that
+    /// framing, the Veil's nonce, sequence number and tag, the vessel's own header, and Noise's ciphertext expansion. Measured, that
     /// is about 50 bytes for an unsigned frame and a few hundred for a signed one; 64 KiB is a round number far above
     /// either, and negligible against 16 MiB.
     /// </summary>

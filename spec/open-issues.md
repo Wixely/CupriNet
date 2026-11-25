@@ -79,7 +79,7 @@
 | OI-07.10 | ✅ | Tribute difficulty not advertised; replayable within the epoch window; capped at 24 |
 | OI-08.1 | 🟡 | Watchword text rules are implementation-defined |
 | OI-08.2 | 🟡 | VeilKey unused |
-| OI-08.3 | 🟡 ◐ | Consecration validation gaps and message ordering |
+| OI-08.3 | ✅ | Consecration validation gaps and message ordering |
 | OI-08.4 | 🟡 | Sanction vs Sealed undefined |
 | OI-08.5 | 🟡 | No wire encoding for ChannelDescriptor |
 | OI-08.6 | 🟡 | Roles, serial and policyVersion undefined; ascension ignored in admission |
@@ -89,7 +89,7 @@
 | OI-08.10 | 🟠 | Decree lifetime at the holder's maximum; no republish |
 | OI-09.1 | 🟡 ◐ | Veil: random nonces, one key both directions, no AD, no rekey |
 | OI-09.2 | 🟡 ◐ | Author signature over a re-encoding (malleable) ([#18](https://github.com/Wixely/CupriNet/issues/18)) |
-| OI-09.3 | 🟡 ◐ | Epistle type byte unauthenticated; messageId length unchecked; Attestations unsigned |
+| OI-09.3 | ✅ | Epistle type byte unauthenticated; messageId length unchecked; Attestations unsigned |
 | OI-09.4 | 🟡 | Whether receivers MUST attest |
 | OI-09.5 | 🟡 | Channel Conduit unversioned |
 | OI-09.6 | ✅ | Reliquary path not validated at decode; OS-dependent rules |
@@ -159,6 +159,8 @@ These need a docs fix, not a protocol decision.
 | OI-07.10 | `bc98202` (replay within the window is harmless and stays) |
 | OI-09.6 | `19998a5` |
 | OI-10.6 | `19998a5` (no author signature on a Pilgrimage is by design) |
+| OI-08.3 | `f434add`; aborting on a frame from another stream is the rule (buffering is the sender's affair) |
+| OI-09.3 | `78f4056`, `1507a86`; Attestations carry the author envelope |
 
 ## Partly fixed
 
@@ -166,7 +168,5 @@ These need a docs fix, not a protocol decision.
 |---|---|
 | OI-09.2 | reduced to trailing padding by strict decode (`7718b14`) |
 | OI-06.5 | no longer affects verification (`7718b14`); display still runtime-dependent |
-| OI-08.3 | checks, ordering and a refusal signal fixed (`f434add`); a frame on another stream still aborts |
-| OI-09.1 | key per rite and direction, associated data (`78f4056`); no replay protection or rekey of its own |
-| OI-09.3 | type byte authenticated (`78f4056`), id lengths checked; Attestations unsigned |
+| OI-09.1 | key per rite and direction, associated data (`78f4056`), replay window; no usage limit or rekey |
 | OI-11.6 | versioned, fenced, limited, filtered and priced (`616c0eb`, `c3af8e1`, `34694a6`, Tribute on RENDEZVOUS); design doc drift |

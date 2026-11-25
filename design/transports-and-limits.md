@@ -246,7 +246,7 @@ constructor.
 An `ArcanumSession.Conduits` frame may be up to `ConduitCodec.MaxChannelPayloadBytes` — a vessel frame less 64 KiB of
 headroom, so **16 MiB − 64 KiB**, not a flat 16 MiB. The headroom is there for the same reason the Pilgrimage path
 leaves 64 KiB under the browser's 256 KiB: the payload is not what goes on the wire, and this rite's framing, the
-Veil's nonce and tag, the vessel header and Noise's expansion all sit around it.
+Veil's nonce, sequence number and tag, the vessel header and Noise's expansion all sit around it.
 
 > Before 0.3.7 this constant was set to the frame size exactly, which meant the documented maximum could not actually
 > be sent: a payload at 16 MiB encoded to 17 bytes more than a frame may carry, and the refusal came from `FrameCodec`
@@ -375,9 +375,10 @@ The ceremonial vocabulary maps one-to-one onto ordinary components. The transpor
 On an **Arcanum channel** the rites are Veil-sealed: an inner encryption layer keyed from the channel's session key,
 which is why those constructors take a session key, a crypto suite and the side's Consecration role. The session
 key is not used directly — each rite, and each direction within it, seals under its own key derived from it, so a
-frame cannot be moved between rites or handed back to its sender. Nonces stay random (several rite sessions share
-the one session key with no shared counter), and the overhead is the same nonce and tag as before, so every limit
-below is unchanged. On a **Pilgrimage** they are not — every rite
+frame cannot be moved between rites or handed back to its sender. Each frame also carries a sequence number under
+the seal, and a frame is opened once: a replay is refused by the Veil itself, whatever the transport beneath does.
+Nonces stay random (the sequence number is not the nonce). The overhead is 36 bytes — nonce, sequence number, tag —
+which the 64 KiB of headroom absorbs, so every limit below is unchanged. On a **Pilgrimage** they are not — every rite
 has a **keyless** constructor for that path, and no session key is ever plumbed out of `Pilgrimage.OverVesselAsync`.
 
 *(Every rite, as of 0.3.6. The Conduit was the exception until then: it had only key-taking constructors, which is why
