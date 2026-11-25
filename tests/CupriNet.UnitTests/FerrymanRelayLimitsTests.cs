@@ -116,14 +116,15 @@ public class FerrymanRelayLimitsTests
     {
         using var cts = new CancellationTokenSource(Timeout);
         var ct = cts.Token;
-        await using var relay = await RelayAsync(ct, idle: TimeSpan.FromMilliseconds(600));
+        await using var relay = await RelayAsync(ct, idle: TimeSpan.FromMilliseconds(1500));
 
         await using var target = await DialAsync(relay, ct);
         var (handle, status) = await ReserveAsync(relay, target, ct);
         Assert.Equal(FerrymanProtocol.StatusOk, status);
 
-        // Well past the idle timeout, but never silent for that long.
-        for (var i = 0; i < 15; i++)
+        // Well past the idle timeout, but never silent for anything near it. The gap is a fifteenth of the timeout:
+        // at a sixth (600ms against 100ms) a loaded two-core CI runner stalled long enough to be reaped.
+        for (var i = 0; i < 35; i++)
         {
             await Task.Delay(100, ct);
             await target.SendAsync(OverlayControl.Stream, FerrymanProtocol.KeepAlive(), ct);
