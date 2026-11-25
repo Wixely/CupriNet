@@ -69,25 +69,29 @@ Each frame is `u8 type ‖ bytes<len>(veil(body))`:
 | type | body |
 |---|---|
 | `1` Message | an Epistle, below |
-| `2` Attestation | the acknowledged message's `messageId`, raw |
+| `2` Attestation | the acknowledged message's `messageId`, raw: exactly 16 bytes |
 
 **Epistle body**
 
 | Field | Type | Notes |
 |---|---|---|
-| messageId | `bytes<len>` | 16 random bytes |
+| messageId | `bytes<len>` | exactly 16 bytes, random |
 | timestamp | `u64` | sender's clock, Unix ms; not trusted |
 | contentType | `string` | e.g. `text/plain; charset=utf-8` |
 | payload | `bytes<len>` | |
-| inReplyTo | `u8 flag` (0/1), then `bytes<len>` if 1 | |
+| inReplyTo | `u8 flag` (0/1), then `bytes<len>` if 1 | a `messageId`: exactly 16 bytes |
 | author | author envelope (§9.2), domain `epistle` | |
 
 There is no rite-level size limit. The only bound is the 16 MiB Vessel frame.
 
 *Reference:* `src/CupriNet.Rites/Epistle.cs:13-117`, `src/CupriNet.Rites/EpistleSession.cs:28-117`.
 
+A sender MUST NOT produce, and a receiver MUST reject, a `messageId`, an `inReplyTo` or an Attestation body of any
+other length. The id keys the receiver's dedup set and the sender's retry table, so its size is not the peer's to
+choose.
+
 > **Open (OI-09.3), partly resolved:** the type byte is still outside the seal but is now its associated data
-> (§9.1), so it is authenticated. Still open: `messageId` length is not validated, and Attestations are unsigned.
+> (§9.1), so it is authenticated, and id lengths are checked. Still open: Attestations are unsigned.
 
 ## 9.4 Vigil (acknowledged retry)
 

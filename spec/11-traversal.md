@@ -138,8 +138,8 @@ receiver MUST ignore a message whose version it does not accept.
 |---|---|---|---|
 | 1 | RESERVE | D → relay | `bytes<len>` handle (16) ‖ candidates ‖ `bytes<len>` rendezvous public key ‖ `bytes<len>` signature |
 | 2 | RESERVED | relay → D | `u8` status (`0` Ok, `1` NotReserved) |
-| 3 | RENDEZVOUS | E → relay | `bytes<len>` handle (16) ‖ candidates |
-| 4 | OFFER | relay → E | `u8` status ‖ `bytes<len>` nonce (16) ‖ D's candidates |
+| 3 | RENDEZVOUS | E → relay | `bytes<len>` handle (16) ‖ candidates ‖ `bytes<len>` tribute (≤ 64) |
+| 4 | OFFER | relay → E | `u8` status (`0` Ok, `1` NotReserved, `2` TributeTooLow) ‖ `bytes<len>` nonce (16) ‖ D's candidates; with status `2`, then `u8` required difficulty |
 | 5 | NOTIFY | relay → D | `bytes<len>` nonce (16) ‖ E's candidates |
 | 6 | KEEPALIVE | D → relay | empty: the reservation is still wanted |
 
@@ -153,6 +153,16 @@ signature      = Ed25519(rendezvous_private_key, signed_subject)
 
 `handshake_hash` is the Noise handshake hash of the D↔relay connection the RESERVE is sent on.
 
+A RENDEZVOUS is priced with a Tribute (07 §7.8) over E's own connection to the relay:
+
+```
+tribute_subject = bytes("cuprinet/ferryman/rendezvous-tribute/v1") ‖ bytes(handshake_hash) ‖ bytes(handle)
+```
+
+Here `handshake_hash` is that of the E↔relay connection, so the work cannot be done before connecting and is worth
+nothing on any other connection. The difficulty is the relay's local policy (reference: 16 bits; 0 asks for none),
+capped at the Tribute ceiling of 24.
+
 ### 11.5.3 Flow
 
 1. D connects to the relay. An application SHOULD let the user approve the relay, identified by its
@@ -165,10 +175,14 @@ signature      = Ed25519(rendezvous_private_key, signed_subject)
 3. E reads a relay route from D's Intonation. An application SHOULD ask the user to approve the relay named in the
    route **before E connects to it**, and remember approvals trust-on-first-use (TOFU).
 4. E connects to the relay, pinned to the route's relay Sigil (04 §4.3.4, check 6), and sends RENDEZVOUS with the
-   route's handle.
-5. The relay generates a random 16-byte nonce, sends NOTIFY(nonce, E's candidates) to D, and replies OFFER(Ok, nonce,
+   route's handle and a tribute at the difficulty E offers by default (reference: 16 bits).
+5. The relay checks the tribute **before** it looks the handle up. If it falls short the relay replies
+   OFFER(TributeTooLow, zeros, [], required) and sends D nothing; E MAY re-solve at `required` and send RENDEZVOUS
+   once more on the same connection, and the relay MUST drop a caller that underpays twice. A relay quotes the same
+   price for every handle, so the quote reveals nothing about who is reserved. E MUST NOT grind past the ceiling.
+6. The relay generates a random 16-byte nonce, sends NOTIFY(nonce, E's candidates) to D, and replies OFFER(Ok, nonce,
    D's candidates) to E. With no reservation, the relay replies OFFER(NotReserved, zeros, []).
-6. D and E hole-punch (§11.4) with `sessionId = nonce`. E then runs the Conjunction **pinned to D's Sigil**.
+7. D and E hole-punch (§11.4) with `sessionId = nonce`. E then runs the Conjunction **pinned to D's Sigil**.
 
 Because the reservation signature covers the handshake hash, a RESERVE observed on one connection cannot be used on
 another.
@@ -178,7 +192,9 @@ another.
 A relay's callers are anonymous to it by design, so it can bound them only by time and by source address. A relay
 SHOULD:
 
-- drop a caller that has not sent its first message within 10 s, and give a rendezvous the same bound to finish;
+- drop a caller that has not sent its first message within 10 s, and give a rendezvous the same bound to finish
+  (a caller quoted a price gets the bound afresh to pay it);
+- require a Tribute on RENDEZVOUS (§11.5.3, step 5);
 - drop a reservation that has gone silent (step 2);
 - cap concurrent sessions per source address (an IPv4 address or an IPv6 /64; reference: 16), as well as in total.
 
@@ -198,9 +214,9 @@ signature covers the candidates as sent, so a relay filters after verifying it.
 > RESERVE could replay it at another. It now covers the handshake hash.
 >
 > **Open (OI-11.6), partly resolved:** Ferryman has a CupriMark version, the punched Vessel is subject to the
-> subnet fence, and the relay now has deadlines, a per-source cap and candidate filtering (§11.5.4). Still open:
-> RENDEZVOUS carries no Tribute, and [design/ferryman.md](../design/ferryman.md) still describes a capability flag
-> and a Tor fallback that are not implemented.
+> subnet fence, the relay has deadlines, a per-source cap and candidate filtering (§11.5.4), and RENDEZVOUS carries a
+> Tribute. Still open: [design/ferryman.md](../design/ferryman.md) still describes a capability flag and a Tor
+> fallback that are not implemented.
 >
 > **Open (OI-11.7):** the TOFU fingerprint the reference app shows is grouped hex, while the docs say Bech32
 > `cupri1…`. Pick one for user-facing consistency.

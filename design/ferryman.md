@@ -152,13 +152,18 @@ a caller that has not said what it wants within 10 s is dropped; a reservation i
 refreshes it (a `KEEPALIVE` every 30 s, reaped after 90 s of silence); and one source address (an IPv4 address or
 an IPv6 /64) may hold only so many sessions, beneath the global cap. All four numbers are `CupriNodeOptions`.
 
+**Priced requests** (implemented). A `RENDEZVOUS` carries a Tribute ground over the requester's own connection to
+the relay (its handshake hash) and the handle, so the work is done on the spot and spent once. The relay checks it
+before looking the handle up or notifying the target; a requester that underpays is told the relay's price and
+may pay it once on the same connection. The difficulty is the relay's own policy
+(`RequiredFerrymanTributeDifficulty`, default 16 bits, never above the Tribute ceiling).
+
 **Candidate hygiene** (implemented). A relay does not forward, and an endpoint does not punch toward, an
 unspecified, broadcast or multicast address, a port 0, or an address family the punch socket cannot reach.
 **Loopback and private addresses are deliberately kept** — they are how two nodes on one host, or behind one
 router, meet through a relay — so a relay and a requester do still see a target's LAN address if it offers one.
 
 **Deferred hardening** (tracked; none are security-critical — the relay still can't read content or impersonate):
-- A **Tribute (PoW)** on `RENDEZVOUS` — beyond the per-source and global session caps.
 - **Fresh socket per incoming** on the target so it can serve concurrent requesters (v1 handles one per socket,
   then re-reserves).
 - **Rotating handles** — the handle is now per-relay and unlinkable to the Sigil, but stable over time at one

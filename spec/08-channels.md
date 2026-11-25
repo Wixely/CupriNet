@@ -127,6 +127,11 @@ The initiator has to send its tag first, so a responder that does not hold the W
 derived from it. That gives it nothing the channel's published Glyph (§8.3) does not already give anyone: one
 Argon2id-priced guess per attempt.
 
+That a Watchword can be guessed at all — offline, against the Glyph — is **by design**. The Watchword is the
+channel's whole credential and its discovery key at once, and its strength is the responsibility of whoever
+creates it: a generated Watchword carries at least 16 random bytes (§8.1) and cannot be guessed, and one chosen
+weaker is as weak as it was chosen to be. No password-authenticated key exchange is planned.
+
 *Reference:* `src/CupriNet.Arcanum/ConsecrationHandshake.cs:31-210`.
 
 > **Open (OI-08.3), partly resolved:** lengths are now checked, both epochs are in the transcript and each side

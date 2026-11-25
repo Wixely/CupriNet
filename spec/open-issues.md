@@ -89,7 +89,7 @@
 | OI-08.10 | 🟠 | Decree lifetime at the holder's maximum; no republish |
 | OI-09.1 | 🟡 ◐ | Veil: random nonces, one key both directions, no AD, no rekey |
 | OI-09.2 | 🟡 ◐ | Author signature over a re-encoding (malleable) ([#18](https://github.com/Wixely/CupriNet/issues/18)) |
-| OI-09.3 | 🟡 ◐ | Epistle type byte unauthenticated; messageId length unchecked |
+| OI-09.3 | 🟡 ◐ | Epistle type byte unauthenticated; messageId length unchecked; Attestations unsigned |
 | OI-09.4 | 🟡 | Whether receivers MUST attest |
 | OI-09.5 | 🟡 | Channel Conduit unversioned |
 | OI-09.6 | ✅ | Reliquary path not validated at decode; OS-dependent rules |
@@ -125,7 +125,7 @@ These need a docs fix, not a protocol decision.
 | `README.md`, `ROADMAP.md` | "bucketed peer table" | trust categories, not distance buckets |
 | `ROADMAP.md` | "accepted schism" | detection only |
 | `SECURITY-REVIEW.md` | Toll "specified but not implemented"; out-of-range stream id no longer kills the mux | the Toll is implemented; the mux is still killed |
-| `design/ferryman.md` | status "planned"; RENDEZVOUS_* and PUNCH messages; Brokered beacon; PoW; Tor fallback; relay never learns either Sigil | implemented with different messages; Relay beacon; no PoW; no Tor fallback; D's Sigil is revealed |
+| `design/ferryman.md` | status "planned"; RENDEZVOUS_* and PUNCH messages; Brokered beacon; PoW; Tor fallback; relay never learns either Sigil | implemented with different messages; Relay beacon; no Tor fallback (PoW and the hidden Sigil are now as the doc says) |
 | `design/webrtc-clients.md` | SIPSorcery; stable ICE credentials; Toll drawn as one message | CupriWebRTC; credentials regenerated per start; Toll is a two-message exchange |
 | `design/shrines.md`, `design/websites-l2.md` | Oracle "over Conduit"; a "session kind Shrine" marker; streamed bodies; Noise NK | Oracle has its own stream; no such marker; whole bodies ≤ 192 KiB; Noise XX |
 | `design/transports-and-limits.md` | the reliable rites recover dropped frames; Arcanum Conduit 16 MiB | only Epistle+Vigil can recover, and the Vigil is not wired; 16 MiB − 64 KiB |
@@ -168,5 +168,5 @@ These need a docs fix, not a protocol decision.
 | OI-06.5 | no longer affects verification (`7718b14`); display still runtime-dependent |
 | OI-08.3 | checks, ordering and a refusal signal fixed (`f434add`); a frame on another stream still aborts |
 | OI-09.1 | key per rite and direction, associated data (`78f4056`); no replay protection or rekey of its own |
-| OI-09.3 | type byte authenticated (`78f4056`); messageId length unchecked, Attestations unsigned |
-| OI-11.6 | versioned, fenced, limited and filtered (`616c0eb`, `c3af8e1`, `34694a6`); no Tribute on RENDEZVOUS, design doc drift |
+| OI-09.3 | type byte authenticated (`78f4056`), id lengths checked; Attestations unsigned |
+| OI-11.6 | versioned, fenced, limited, filtered and priced (`616c0eb`, `c3af8e1`, `34694a6`, Tribute on RENDEZVOUS); design doc drift |
