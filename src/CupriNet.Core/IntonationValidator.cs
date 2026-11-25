@@ -76,7 +76,7 @@ public static class IntonationValidator
         if (intonation.Network != expectedNetwork)
             return new IntonationValidation(IntonationStatus.WrongNetwork, intonation);
 
-        if (!suite.Verifier.Verify(signedBody, intonation.Signature, intonation.InviterSealPublicKey))
+        if (!suite.Verifier.Verify(SealDomain.Input(SealDomain.Label("intonation", intonation.Version), signedBody), intonation.Signature, intonation.InviterSealPublicKey))
             return new IntonationValidation(IntonationStatus.BadSignature, intonation);
 
         if (now.ToUnixTimeSeconds() > intonation.SeveranceUnix)

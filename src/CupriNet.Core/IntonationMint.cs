@@ -71,9 +71,8 @@ public static class IntonationMint
             Signature = [],
         };
 
-        var body = IntonationCodec.EncodeBody(draft);
         var signer = suite.CreateSigner(identity.Seal.PrivateKey);
-        var signature = signer.Sign(body);
+        var signature = signer.Sign(IntonationCodec.SigningInput(draft));
 
         return draft with { Signature = signature };
     }

@@ -1,4 +1,5 @@
 using CupriNet.Abstractions;
+using CupriNet.Alembic;
 using CupriNet.Codex;
 
 namespace CupriNet.Core;
@@ -11,7 +12,7 @@ namespace CupriNet.Core;
 public static class IntonationCodec
 {
     /// <summary>The current Intonation document version.</summary>
-    public const byte CurrentVersion = 1;
+    public const byte CurrentVersion = 2;
 
     /// <summary>Max beacons/seed records accepted, to bound a malicious link (a Ward).</summary>
     public const int MaxBeacons = 32;
@@ -93,6 +94,13 @@ public static class IntonationCodec
         try { return EncodeBody(DecodeBody(received)).AsSpan().SequenceEqual(encoded) ? received : encoded; }
         catch (CodexFormatException) { return encoded; }
     }
+
+    /// <summary>
+    /// What a link's signature is over: the label for a link of its version, then its signed body
+    /// (see <see cref="SealDomain"/>).
+    /// </summary>
+    public static byte[] SigningInput(Intonation intonation)
+        => SealDomain.Input(SealDomain.Label("intonation", intonation.Version), SignedBody(intonation));
 
     /// <summary>Encodes the full signed document (body envelope + signature).</summary>
     public static byte[] Encode(Intonation intonation)

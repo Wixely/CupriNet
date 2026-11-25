@@ -94,23 +94,31 @@ public static class CupriMarks
         ]),
         new Component(Decree,
         [
-            // v1 — the signed, epoch-scoped channel advertisement document.
-            new ComponentVersion(1, BumpReason.Functionality, VersionStatus.Active),
+            // v1 — the signed, epoch-scoped channel advertisement document. Buried: its signature named no document type.
+            new ComponentVersion(1, BumpReason.Functionality, VersionStatus.Buried),
+            // v2 — the same advert, signed under the label cuprinet/decree/v2.
+            new ComponentVersion(2, BumpReason.Security, VersionStatus.Active),
         ]),
         new Component(Intonation,
         [
-            // v1 — the signed connection link (inviter identity, beacons, litany, severance).
-            new ComponentVersion(1, BumpReason.Functionality, VersionStatus.Active),
+            // v1 — the signed connection link (inviter identity, beacons, litany, severance). Buried: its signature named no document type.
+            new ComponentVersion(1, BumpReason.Functionality, VersionStatus.Buried),
+            // v2 — the same link, signed under the label cuprinet/intonation/v2.
+            new ComponentVersion(2, BumpReason.Security, VersionStatus.Active),
         ]),
         new Component(ChannelDescriptor,
         [
-            // v1 — the founding owner-signed channel root (Reign 0).
-            new ComponentVersion(1, BumpReason.Functionality, VersionStatus.Active),
+            // v1 — the founding owner-signed channel root (Reign 0). Buried: its signature named no document type.
+            new ComponentVersion(1, BumpReason.Functionality, VersionStatus.Buried),
+            // v2 — the same root, signed under the label cuprinet/channel-descriptor/v2.
+            new ComponentVersion(2, BumpReason.Security, VersionStatus.Active),
         ]),
         new Component(Investiture,
         [
-            // v1 — the owner-signed membership credential.
-            new ComponentVersion(1, BumpReason.Functionality, VersionStatus.Active),
+            // v1 — the owner-signed membership credential. Buried: its signature named no document type.
+            new ComponentVersion(1, BumpReason.Functionality, VersionStatus.Buried),
+            // v2 — the same credential, signed under the label cuprinet/investiture/v2.
+            new ComponentVersion(2, BumpReason.Security, VersionStatus.Active),
         ]),
         new Component(Toll,
         [
@@ -119,8 +127,10 @@ public static class CupriMarks
         ]),
         new Component(LanPresence,
         [
-            // v1 — the signed LAN broadcast advertising identity, network, and listen port.
-            new ComponentVersion(1, BumpReason.Functionality, VersionStatus.Active),
+            // v1 — the signed LAN broadcast advertising identity, network, and listen port. Buried: its signature named no document type.
+            new ComponentVersion(1, BumpReason.Functionality, VersionStatus.Buried),
+            // v2 — the same announcement, signed under the label cuprinet/lan-presence/v2.
+            new ComponentVersion(2, BumpReason.Security, VersionStatus.Active),
         ]),
         new Component(KnownPeer,
         [

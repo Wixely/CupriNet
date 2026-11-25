@@ -36,7 +36,7 @@ public sealed record LanPresence
 /// <summary>Canonical serialization for <see cref="LanPresence"/> (signed body + signature envelope).</summary>
 public static class LanPresenceCodec
 {
-    public const byte CurrentVersion = 1;
+    public const byte CurrentVersion = 2;
 
     public static byte[] EncodeBody(LanPresence presence)
     {
@@ -68,6 +68,10 @@ public static class LanPresenceCodec
     }
 
     /// <summary>The bytes a presence's signature covers: the ones it arrived with, or its encoding if built here.</summary>
+    public static byte[] SigningInput(LanPresence presence)
+        => SealDomain.Input(SealDomain.Label("lan-presence", presence.Version), SignedBody(presence));
+
+    /// <summary>The bytes an announcement's signature covers: the ones it arrived with, or its encoding if built here.</summary>
     public static byte[] SignedBody(LanPresence presence)
     {
         ArgumentNullException.ThrowIfNull(presence);
@@ -120,7 +124,7 @@ public static class LanPresenceSigner
             IssuedAtUnix = now.ToUnixTimeSeconds(),
             Signature = [],
         };
-        var signature = suite.CreateSigner(identity.Seal.PrivateKey).Sign(LanPresenceCodec.EncodeBody(draft));
+        var signature = suite.CreateSigner(identity.Seal.PrivateKey).Sign(LanPresenceCodec.SigningInput(draft));
         return draft with { Signature = signature };
     }
 
@@ -128,6 +132,6 @@ public static class LanPresenceSigner
     {
         ArgumentNullException.ThrowIfNull(presence);
         ArgumentNullException.ThrowIfNull(suite);
-        return suite.Verifier.Verify(LanPresenceCodec.SignedBody(presence), presence.Signature, presence.SealPublicKey);
+        return suite.Verifier.Verify(LanPresenceCodec.SigningInput(presence), presence.Signature, presence.SealPublicKey);
     }
 }

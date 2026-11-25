@@ -75,8 +75,8 @@ public sealed record OwnershipState(byte[] CurrentOwnerPublicKey, ulong Reign);
 /// <summary>Serialization, signing, verification, and chain resolution for Arcanum ownership.</summary>
 public static class Ownership
 {
-    public const byte DescriptorVersion = 1;
-    public const byte InvestitureVersion = 1;
+    public const byte DescriptorVersion = 2;
+    public const byte InvestitureVersion = 2;
 
     /// <summary>The ChannelId for a channel is its Ascendant.</summary>
     public static byte[] ChannelId(ArcanumKeys keys)
@@ -114,7 +114,7 @@ public static class Ownership
             PolicyVersion = policyVersion,
             Signature = [],
         };
-        var signature = suite.CreateSigner(owner.PrivateKey).Sign(DescriptorBody(draft));
+        var signature = suite.CreateSigner(owner.PrivateKey).Sign(DescriptorSigningInput(draft));
         return draft with { Signature = signature };
     }
 
@@ -124,7 +124,7 @@ public static class Ownership
         ArgumentNullException.ThrowIfNull(suite);
         if (!CupriMarks.Accepts(CupriMarks.ChannelDescriptor, d.Version)) // a superseded/unknown descriptor version is refused
             return false;
-        return suite.Verifier.Verify(DescriptorBody(d), d.Signature, d.OwnerPublicKey);
+        return suite.Verifier.Verify(DescriptorSigningInput(d), d.Signature, d.OwnerPublicKey);
     }
 
     // ---- Investiture ---------------------------------------------------------------------------
@@ -210,7 +210,7 @@ public static class Ownership
             IssuerPublicKey = issuer.PublicKey,
             Signature = [],
         };
-        var signature = suite.CreateSigner(issuer.PrivateKey).Sign(InvestitureBody(draft));
+        var signature = suite.CreateSigner(issuer.PrivateKey).Sign(InvestitureSigningInput(draft));
         return draft with { Signature = signature };
     }
 
@@ -233,7 +233,7 @@ public static class Ownership
         if (nowUnix < inv.NotBeforeUnix || nowUnix > inv.NotAfterUnix)
             return false;
 
-        return suite.Verifier.Verify(InvestitureBody(inv), inv.Signature, inv.IssuerPublicKey);
+        return suite.Verifier.Verify(InvestitureSigningInput(inv), inv.Signature, inv.IssuerPublicKey);
     }
 
     // ---- Ascension chain -----------------------------------------------------------------------
@@ -247,6 +247,20 @@ public static class Ownership
         w.WriteBytes(link.PreviousHash);
         return w.ToArray();
     }
+
+    /// <summary>The label an ownership transfer is signed under. A link carries no version of its own, so this is fixed.</summary>
+    public const string AscensionSignLabel = "cuprinet/ascension/v1";
+
+    // What each ownership document's signature is over: its label, then its body (see SealDomain). An owner key
+    // signs all three kinds, and an Investiture issuer may be the owner too, so the label is what tells them apart.
+    private static byte[] DescriptorSigningInput(ChannelDescriptor d)
+        => SealDomain.Input(SealDomain.Label("channel-descriptor", d.Version), DescriptorBody(d));
+
+    private static byte[] InvestitureSigningInput(Investiture inv)
+        => SealDomain.Input(SealDomain.Label("investiture", inv.Version), InvestitureBody(inv));
+
+    private static byte[] AscensionSigningInput(AscensionLink link)
+        => SealDomain.Input(AscensionSignLabel, AscensionBody(link));
 
     /// <summary>The previous owner signs a transfer to a new owner at the next Reign.</summary>
     public static AscensionLink Ascend(SealKeyPair previousOwner, byte[] channelId, ulong newReign, byte[] newOwnerPublicKey, byte[] previousHash, ICryptoSuite suite)
@@ -264,7 +278,7 @@ public static class Ownership
             PreviousHash = previousHash,
             Signature = [],
         };
-        var signature = suite.CreateSigner(previousOwner.PrivateKey).Sign(AscensionBody(draft));
+        var signature = suite.CreateSigner(previousOwner.PrivateKey).Sign(AscensionSigningInput(draft));
         return draft with { Signature = signature };
     }
 
@@ -303,7 +317,7 @@ public static class Ownership
                 throw new OwnershipException("Ascension link is for a different channel.");
             if (!link.PreviousHash.AsSpan().SequenceEqual(currentHash))
                 throw new OwnershipException("Ascension link does not chain to the previous document.");
-            if (!suite.Verifier.Verify(AscensionBody(link), link.Signature, currentOwner))
+            if (!suite.Verifier.Verify(AscensionSigningInput(link), link.Signature, currentOwner))
                 throw new OwnershipException("Ascension link is not signed by the reigning owner.");
 
             currentOwner = link.NewOwnerPublicKey;

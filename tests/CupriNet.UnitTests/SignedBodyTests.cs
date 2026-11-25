@@ -1,4 +1,5 @@
 using CupriNet.Abstractions;
+using CupriNet.Alembic;
 using CupriNet.Codex;
 using CupriNet.Concordance;
 using CupriNet.Core;
@@ -34,7 +35,7 @@ public class SignedBodyTests
 
         // What a newer build would sign: everything this build knows, then a field it does not.
         byte[] body = [.. PeerRecordCodec.EncodeBody(known), 0x03, 0xAA, 0xBB, 0xCC];
-        var document = Document(body, suite.CreateSigner(identity.Seal.PrivateKey).Sign(body));
+        var document = Document(body, suite.CreateSigner(identity.Seal.PrivateKey).Sign(SealDomain.Input(PeerRecordCodec.SignLabel, body)));
 
         var (record, _) = PeerRecordCodec.Decode(document);
 
@@ -76,7 +77,7 @@ public class SignedBodyTests
         var trailer = new CodexWriter();
         trailer.WriteString("  Relay  ");
         byte[] body = [.. IntonationCodec.EncodeBody(link), .. trailer.ToArray()];
-        var document = Document(body, suite.CreateSigner(identity.Seal.PrivateKey).Sign(body));
+        var document = Document(body, suite.CreateSigner(identity.Seal.PrivateKey).Sign(SealDomain.Input(SealDomain.Label("intonation", link.Version), body)));
 
         var fromBytes = IntonationValidator.ValidateDocument(document, Network, suite, Now);
         Assert.True(fromBytes.IsValid);

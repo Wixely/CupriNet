@@ -78,18 +78,20 @@ public class CupriMarksTests
     [Fact]
     public void Decree_AcceptsSupportedVersion_RejectsUnknownOrZero()
     {
-        Assert.Equal(1, (int)CupriMarks.Supported(CupriMarks.Decree).Max);
-        Assert.True(CupriMarks.Accepts(CupriMarks.Decree, 1));   // current
-        Assert.False(CupriMarks.Accepts(CupriMarks.Decree, 2));  // too new — not in our catalogue
+        Assert.Equal(2, (int)CupriMarks.Supported(CupriMarks.Decree).Max);
+        Assert.True(CupriMarks.Accepts(CupriMarks.Decree, 2));   // current
+        Assert.False(CupriMarks.Accepts(CupriMarks.Decree, 1));  // buried — its signature named no document type
+        Assert.False(CupriMarks.Accepts(CupriMarks.Decree, 3));  // too new — not in our catalogue
         Assert.False(CupriMarks.Accepts(CupriMarks.Decree, 0));  // not a real version
     }
 
     [Fact]
     public void Intonation_AcceptsSupportedVersion_RejectsUnknown()
     {
-        Assert.Equal(1, (int)CupriMarks.Supported(CupriMarks.Intonation).Max);
-        Assert.True(CupriMarks.Accepts(CupriMarks.Intonation, 1));
-        Assert.False(CupriMarks.Accepts(CupriMarks.Intonation, 2));
+        Assert.Equal(2, (int)CupriMarks.Supported(CupriMarks.Intonation).Max);
+        Assert.True(CupriMarks.Accepts(CupriMarks.Intonation, 2));
+        Assert.False(CupriMarks.Accepts(CupriMarks.Intonation, 1)); // buried — its signature named no document type
+        Assert.False(CupriMarks.Accepts(CupriMarks.Intonation, 3));
     }
 
     [Fact]
@@ -97,17 +99,18 @@ public class CupriMarksTests
     {
         foreach (var component in new[] { CupriMarks.ChannelDescriptor, CupriMarks.Investiture })
         {
-            Assert.Equal(1, (int)CupriMarks.Supported(component).Max);
-            Assert.True(CupriMarks.Accepts(component, 1));
-            Assert.False(CupriMarks.Accepts(component, 2));
+            Assert.Equal(2, (int)CupriMarks.Supported(component).Max);
+            Assert.True(CupriMarks.Accepts(component, 2));
+            Assert.False(CupriMarks.Accepts(component, 1)); // buried — its signature named no document type
+            Assert.False(CupriMarks.Accepts(component, 3));
         }
     }
 
     [Fact]
     public void LowValueComponents_AcceptV1_RejectUnknown()
     {
-        // The remaining "low-value" version points now routed through CupriMark (Toll, LanPresence, KnownPeer).
-        foreach (var component in new[] { CupriMarks.Toll, CupriMarks.LanPresence, CupriMarks.KnownPeer })
+        // The remaining "low-value" version points now routed through CupriMark (Toll, KnownPeer).
+        foreach (var component in new[] { CupriMarks.Toll, CupriMarks.KnownPeer })
         {
             Assert.NotNull(CupriMarks.Catalogue.Component(component));
             Assert.Equal(1, (int)CupriMarks.Supported(component).Max);
@@ -115,6 +118,15 @@ public class CupriMarksTests
             Assert.False(CupriMarks.Accepts(component, 2));  // too new — not in our catalogue
             Assert.False(CupriMarks.Accepts(component, 0));  // not a real version
         }
+    }
+
+    [Fact]
+    public void LanPresence_AcceptsTheLabelledVersion_AndNoOther()
+    {
+        Assert.Equal(2, (int)CupriMarks.Supported(CupriMarks.LanPresence).Max);
+        Assert.True(CupriMarks.Accepts(CupriMarks.LanPresence, 2));
+        Assert.False(CupriMarks.Accepts(CupriMarks.LanPresence, 1)); // buried — its signature named no document type
+        Assert.False(CupriMarks.Accepts(CupriMarks.LanPresence, 3));
     }
 
     [Fact]

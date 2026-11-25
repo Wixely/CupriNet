@@ -90,6 +90,12 @@ public static class PeerRecordCodec
         return (DecodeBody(body) with { Signature = signature, SignedBody = body }, body);
     }
 
+    /// <summary>The label a record's signature is made under. A record carries no version of its own, so this is fixed.</summary>
+    public const string SignLabel = "cuprinet/peer-record/v1";
+
+    /// <summary>What a record's signature is over: the label, then its signed body (see <see cref="SealDomain"/>).</summary>
+    public static byte[] SigningInput(PeerRecord record) => SealDomain.Input(SignLabel, SignedBody(record));
+
     /// <summary>The bytes a record's signature covers: the ones it arrived with, or its encoding if built here.</summary>
     public static byte[] SignedBody(PeerRecord record)
     {
@@ -150,7 +156,7 @@ public static class PeerRecordSigner
             Signature = [],
         };
 
-        var signature = suite.CreateSigner(identity.Seal.PrivateKey).Sign(PeerRecordCodec.EncodeBody(draft));
+        var signature = suite.CreateSigner(identity.Seal.PrivateKey).Sign(PeerRecordCodec.SigningInput(draft));
         return draft with { Signature = signature };
     }
 
@@ -159,6 +165,6 @@ public static class PeerRecordSigner
     {
         ArgumentNullException.ThrowIfNull(record);
         ArgumentNullException.ThrowIfNull(suite);
-        return suite.Verifier.Verify(PeerRecordCodec.SignedBody(record), record.Signature, record.SealPublicKey);
+        return suite.Verifier.Verify(PeerRecordCodec.SigningInput(record), record.Signature, record.SealPublicKey);
     }
 }

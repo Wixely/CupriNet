@@ -38,7 +38,7 @@ public sealed record Decree
 /// <summary>Canonical serialization for <see cref="Decree"/> (signed body + signature envelope).</summary>
 public static class DecreeCodec
 {
-    public const byte CurrentVersion = 1;
+    public const byte CurrentVersion = 2;
     public const int MaxEndpoints = 8;
 
     public static byte[] EncodeBody(Decree decree)
@@ -72,6 +72,10 @@ public static class DecreeCodec
     }
 
     /// <summary>The bytes a Decree's signature covers: the ones it arrived with, or its encoding if built here.</summary>
+    public static byte[] SigningInput(Decree decree)
+        => SealDomain.Input(SealDomain.Label("decree", decree.Version), SignedBody(decree));
+
+    /// <summary>The bytes an advert's signature covers: the ones it arrived with, or its encoding if built here.</summary>
     public static byte[] SignedBody(Decree decree)
     {
         ArgumentNullException.ThrowIfNull(decree);
@@ -134,7 +138,7 @@ public static class DecreeSigner
             Signature = [],
         };
 
-        var signature = suite.CreateSigner(provider.Seal.PrivateKey).Sign(DecreeCodec.EncodeBody(draft));
+        var signature = suite.CreateSigner(provider.Seal.PrivateKey).Sign(DecreeCodec.SigningInput(draft));
         return draft with { Signature = signature };
     }
 
@@ -151,7 +155,7 @@ public static class DecreeSigner
     {
         ArgumentNullException.ThrowIfNull(decree);
         ArgumentNullException.ThrowIfNull(suite);
-        return suite.Verifier.Verify(DecreeCodec.SignedBody(decree), decree.Signature, decree.ProviderSealPublicKey);
+        return suite.Verifier.Verify(DecreeCodec.SigningInput(decree), decree.Signature, decree.ProviderSealPublicKey);
     }
 }
 
