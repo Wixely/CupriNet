@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using CupriNet.Alembic;
 using CupriNet.Rites;
 using Xunit;
@@ -56,6 +57,42 @@ public class RitesCoreTests
 
         var otherKey = System.Security.Cryptography.RandomNumberGenerator.GetBytes(suite.Aead.KeySize);
         Assert.Null(new VeilCipher(otherKey, suite, "epistle", VeilRole.Responder).Open(sealed_));
+    }
+
+    [Fact]
+    public void VeilCipher_OpensAFrameOnce_ToleratesALittleReordering_AndRefusesWhatIsTooOld()
+    {
+        var suite = CryptoSuites.Secure();
+        var key = RandomNumberGenerator.GetBytes(suite.Aead.KeySize);
+        var sender = new VeilCipher(key, suite, "epistle", VeilRole.Initiator);
+        var receiver = new VeilCipher(key, suite, "epistle", VeilRole.Responder);
+
+        var frames = Enumerable.Range(0, VeilCipher.ReplayWindow + 10).Select(i => sender.Seal([(byte)i])).ToArray();
+        Assert.Equal(1 + sender.Overhead, frames[0].Length);
+        Assert.Equal(36, sender.Overhead); // nonce 12, sequence 8, tag 16
+
+        // In order, then again: once each.
+        Assert.Equal(new byte[] { 0 }, receiver.Open(frames[0]));
+        Assert.Null(receiver.Open(frames[0]));
+
+        // Out of order within the window is fine, and still once each.
+        Assert.Equal(new byte[] { 3 }, receiver.Open(frames[3]));
+        Assert.Equal(new byte[] { 1 }, receiver.Open(frames[1]));
+        Assert.Null(receiver.Open(frames[1]));
+        Assert.Null(receiver.Open(frames[3]));
+        Assert.Equal(new byte[] { 2 }, receiver.Open(frames[2]));
+
+        // A forgery does not move the window: frame 4 still opens after one.
+        var forged = (byte[])frames[^1].Clone();
+        forged[^1] ^= 1;
+        Assert.Null(receiver.Open(forged));
+        Assert.Equal(new byte[] { 4 }, receiver.Open(frames[4]));
+
+        // Jump far ahead: the newest opens, and a frame never seen but now older than the window does not.
+        Assert.NotNull(receiver.Open(frames[^1]));
+        Assert.Null(receiver.Open(frames[5]));
+        Assert.NotNull(receiver.Open(frames[^2]));
+        Assert.Null(receiver.Open(frames[^2]));
     }
 
     [Fact]
