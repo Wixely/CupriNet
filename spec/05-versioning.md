@@ -78,6 +78,8 @@ SHA-256 = 9fe99fdf492f276fd40dfc05aad62f5a387b54829e91641cfd2d123ee350a3d6
 
 Catalogue `"cuprinet"`. `conjunction` and `consecration` are at ordinal 2: in each, v1 is **Buried** and v2 is a
 **Security** bump, so the advertised range is `[2, 2]`, the floor is 2, and a v1 peer is refused as `PeerTooOld`.
+The five versioned signed documents — `intonation`, `decree`, `lan-presence`, `channel-descriptor` and
+`investiture` — are at ordinal 2 in the same way: v2 signs under a label (02 §2.4), and a v1 document is refused.
 Every other component is at ordinal 1 (Functionality, Active), with floor 0 and range `[1, 1]`.
 
 | Component | Pattern | Wire width | Spec |

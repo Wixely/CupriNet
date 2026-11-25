@@ -8,20 +8,33 @@ A rite is selected by its Vessel stream id ([03 §3.3.1](03-transport.md)). Ther
 
 ## 9.1 Veil (channel-layer seal)
 
-Every channel rite frame is sealed under the Consecration session key ([08 §8.4.3](08-channels.md)), inside the Noise
-transport:
+Every channel rite frame is sealed, inside the Noise transport, under a key derived from the Consecration session
+key ([08 §8.4.3](08-channels.md)). There is one key for each rite and each direction:
 
 ```
-veil(pt) = nonce (12 random bytes) ‖ ChaCha20-Poly1305(key = session_key, nonce, ad = "", pt)
+key(rite, role) = HKDF(session_key, salt = "", info = "cuprinet/arcanum/veil/" ‖ rite ‖ "/" ‖ role ‖ "/v1", 32)
+                  ; rite ∈ { epistle, conduit, oracle, auspice }     role ∈ { initiator, responder }
+
+veil(pt, ad)    = nonce (12 random bytes) ‖ ChaCha20-Poly1305(key = key(rite, sender's role), nonce, ad, pt)
 ```
 
-A receiver MUST reject input shorter than 28 bytes and any input that fails authentication.
+`role` is the sender's role in the Consecration. `ad` is whatever the rite leaves outside the seal: the frame-type
+byte for the Epistle rite (§9.3) and the Oracle rite, and empty for the Conduit and the Auspice, which seal the whole
+frame.
 
-*Reference:* `src/CupriNet.Rites/VeilCipher.cs:26-43`.
+A receiver MUST open a frame with the key for the **other** role, and MUST reject input shorter than 28 bytes and
+any input that fails authentication. A frame therefore fails if it is moved to another rite, returned to its
+sender, or has its type byte changed.
 
-> **Open (OI-09.1):** the Veil uses random nonces under one key shared in both directions. It has no AD, so it does not
-> authenticate a rite's outer type byte or the stream id. It has no replay protection of its own; it relies on Noise.
-> It has no usage limit or rekey.
+The Veil's purpose is unchanged: opening a frame shows the sender holds the channel secret, which the Noise session
+— an authentication of the node — does not. Nonces are random by design: several rite sessions seal under keys
+from one session key with no shared state, which a counter would require. The overhead is still 28 bytes.
+
+*Reference:* `src/CupriNet.Rites/VeilCipher.cs`.
+
+> **Open (OI-09.1), partly resolved:** the Veil used one key for both directions and every rite, and bound nothing
+> outside the seal. It now has a key per rite and direction and takes associated data. Still open: it has no replay
+> protection of its own (it relies on Noise), and no usage limit or rekey.
 
 ## 9.2 Author envelope
 
@@ -73,8 +86,8 @@ There is no rite-level size limit. The only bound is the 16 MiB Vessel frame.
 
 *Reference:* `src/CupriNet.Rites/Epistle.cs:13-117`, `src/CupriNet.Rites/EpistleSession.cs:28-117`.
 
-> **Open (OI-09.3):** the type byte is outside the Veil, so it is not authenticated. `messageId` length is not
-> validated. Attestations are unsigned.
+> **Open (OI-09.3), partly resolved:** the type byte is still outside the seal but is now its associated data
+> (§9.1), so it is authenticated. Still open: `messageId` length is not validated, and Attestations are unsigned.
 
 ## 9.4 Vigil (acknowledged retry)
 
@@ -130,17 +143,22 @@ A receiver MUST verify each chunk's length and SHA-256, and MUST verify each fil
 A receiver MUST reject a `path` that:
 
 - is empty, longer than 1,024 characters, or rooted;
-- contains `:`, an empty segment, or a `.` or `..` segment;
-- contains control characters.
+- contains `:`, `\`, an empty segment, or a `.` or `..` segment;
+- contains a control character, or any of `" < > | * ?`;
+- has a segment that ends in `.` or a space;
+- has a segment whose name before the first `.` is, in any case, `CON`, `PRN`, `AUX`, `NUL`, `COM1`–`COM9` or
+  `LPT1`–`LPT9`.
+
+These rules are the same on every operating system, and a decoder MUST apply them when it decodes the manifest, not
+only when it writes a file. A `path` on the wire uses `/` as its only separator.
+
+There is no channel-side Reliquary transfer protocol: the library carries manifests and chunks only over a
+Pilgrimage, as the Relic. Channel file transfer is application-defined.
 
 *Reference:* `src/CupriNet.Rites/Reliquary.cs:10-167`, `src/CupriNet.Rites/FilePathGuard.cs`.
 
-> **Open (OI-09.6):**
->
-> - The reference decoder does not validate `path`; it does so only when writing to disk.
-> - The rejected character set also depends on the OS (`Path.GetInvalidFileNameChars`).
-> - There is no channel-side Reliquary transfer protocol: the library carries manifests and chunks only over a
->   Pilgrimage, as the Relic. Channel file transfer is application-defined.
+> **Resolved (OI-09.6):** the reference decoder used to accept any `path` and check it only at the write, and the
+> rejected characters depended on the OS. The decoder now checks, against one fixed rule set.
 
 ## 9.7 Cover traffic
 

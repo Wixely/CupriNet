@@ -147,18 +147,24 @@ relay Sigil, address, handle) — which also lets the requester be asked about t
 and pin it. NOTIFY pushes to a reserved target are serialized (a per-reservation gate), and a global
 concurrent-session cap Wards the relay.
 
+**Relay limits** (implemented). A relay's callers are anonymous to it, so it bounds them by time and by address:
+a caller that has not said what it wants within 10 s is dropped; a reservation is kept only while its target
+refreshes it (a `KEEPALIVE` every 30 s, reaped after 90 s of silence); and one source address (an IPv4 address or
+an IPv6 /64) may hold only so many sessions, beneath the global cap. All four numbers are `CupriNodeOptions`.
+
+**Candidate hygiene** (implemented). A relay does not forward, and an endpoint does not punch toward, an
+unspecified, broadcast or multicast address, a port 0, or an address family the punch socket cannot reach.
+**Loopback and private addresses are deliberately kept** — they are how two nodes on one host, or behind one
+router, meet through a relay — so a relay and a requester do still see a target's LAN address if it offers one.
+
 **Deferred hardening** (tracked; none are security-critical — the relay still can't read content or impersonate):
-- **Reservation TTL / keep-alive** — today a reservation lives with its vessel; add a ~30 s keep-alive + ~90 s TTL
-  so idle reservations are reaped promptly.
-- **Per-source-IP / per-subnet caps** and a **Tribute (PoW)** on `RENDEZVOUS` — beyond the global session cap.
+- A **Tribute (PoW)** on `RENDEZVOUS` — beyond the per-source and global session caps.
 - **Fresh socket per incoming** on the target so it can serve concurrent requesters (v1 handles one per socket,
   then re-reserves).
 - **Rotating handles** — the handle is now per-relay and unlinkable to the Sigil, but stable over time at one
   relay (so links already handed out keep working). Rotation would need a way to refresh the links that carry it.
 - **Routes for stored contacts** — a saved contact keeps beacons but no relay route, so reconnecting through a
   relay needs a fresh link.
-- **Candidate hygiene** — filter loopback/RFC1918/unspecified candidates signaled via a relay, and address-family
-  mismatches, to avoid reflected-punch noise and private-IP disclosure.
 - **Name-based changed-key** warning is inert until relays carry names (Phase 3); by raw Sigil a changed key is
   simply a new relay (first-use prompt).
 

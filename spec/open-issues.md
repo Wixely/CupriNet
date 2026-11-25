@@ -37,14 +37,14 @@
 | OI-01.5 | 🟡 | Max frame size is not negotiated or fixed |
 | OI-02.1 | 🟡 | Ed25519 verification strictness is left to BouncyCastle |
 | OI-02.2 | 🟡 | All-zero X25519 output is not explicitly rejected |
-| OI-02.3 | 🔴 ◐ | No domain separation across Seal signatures (binding, Intonation, Decree, LanPresence, PeerRecord) |
+| OI-02.3 | ✅ | No domain separation across Seal signatures (binding, Intonation, Decree, LanPresence, PeerRecord) |
 | OI-02.4 | 🟡 | Label style is inconsistent (`:` vs `/`) |
-| OI-02.5 | 🔴 | `IsSecure` is enforced only in the Conjunction |
+| OI-02.5 | ✅ | `IsSecure` is enforced only in the Conjunction |
 | OI-03.1 | 🟡 | Inner length need not fill the frame; double length prefix |
 | OI-03.2 | 🟡 | DataChannel sender does not check message size |
 | OI-03.3 | 🟡 | No reserved or private stream id range |
 | OI-03.4 | 🟡 | No close reason or error signal; one bad frame kills all streams |
-| OI-03.5 | 🔴 ◐ | Reliable UDP: no connection id, `una` not range-checked, unacknowledged CLOSE, state created for any datagram ([#17](https://github.com/Wixely/CupriNet/issues/17)) |
+| OI-03.5 | ✅ | Reliable UDP: no connection id, `una` not range-checked, unacknowledged CLOSE, state created for any datagram ([#17](https://github.com/Wixely/CupriNet/issues/17)) |
 | OI-03.6 | ✅ | Stream id unauthenticated (see above) ([#11](https://github.com/Wixely/CupriNet/issues/11)) |
 | OI-03.7 | 🟡 | Noise messages exceed 65,535 bytes |
 | OI-04.1 | ✅ | Toll freshness (see above) ([#10](https://github.com/Wixely/CupriNet/issues/10)) |
@@ -76,10 +76,10 @@
 | OI-07.7 | 🟡 | PUBLISH Ok ≠ stored |
 | OI-07.8 | 🟡 | Divination has no convergence termination or per-query timeout |
 | OI-07.9 | ⚪ | "Bucketed" peer table; dead quarantine path |
-| OI-07.10 | 🟡 | Tribute difficulty not advertised; replayable within the epoch window; capped at 24 |
+| OI-07.10 | ✅ | Tribute difficulty not advertised; replayable within the epoch window; capped at 24 |
 | OI-08.1 | 🟡 | Watchword text rules are implementation-defined |
 | OI-08.2 | 🟡 | VeilKey unused |
-| OI-08.3 | 🟡 | Consecration validation gaps and message ordering |
+| OI-08.3 | 🟡 ◐ | Consecration validation gaps and message ordering |
 | OI-08.4 | 🟡 | Sanction vs Sealed undefined |
 | OI-08.5 | 🟡 | No wire encoding for ChannelDescriptor |
 | OI-08.6 | 🟡 | Roles, serial and policyVersion undefined; ascension ignored in admission |
@@ -87,19 +87,19 @@
 | OI-08.8 | ✅ | Admission reflection (see above) ([#9](https://github.com/Wixely/CupriNet/issues/9)) |
 | OI-08.9 | 🟠 | Admission is not signalled |
 | OI-08.10 | 🟠 | Decree lifetime at the holder's maximum; no republish |
-| OI-09.1 | 🟡 | Veil: random nonces, one key both directions, no AD, no rekey |
+| OI-09.1 | 🟡 ◐ | Veil: random nonces, one key both directions, no AD, no rekey |
 | OI-09.2 | 🟡 ◐ | Author signature over a re-encoding (malleable) ([#18](https://github.com/Wixely/CupriNet/issues/18)) |
-| OI-09.3 | 🟡 | Epistle type byte unauthenticated; messageId length unchecked |
+| OI-09.3 | 🟡 ◐ | Epistle type byte unauthenticated; messageId length unchecked |
 | OI-09.4 | 🟡 | Whether receivers MUST attest |
 | OI-09.5 | 🟡 | Channel Conduit unversioned |
-| OI-09.6 | 🔴 | Reliquary path not validated at decode; OS-dependent rules |
+| OI-09.6 | ✅ | Reliquary path not validated at decode; OS-dependent rules |
 | OI-09.7 | 🟡 | Pageant schedule depends on floating point |
 | OI-10.1 | 🟠 | No Bech32 decoder or decode rules |
 | OI-10.2 | 🟡 | Empty Shrine target tag → primary Shrine |
 | OI-10.3 | 🟡 | One bad rite frame ends the whole visit |
 | OI-10.4 | 🟡 | Oracle: no field-length limits, no request id |
 | OI-10.5 | 🟡 | Auspice topic length in UTF-16 units; Depart not acknowledged |
-| OI-10.6 | 🟡 | Relic manifest: author not verified; path not validated |
+| OI-10.6 | ✅ | Relic manifest: author not verified; path not validated |
 | OI-10.7 | ✅ | Browser Pilgrimages bypass the visit caps; Toll may bind no address ([#15](https://github.com/Wixely/CupriNet/issues/15)) |
 | OI-11.1 | 🟡 | LanPresence port unchecked; IPv4 only |
 | OI-11.2 | 🟡 | NAT-PMP deviations from RFC 6886 |
@@ -153,13 +153,20 @@ These need a docs fix, not a protocol decision.
 | OI-08.8 | `f19c794`, #9 |
 | OI-11.4 | `616c0eb`, #13 |
 | OI-11.5 | `616c0eb`, #13 |
+| OI-02.3 | `56f5d72`, `616c0eb`, `8137c7b` |
+| OI-02.5 | `bc98202` (the node refuses an insecure suite; the suite stays usable for codec tests) |
+| OI-03.5 | `9a29ff1`, `1a11035`, #17 (IPv4-only is tracked as OI-11.3) |
+| OI-07.10 | `bc98202` (replay within the window is harmless and stays) |
+| OI-09.6 | `19998a5` |
+| OI-10.6 | `19998a5` (no author signature on a Pilgrimage is by design) |
 
 ## Partly fixed
 
 | Id | State |
 |---|---|
-| OI-03.5 | out-of-range `una` and listener state fixed (`9a29ff1`, #17); connection id, CLOSE and timeouts remain |
 | OI-09.2 | reduced to trailing padding by strict decode (`7718b14`) |
 | OI-06.5 | no longer affects verification (`7718b14`); display still runtime-dependent |
-| OI-02.3 | binding labelled (`56f5d72`), Ferryman no longer signs with the Seal (`616c0eb`); signed documents still unlabelled |
-| OI-11.6 | versioned and fenced (`616c0eb`, `c3af8e1`); relay limits and candidate hygiene remain |
+| OI-08.3 | checks, ordering and a refusal signal fixed (`f434add`); a frame on another stream still aborts |
+| OI-09.1 | key per rite and direction, associated data (`78f4056`); no replay protection or rekey of its own |
+| OI-09.3 | type byte authenticated (`78f4056`); messageId length unchecked, Attestations unsigned |
+| OI-11.6 | versioned, fenced, limited and filtered (`616c0eb`, `c3af8e1`, `34694a6`); no Tribute on RENDEZVOUS, design doc drift |

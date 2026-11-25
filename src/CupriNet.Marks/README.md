@@ -33,7 +33,9 @@ definitions).
 | `relay-route` | Ferryman relay routes on an Intonation (`RelayRouteCodec`) | accept |
 
 `conjunction` and `consecration` are at **v2**: in each, v1 is *buried* and v2 is a *security* bump, so a v1 peer is
-refused as too old rather than paired down. Every other component is at v1.
+refused as too old rather than paired down. The five versioned signed documents — `intonation`, `decree`,
+`lan-presence`, `channel-descriptor` and `investiture` — are at **v2** the same way: v2 is signed under a label that
+names the document, and a v1 document is refused. Every other component is at v1.
 
 > **Why the rites are covered individually now.** Epistle/Conduit/Reliquary carry no component of their own: they
 > inherited compatibility from the handshake, because every node speaking a given `conjunction` spoke all of them —

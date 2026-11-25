@@ -20,12 +20,13 @@ PeerRecord, Intonation, Decree and LanPresence all share one envelope:
 | Field | Type |
 |---|---|
 | body | `bytes<len>` |
-| signature | `bytes<len>`: Ed25519 over the exact `body` bytes |
+| signature | `bytes<len>`: Ed25519 over `label ‖ 0x00 ‖ body`, the label naming the document (02 §2.4) |
 
-A verifier MUST verify the signature over the `body` bytes **as received**. A node that stores a document and later
+A verifier MUST verify the signature over the label for the document type it expects, followed by `0x00` and the
+`body` bytes **as received**. A node that stores a document and later
 sends it on (a PeerRecord in gossip, a Decree in a lookup) MUST send the same `body` bytes it received. A decoder
 MUST ignore bytes in a `body` after the last field it knows: they are fields added by a later version, and they
-stay under the signature. Signed bodies carry no domain-separation label (OI-02.3).
+stay under the signature.
 
 > **Resolved (OI-06.2):** several reference verifiers used to decode the body, re-encode it and verify the re-
 > encoding, so a document could be valid on one path and refused on another, and no document could gain a field.
@@ -86,7 +87,7 @@ The body is wrapped in the §6.2 envelope and signed by the inviter's Seal.
 
 | # | Field | Type | Notes |
 |---|---|---|---|
-| 1 | version | `u8` | CupriMark `intonation` (currently 1) |
+| 1 | version | `u8` | CupriMark `intonation` (currently 2) |
 | 2 | network | `string` | |
 | 3 | inviterSealPublicKey | `bytes<len>` | 32 |
 | 4 | beacons | beacon list | ≤ 32 |

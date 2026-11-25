@@ -233,8 +233,9 @@ Because the manifest must fit in one 192 KiB frame, a single relic is limited to
 *Reference:* `src/CupriNet.Rites/Relic.cs:51-154`, `src/CupriNet.Rites/RelicSession.cs:175-301`,
 `src/CupriNet.Rites/RelicSource.cs:345-477`.
 
-> **Open (OI-10.6):** the reference Pilgrim does not verify an author signature on the manifest, and does not
-> validate `relativePath` when decoding. Its default client cap of 256 MiB is local policy.
+> **Resolved (OI-10.6):** the manifest decoder now validates every path (09 §9.6). A Pilgrim does not ask for an
+> author signature on the manifest, by design: the Signet pinned in the handshake already authenticates the host.
+> Its default client cap of 256 MiB is local policy.
 
 ## 10.7 Conduit: raw duplex (stream 4)
 

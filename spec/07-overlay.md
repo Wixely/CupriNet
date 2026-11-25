@@ -56,7 +56,7 @@ response = op-specific body        ; no op echo, no status byte unless stated
 | Op | Name | Request body | Response |
 |---|---|---|---|
 | 1 | DIVINE | `bytes<len>` target (32 bytes) | PeerRecords |
-| 2 | PUBLISH | `bytes<len>` decree document ‖ `bytes<len>` tribute nonce | Status |
+| 2 | PUBLISH | `bytes<len>` decree document ‖ `bytes<len>` tribute nonce | Status, or `0x02 ‖ u8 difficulty` (§7.8) |
 | 3 | LOOKUP | `varuint n` (≤ 8) ‖ `n × bytes<len>` glyph | Decrees |
 | 4 | SAMPLE | `varuint k` | PeerRecords (k is clamped to 16) |
 | 5 | PING | `varuint downPad` ‖ `bytes<len>` upPad | `0x00` ‖ `min(downPad, 4096)` zero bytes |
@@ -154,10 +154,16 @@ valid  ⇔ leading_zero_bits(H) ≥ difficulty
 
 - The holder accepts `epoch ∈ {e−1, e, e+1}`.
 - The nonce is 1–64 bytes; the reference solver emits an 8-byte big-endian counter.
-- Difficulty is the holder's local policy (reference: 16) and is **not** sent on the wire.
-- Verifiers clamp the required difficulty to at most 24.
+- Difficulty is the holder's local policy (reference: 16). 24 bits is the protocol ceiling: a holder MUST NOT
+  require more, and a publisher never grinds more.
+- A holder that refuses a validly signed Decree only because its proof is too weak replies
+  `0x02 ‖ u8(required difficulty)` instead of Rejected. A publisher that receives it SHOULD solve again at that
+  difficulty and send the PUBLISH once more.
+- A proof can be presented again to the same holder within the epoch window. That only re-publishes the identical
+  Decree, which the store already holds, so a holder need not track proofs it has seen.
 
 *Reference:* `src/CupriNet.Concordance/Tribute.cs:18-83`, `src/CupriNet.Hosting/CupriNode.Overlay.cs:461-475`.
 
-> **Open (OI-07.10):** a publisher cannot learn the difficulty a holder requires. Within the epoch window a proof can
-> be replayed to the same holder. The cap of 24 silently weakens a stricter policy.
+> **Resolved (OI-07.10):** a publisher could not learn the difficulty a holder required, and a holder configured
+> above the ceiling was silently clamped. The holder now states its price, and the reference node refuses to start
+> with a requirement above the ceiling.

@@ -80,25 +80,37 @@ that both peers know the same Watchword and derives a session key. It is **not**
 | type | `u8` = `2` |
 | tag | `bytes<len>`, 32 bytes |
 
+**Refuse**
+
+| Field | Type |
+|---|---|
+| type | `u8` = `3` |
+
+A receiver MUST reject a Hello whose nonce is not 16 bytes and a Confirm whose tag is not 32 bytes.
+
 ### 8.4.2 Flow
 
 ```
  Initiator                               Responder
    │ ── Hello ───────────────────────────▶ │  responder checks |epoch_I − epoch_R| ≤ 1
-   │ ◀────────────────────────── Hello ─── │
-   │ ── Confirm(tag_I) ──────────────────▶ │
-   │ ◀────────────────────── Confirm(tag_R)│  responder sends, then verifies tag_I
+   │ ◀────────────────────────── Hello ─── │  initiator checks the same
+   │ ── Confirm(tag_I) ──────────────────▶ │  responder verifies tag_I
+   │ ◀────────────────────── Confirm(tag_R)│  sent only if tag_I verified; otherwise Refuse
    │ verify tag_R                          │
 ```
 
-Both sides negotiate `consecration` from the two ranges ([05](05-versioning.md)). The **initiator's** epoch is used
-throughout.
+Both sides negotiate `consecration` from the two ranges ([05](05-versioning.md)). The **initiator's** epoch is the
+session's epoch.
+
+The responder MUST verify the initiator's tag before sending its own, and MUST NOT send its tag if that fails. A
+side that abandons the handshake — an epoch outside the window, or a tag that does not verify — SHOULD send Refuse,
+so that the other side fails at once and not at its timeout. Refuse carries no reason.
 
 ### 8.4.3 Transcript and keys
 
 ```
 neg_digest = CupriMark TranscriptBinding digest for "consecration"   ; 05 §5.3
-transcript = SHA-256( bytes(neg_digest) ‖ bytes(Ascendant) ‖ u64(epoch)
+transcript = SHA-256( bytes(neg_digest) ‖ bytes(Ascendant) ‖ u64(initiator_epoch) ‖ u64(responder_epoch)
                     ‖ bytes(initiator_sigil) ‖ bytes(responder_sigil)
                     ‖ bytes(initiator_nonce) ‖ bytes(responder_nonce) )
 
@@ -108,18 +120,18 @@ session_key = HKDF(ConcordKey, salt = transcript, info = "cuprinet/arcanum/veil-
 ```
 
 The sigils are the two peers' **overlay** Sigils, as authenticated by the Conjunction. Tags MUST be compared in
-constant time. The session key is the same in both directions.
+constant time. The session key is not used to seal anything itself: each rite derives its own keys from it
+(09 §9.1).
+
+The initiator has to send its tag first, so a responder that does not hold the Watchword still receives one value
+derived from it. That gives it nothing the channel's published Glyph (§8.3) does not already give anyone: one
+Argon2id-priced guess per attempt.
 
 *Reference:* `src/CupriNet.Arcanum/ConsecrationHandshake.cs:31-210`.
 
-> **Open (OI-08.3):**
->
-> - Nonce and tag lengths are not checked.
-> - The responder's epoch is not in the transcript and is not checked by the initiator.
-> - The responder emits its tag before verifying the initiator's, so either side's tag lets an offline guesser test
->   Watchwords, at Argon2id cost per guess.
-> - Failure sends no signal.
-> - A frame on any other stream aborts the handshake.
+> **Open (OI-08.3), partly resolved:** lengths are now checked, both epochs are in the transcript and each side
+> bounds the other's, the responder verifies before it answers, and a failure is signalled. Still open: a frame on
+> any other stream aborts the handshake.
 
 ## 8.5 Ownership and admission
 
@@ -160,7 +172,7 @@ document.** Descriptors are distributed out of band. **Open (OI-08.5).**
 | notAfter | `u64` |
 | serial | `u64` |
 | issuerPublicKey | `bytes<len>` |
-| signature | `bytes<len>` (Ed25519 by the issuer over all preceding fields) |
+| signature | `bytes<len>` (Ed25519 by the issuer over `"cuprinet/investiture/v<version>" ‖ 0x00 ‖` all preceding fields) |
 
 Valid if: the version is accepted, the channelId matches, the issuer is the descriptor's owner,
 `notBefore ≤ now ≤ notAfter`, and the signature verifies.

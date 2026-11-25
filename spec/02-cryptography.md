@@ -60,12 +60,29 @@ Every signature and KDF use is listed here. All strings are UTF-8 with no termin
 | Consecration | HKDF info `cuprinet/arcanum/consecration/{initiator,responder}/v1`, `cuprinet/arcanum/veil-session/v1` | [08 §8.4](08-channels.md) |
 | Admission commitment | `SHA-256(string("cuprinet/admission/v2") ‖ string(role) ‖ …)`, label length-prefixed | [08 §8.5.4](08-channels.md) |
 | Ferryman | handle `"cuprinet/ferryman/handle/v2"` (raw), over a rendezvous key; reserve `bytes("cuprinet/ferryman/reserve/v2")`, signed by that key | [11 §11.5](11-traversal.md) |
-| Signed documents (Intonation, PeerRecord, Decree, LanPresence, ChannelDescriptor, Investiture, AscensionLink) | Ed25519 over the raw body. **No label.** | [06](06-identity-and-documents.md), [08](08-channels.md) |
+| Signed documents (Intonation, PeerRecord, Decree, LanPresence, ChannelDescriptor, Investiture, AscensionLink) | Ed25519 over `label ‖ 0x00 ‖ body`, label raw; see the table below | [06 §6.2](06-identity-and-documents.md), [08](08-channels.md) |
+| Veil keys | HKDF info `cuprinet/arcanum/veil/{epistle,conduit,oracle,auspice}/{initiator,responder}/v1` | [09 §9.1](09-rites.md) |
+| Reliable UDP connection id | `SHA-256("cuprinet/arq/connection/v1" ‖ sessionId)[0..8]`, label raw | [03 §3.4](03-transport.md) |
 
-> **Open (OI-02.3), partly resolved:** the identity binding now signs a labelled context, and a Ferryman reservation
-> is signed by a rendezvous key rather than the Seal. The signed documents (Intonation, PeerRecord, Decree,
-> LanPresence, and the ownership documents) still sign a raw body with no label; they are kept apart only because
-> their formats differ. Proposal: every Ed25519 signature input begins with a distinct `"cuprinet/<use>/v<n>"` label.
+Signed-document labels. For a versioned document the label ends in the document's own `version` field, so the
+version is under the signature twice: in the body and in the label.
+
+| Document | Label |
+|---|---|
+| Intonation | `cuprinet/intonation/v<version>` (currently `v2`) |
+| Decree | `cuprinet/decree/v<version>` (currently `v2`) |
+| LanPresence | `cuprinet/lan-presence/v<version>` (currently `v2`) |
+| ChannelDescriptor | `cuprinet/channel-descriptor/v<version>` (currently `v2`) |
+| Investiture | `cuprinet/investiture/v<version>` (currently `v2`) |
+| PeerRecord | `cuprinet/peer-record/v1` (the record carries no version) |
+| AscensionLink | `cuprinet/ascension/v1` (the link carries no version) |
+
+A verifier MUST build the signature input from the label for the document type it is verifying. The `0x00` ends the
+label, so no label is a prefix of another label followed by a body.
+
+> **Resolved (OI-02.3):** signed documents used to sign the bare body and were kept apart only because their
+> layouts differed. Every Seal signature now begins with a label. Version 1 of each versioned document, which had
+> none, is Buried ([05 §5.4](05-versioning.md)).
 >
 > **Open (OI-02.4):** the labels mix styles (`cuprinet:shrine-target:v1` vs `cuprinet/rite/…`). Pick one style before
 > freeze.
@@ -76,5 +93,6 @@ The reference implementation includes a test-only suite (`Simulacrum`) whose AEA
 reports `IsSecure = false` and can never complete a Conjunction. A conforming implementation MUST NOT emit
 signatures, documents or handshakes produced with a suite that does not provide the security properties above.
 
-> **Open (OI-02.5):** the reference implementation enforces `IsSecure` only in the Conjunction. A node configured
-> with an insecure suite could still mint documents signed with all-zero signatures.
+> **Resolved (OI-02.5):** the reference node used to check `IsSecure` only in the Conjunction, so a node configured
+> with an insecure suite could mint documents before failing to handshake. It now refuses to start. The suite stays
+> usable below the node, for codec tests.

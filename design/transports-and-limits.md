@@ -373,7 +373,11 @@ The ceremonial vocabulary maps one-to-one onto ordinary components. The transpor
 ### One asymmetry worth knowing, and why it exists
 
 On an **Arcanum channel** the rites are Veil-sealed: an inner encryption layer keyed from the channel's session key,
-which is why those constructors take a session key and a crypto suite. On a **Pilgrimage** they are not — every rite
+which is why those constructors take a session key, a crypto suite and the side's Consecration role. The session
+key is not used directly — each rite, and each direction within it, seals under its own key derived from it, so a
+frame cannot be moved between rites or handed back to its sender. Nonces stay random (several rite sessions share
+the one session key with no shared counter), and the overhead is the same nonce and tag as before, so every limit
+below is unchanged. On a **Pilgrimage** they are not — every rite
 has a **keyless** constructor for that path, and no session key is ever plumbed out of `Pilgrimage.OverVesselAsync`.
 
 *(Every rite, as of 0.3.6. The Conduit was the exception until then: it had only key-taking constructors, which is why

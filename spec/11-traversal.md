@@ -141,6 +141,7 @@ receiver MUST ignore a message whose version it does not accept.
 | 3 | RENDEZVOUS | E → relay | `bytes<len>` handle (16) ‖ candidates |
 | 4 | OFFER | relay → E | `u8` status ‖ `bytes<len>` nonce (16) ‖ D's candidates |
 | 5 | NOTIFY | relay → D | `bytes<len>` nonce (16) ‖ E's candidates |
+| 6 | KEEPALIVE | D → relay | empty: the reservation is still wanted |
 
 A candidate list is `varuint n` (≤ 8), then `n ×` (`bytes<len>` address of 4 or 16 bytes, `varuint` port in
 1–65,535).
@@ -158,7 +159,9 @@ signature      = Ed25519(rendezvous_private_key, signed_subject)
    Noise-authenticated Sigil, before D reserves.
 2. D sends RESERVE. The relay MUST accept it only if the signature verifies under the supplied rendezvous key over
    **this connection's** handshake hash, and `handle` is the hash of that key. It then stores the reservation and
-   replies RESERVED(Ok); otherwise RESERVED(NotReserved). The reservation lives as long as D's connection.
+   replies RESERVED(Ok); otherwise RESERVED(NotReserved). The reservation lives as long as D's connection, and
+   only while D keeps it fresh: D MUST send KEEPALIVE at least every 30 s, and the relay SHOULD drop a reservation
+   that has sent nothing for 90 s.
 3. E reads a relay route from D's Intonation. An application SHOULD ask the user to approve the relay named in the
    route **before E connects to it**, and remember approvals trust-on-first-use (TOFU).
 4. E connects to the relay, pinned to the route's relay Sigil (04 §4.3.4, check 6), and sends RENDEZVOUS with the
@@ -170,6 +173,21 @@ signature      = Ed25519(rendezvous_private_key, signed_subject)
 Because the reservation signature covers the handshake hash, a RESERVE observed on one connection cannot be used on
 another.
 
+### 11.5.4 Relay limits and candidate hygiene
+
+A relay's callers are anonymous to it by design, so it can bound them only by time and by source address. A relay
+SHOULD:
+
+- drop a caller that has not sent its first message within 10 s, and give a rendezvous the same bound to finish;
+- drop a reservation that has gone silent (step 2);
+- cap concurrent sessions per source address (an IPv4 address or an IPv6 /64; reference: 16), as well as in total.
+
+A candidate is **unusable** if its address is unspecified, broadcast or multicast, or its port is 0. A relay SHOULD
+NOT forward an unusable candidate, and an endpoint MUST NOT punch toward one, nor toward a candidate in an address
+family its punch socket cannot reach; an IPv4-mapped IPv6 address counts as IPv4. Loopback and private addresses are
+usable and MUST NOT be dropped: they are how two nodes on one host, or one LAN, meet through a relay. The RESERVE
+signature covers the candidates as sent, so a relay filters after verifying it.
+
 *Reference:* `src/CupriNet.Hosting/FerrymanProtocol.cs`, `src/CupriNet.Hosting/CupriNode.Ferryman.cs`.
 
 > **Resolved (OI-11.4):** D used to sign its reservation with its Seal and send the public key, which told the relay
@@ -179,11 +197,10 @@ another.
 > **Resolved (OI-11.5):** the reservation signature covered nothing about the connection, so a relay that had seen a
 > RESERVE could replay it at another. It now covers the handshake hash.
 >
-> **Open (OI-11.6), partly resolved:** Ferryman now has a CupriMark version, and the punched Vessel is subject to the
-> subnet fence. Still open: the relay has no deadline for a first frame or for idle reservations, and no per-source
-> limits or Tribute; brokered candidates are not filtered (loopback is always sent).
-> [design/ferryman.md](../design/ferryman.md) still describes a capability flag, PoW and a Tor fallback that are not
-> implemented.
+> **Open (OI-11.6), partly resolved:** Ferryman has a CupriMark version, the punched Vessel is subject to the
+> subnet fence, and the relay now has deadlines, a per-source cap and candidate filtering (§11.5.4). Still open:
+> RENDEZVOUS carries no Tribute, and [design/ferryman.md](../design/ferryman.md) still describes a capability flag
+> and a Tor fallback that are not implemented.
 >
 > **Open (OI-11.7):** the TOFU fingerprint the reference app shows is grouped hex, while the docs say Bech32
 > `cupri1…`. Pick one for user-facing consistency.
